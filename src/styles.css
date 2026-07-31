@@ -173,7 +173,14 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--blue); outl
 }
 .login-panel h1 { margin: 0 0 18px; font-size: 26px; }
 .login-panel .button { width: 100%; min-height: 42px; }
-.login-or { margin: 14px 0; text-align: center; color: var(--muted); font-size: 12px; }
+.login-buttons { display: grid; gap: 9px; }
+.button.sso { background: var(--card); border-color: var(--line); color: var(--ink); }
+.button.sso:hover { background: var(--raised); text-decoration: none; }
+.login-or {
+  display: flex; align-items: center; gap: 12px;
+  margin: 16px 0; color: var(--muted); font-size: 12px;
+}
+.login-or::before, .login-or::after { content: ""; flex: 1; height: 1px; background: var(--line); }
 .login-form { display: grid; gap: 12px; }
 .login-form label span {
   display: block; margin-bottom: 5px;
@@ -283,6 +290,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--blue); outl
 .data-table td { padding: 12px 14px; border-top: 1px solid var(--line-soft); vertical-align: middle; }
 .data-table td small { display: block; margin-top: 2px; color: var(--muted); font-size: 11px; }
 .data-table td input[type="checkbox"] { width: 16px; min-height: 0; accent-color: var(--blue); }
+.data-table tr.muted-row td { opacity: 0.55; }
 
 .row-actions { display: flex; justify-content: flex-end; gap: 6px; }
 .row-actions a, .row-actions button {

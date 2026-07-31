@@ -250,6 +250,7 @@ export default function SettingsPage() {
                 ["Quo webhook verification", environment.quoWebhookConfigured, "QUO_WEBHOOK_SECRET"],
                 ["Slack signing secret", environment.slackSigningConfigured, "SLACK_SIGNING_SECRET"],
                 ["Slack bot token", environment.slackBotConfigured, "SLACK_BOT_TOKEN"],
+                ["Sign in with Google", environment.googleSignInConfigured, "GOOGLE_CLIENT_ID / SECRET"],
                 ["Sign in with Slack", environment.slackSignInConfigured, "SLACK_CLIENT_ID / SECRET"],
                 ["Public URL", Boolean(environment.publicUrl), "PUBLIC_URL"],
               ].map(([label, present, variable]) => (

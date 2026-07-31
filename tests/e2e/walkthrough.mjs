@@ -64,6 +64,15 @@ console.log("\n1. Authentication");
 
   const me = await api("/auth/me");
   check("the session is live", me.data?.signedIn === true);
+  check("the password session is labelled as such", me.data?.user?.provider === "password");
+  check("the sign-in page is told which methods exist",
+    typeof me.data?.googleSignInAvailable === "boolean"
+    && typeof me.data?.slackSignInAvailable === "boolean");
+
+  const googleStart = await fetch(`${BASE}/auth/google/start`, { redirect: "manual" });
+  check("Google sign-in is refused cleanly when unconfigured",
+    googleStart.status === 302 && (googleStart.headers.get("location") ?? "").includes("google_not_configured"),
+    googleStart.headers.get("location") ?? "");
 }
 
 console.log("\n2. Quo numbers");
@@ -82,26 +91,64 @@ console.log("\n2. Quo numbers");
   check("the firm name saves", saved.data?.firm_name === "Ramos Law");
 }
 
-console.log("\n3. Operators");
+console.log("\n3. Who has access");
+let paralegalId;
 {
+  const nobody = await api("/api/operators", { method: "POST", body: { display_name: "Nobody" } });
+  check("somebody with neither a Slack ID nor an email is refused",
+    nobody.status === 400 && /one of them is needed/.test(nobody.data?.error ?? ""));
+
   const bad = await api("/api/operators", { method: "POST", body: { slack_user_id: "not-an-id" } });
   check("a malformed Slack ID is refused with an explanation",
     bad.status === 400 && /member ID/.test(bad.data?.error ?? ""));
 
+  const badEmail = await api("/api/operators", { method: "POST", body: { email: "not-an-email" } });
+  check("a malformed email is refused", badEmail.status === 400);
+
+  // Dashboard access is matched on email, so granting it without one would
+  // create somebody who is allowed in but has no way in.
+  const unusable = await api("/api/operators", {
+    method: "POST", body: { slack_user_id: "U0GHOST", can_admin: true },
+  });
+  check("dashboard access without an email is refused",
+    unusable.status === 400 && /email address/.test(unusable.data?.error ?? ""));
+
   const added = await api("/api/operators", {
     method: "POST",
-    body: { slack_user_id: "U0PARALEGAL", display_name: "Sam Ortiz", can_admin: true },
+    body: { slack_user_id: "U0PARALEGAL", email: "sam@firm.com", display_name: "Sam Ortiz", can_admin: true },
   });
-  check("an operator is added", added.status === 201);
+  check("somebody with both a Slack ID and an email is added", added.status === 201);
+  paralegalId = added.data.id;
+  check("the email is stored lowercase", added.data.email === "sam@firm.com");
+
+  const mixedCase = await api("/api/operators", {
+    method: "POST", body: { email: "Rosa@Firm.com", display_name: "Rosa", can_admin: true, is_supervisor: true },
+  });
+  check("a mixed-case email is normalised on the way in", mixedCase.data?.email === "rosa@firm.com");
+
+  // The office manager who never touches Slack: email only.
+  const officeOnly = await api("/api/operators", {
+    method: "POST", body: { email: "office@firm.com", display_name: "Office manager", can_admin: true },
+  });
+  check("somebody can be added with an email and no Slack ID",
+    officeOnly.status === 201 && officeOnly.data.slack_user_id === null);
+
+  // Adding the same person again by one identity fills in the other rather than
+  // creating a duplicate.
+  const merged = await api("/api/operators", {
+    method: "POST",
+    body: { email: "office@firm.com", slack_user_id: "U0OFFICE", display_name: "Office manager", can_admin: true },
+  });
+  check("adding them again by email attaches the Slack ID to the same person",
+    merged.data?.id === officeOnly.data.id && merged.data?.slack_user_id === "U0OFFICE");
 
   await api("/api/operators", {
     method: "POST",
-    body: { slack_user_id: "U0SUPERVISOR", display_name: "Rosa", is_supervisor: true, can_admin: true },
+    body: { slack_user_id: "U0SUPERVISOR", email: "rosa@firm.com", display_name: "Rosa", is_supervisor: true, can_admin: true },
   });
 
-  const locked = await api("/api/operators/U0PARALEGAL", { method: "PATCH", body: { can_admin: false } });
-  check("removing dashboard access is allowed while somebody else has it", locked.status === 200);
-  await api("/api/operators/U0PARALEGAL", { method: "PATCH", body: { can_admin: true } });
+  const list = await api("/api/operators");
+  check("nobody was duplicated", list.data.length === 3, JSON.stringify(list.data.map((p) => p.email)));
 }
 
 console.log("\n4. Sequence set-up");
@@ -349,7 +396,46 @@ console.log("\n12. Dashboard");
   check("health counts the synced numbers", dashboard.data.health.numbers === 2);
 }
 
-console.log("\n13. Sign out");
+console.log("\n13. Revoking access");
+{
+  // Removing somebody's access must end their session on the next request, not
+  // whenever their two-week cookie happens to expire.
+  const target = await api("/api/operators", {
+    method: "POST", body: { email: "temp@firm.com", display_name: "Temp", can_admin: true },
+  });
+
+  const savedCookie = cookie;
+  const signedIn = await fetch(`${BASE}/auth/password`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ password: "letmein-please-1234" }),
+  });
+  check("a second session can be opened", signedIn.status === 200);
+  cookie = savedCookie;
+
+  const before = await api(`/api/operators`);
+  check("the temporary person is on the list",
+    before.data.some((person) => person.email === "temp@firm.com"));
+
+  const revoked = await api(`/api/operators/${target.data.id}`, {
+    method: "PATCH", body: { can_admin: false },
+  });
+  check("access can be revoked", revoked.status === 200 && revoked.data.can_admin === false);
+
+  const removed = await api(`/api/operators/${target.data.id}`, { method: "DELETE" });
+  check("the person can be removed", removed.status === 200);
+
+  // The last account that can sign in is protected: locking everybody out of a
+  // system that is actively texting clients is not recoverable.
+  const list = await api("/api/operators");
+  for (const person of list.data.filter((p) => p.can_admin)) {
+    await api(`/api/operators/${person.id}`, { method: "PATCH", body: { can_admin: false } });
+  }
+  const survivors = (await api("/api/operators")).data.filter((p) => p.can_admin && p.is_active);
+  check("the last account with access cannot be stripped", survivors.length === 1,
+    JSON.stringify(survivors.map((p) => p.email)));
+}
+
+console.log("\n14. Sign out");
 {
   await fetch(`${BASE}/auth/logout`, { method: "POST", headers: { cookie } });
   const after = await api("/api/dashboard");

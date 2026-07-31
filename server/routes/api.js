@@ -1,6 +1,6 @@
 import express from "express";
 import { one, query, rows } from "../db.js";
-import { requireSession } from "../auth.js";
+import { googleConfigured, requireSession, slackSignInConfigured } from "../auth.js";
 import { listQuoNumbers, quoConfigured, syncQuoNumbers } from "../lib/quo.js";
 import { loadSettings, SETTING_DEFINITIONS, saveSettings } from "../lib/settings.js";
 import { announceStop, stopSeries } from "../lib/followups.js";
@@ -369,79 +369,147 @@ apiRouter.patch("/contacts/:id", ok(async (req, res) => {
 /* --------------------------------------------------------------- operators */
 
 apiRouter.get("/operators", ok(async (req, res) => {
-  res.json(await rows("select * from followup_operators order by display_name nulls last, slack_user_id"));
+  res.json(await rows(
+    "select * from followup_operators order by display_name nulls last, email nulls last, slack_user_id",
+  ));
 }));
 
-apiRouter.post("/operators", ok(async (req, res) => {
-  const slackUserId = String(req.body.slack_user_id ?? "").trim().toUpperCase();
-  if (!/^[A-Z0-9]{6,}$/.test(slackUserId)) {
-    return res.status(400).json({
+// A person is identified by a Slack ID, an email address, or both. The Slack ID
+// is what lets them start follow-ups; the email is what lets them sign in with
+// Google. Requiring both would lock out the office manager who never uses Slack.
+function readIdentity(body) {
+  const slackUserId = String(body.slack_user_id ?? "").trim().toUpperCase() || null;
+  const email = String(body.email ?? "").trim().toLowerCase() || null;
+
+  if (!slackUserId && !email) {
+    return { error: "Add a Slack member ID, an email address, or both — one of them is needed." };
+  }
+  if (slackUserId && !/^[A-Z0-9]{6,}$/.test(slackUserId)) {
+    return {
       error: "That is not a Slack member ID. It looks like U01ABC2DEFG — find it under the person's "
-        + "Slack profile, View full profile, More, Copy member ID.",
+        + "Slack profile, View full profile, then the ⋯ menu, Copy member ID.",
+    };
+  }
+  if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+    return { error: "That does not look like an email address." };
+  }
+  return { slackUserId, email };
+}
+
+// Dashboard access without an email cannot work: Google sign-in is keyed on the
+// address, so this would create somebody who is allowed in but has no way in.
+function accessIsUsable({ email, can_admin: canAdmin }) {
+  if (!canAdmin || email) return null;
+  return "Dashboard access needs an email address — that is what Google sign-in matches on.";
+}
+
+apiRouter.post("/operators", ok(async (req, res) => {
+  const identity = readIdentity(req.body);
+  if (identity.error) return res.status(400).json({ error: identity.error });
+
+  const canAdmin = Boolean(req.body.can_admin);
+  const unusable = accessIsUsable({ email: identity.email, can_admin: canAdmin });
+  if (unusable) return res.status(400).json({ error: unusable });
+
+  const existing = identity.slackUserId
+    ? await one("select id from followup_operators where slack_user_id = $1", [identity.slackUserId])
+    : null;
+  const byEmail = identity.email
+    ? await one("select id from followup_operators where email = $1", [identity.email])
+    : null;
+
+  if (existing && byEmail && existing.id !== byEmail.id) {
+    return res.status(400).json({
+      error: "That Slack ID and that email already belong to two different people. "
+        + "Edit one of them instead of adding a third.",
     });
   }
 
+  const target = existing ?? byEmail;
+  const fields = [
+    identity.slackUserId,
+    identity.email,
+    req.body.display_name?.trim() || null,
+    Boolean(req.body.is_supervisor),
+    canAdmin,
+  ];
+
+  if (target) {
+    const updated = await one(
+      `update followup_operators
+       set slack_user_id = coalesce($2, slack_user_id),
+           email = coalesce($3, email),
+           display_name = coalesce($4, display_name),
+           is_supervisor = $5, can_admin = $6, is_active = true
+       where id = $1 returning *`,
+      [target.id, ...fields],
+    );
+    return res.json(updated);
+  }
+
   const created = await one(
-    `insert into followup_operators (slack_user_id, display_name, email, is_supervisor, can_admin)
-     values ($1, $2, $3, $4, $5)
-     on conflict (slack_user_id) do update
-       set display_name = excluded.display_name, email = excluded.email,
-           is_supervisor = excluded.is_supervisor, can_admin = excluded.can_admin, is_active = true
-     returning *`,
-    [
-      slackUserId,
-      req.body.display_name?.trim() || null,
-      req.body.email?.trim().toLowerCase() || null,
-      Boolean(req.body.is_supervisor),
-      Boolean(req.body.can_admin),
-    ],
+    `insert into followup_operators (slack_user_id, email, display_name, is_supervisor, can_admin)
+     values ($1, $2, $3, $4, $5) returning *`,
+    fields,
   );
-  res.status(201).json(created);
+  return res.status(201).json(created);
 }));
 
-apiRouter.patch("/operators/:slackUserId", ok(async (req, res) => {
-  const fields = ["display_name", "email", "is_supervisor", "can_admin", "is_active"];
+// Refuses to remove the last way into the dashboard. Locking everybody out of a
+// system that is actively texting clients is not a recoverable mistake.
+async function wouldLockEveryoneOut(personId, body) {
+  const losing = body.can_admin === false || body.is_active === false;
+  if (!losing) return false;
+  const remaining = await one(
+    `select count(*)::int as count from followup_operators
+     where can_admin and is_active and id <> $1`,
+    [personId],
+  );
+  return (remaining?.count ?? 0) === 0;
+}
+
+apiRouter.patch("/operators/:id", ok(async (req, res) => {
+  const person = await one("select * from followup_operators where id = $1", [req.params.id]);
+  if (!person) return res.status(404).json({ error: "No such person." });
+
+  if (await wouldLockEveryoneOut(person.id, req.body)) {
+    return res.status(400).json({
+      error: "This is the last account that can sign in. Give somebody else dashboard access first.",
+    });
+  }
+
+  const next = { ...person, ...req.body };
+  const unusable = accessIsUsable({
+    email: String(next.email ?? "").trim().toLowerCase() || null,
+    can_admin: next.can_admin,
+  });
+  if (unusable) return res.status(400).json({ error: unusable });
+
   const updates = [];
-  const values = [req.params.slackUserId];
-  for (const field of fields) {
+  const values = [person.id];
+  for (const field of ["display_name", "email", "slack_user_id", "is_supervisor", "can_admin", "is_active"]) {
     if (!(field in req.body)) continue;
-    values.push(req.body[field]);
+    let value = req.body[field];
+    if (field === "email") value = String(value ?? "").trim().toLowerCase() || null;
+    if (field === "slack_user_id") value = String(value ?? "").trim().toUpperCase() || null;
+    values.push(value);
     updates.push(`${field} = $${values.length}`);
   }
   if (!updates.length) return res.status(400).json({ error: "Nothing to update." });
 
-  // Do not let the last person with dashboard access lock everybody out.
-  if (req.body.can_admin === false || req.body.is_active === false) {
-    const remaining = await one(
-      `select count(*)::int as count from followup_operators
-       where can_admin and is_active and slack_user_id <> $1`,
-      [req.params.slackUserId],
-    );
-    if ((remaining?.count ?? 0) === 0) {
-      return res.status(400).json({
-        error: "This is the last account with dashboard access. Give somebody else access first.",
-      });
-    }
-  }
-
   res.json(await one(
-    `update followup_operators set ${updates.join(", ")} where slack_user_id = $1 returning *`,
+    `update followup_operators set ${updates.join(", ")} where id = $1 returning *`,
     values,
   ));
 }));
 
-apiRouter.delete("/operators/:slackUserId", ok(async (req, res) => {
-  const remaining = await one(
-    `select count(*)::int as count from followup_operators
-     where can_admin and is_active and slack_user_id <> $1`,
-    [req.params.slackUserId],
-  );
-  if ((remaining?.count ?? 0) === 0) {
+apiRouter.delete("/operators/:id", ok(async (req, res) => {
+  if (await wouldLockEveryoneOut(req.params.id, { can_admin: false })) {
     return res.status(400).json({
-      error: "This is the last account with dashboard access. Give somebody else access first.",
+      error: "This is the last account that can sign in. Give somebody else dashboard access first.",
     });
   }
-  await query("delete from followup_operators where slack_user_id = $1", [req.params.slackUserId]);
+  await query("delete from followup_operators where id = $1", [req.params.id]);
   res.json({ ok: true });
 }));
 
@@ -457,7 +525,8 @@ apiRouter.get("/settings", ok(async (req, res) => {
       slackBotConfigured: slackConfigured(),
       slackSigningConfigured: Boolean(process.env.SLACK_SIGNING_SECRET),
       quoWebhookConfigured: Boolean(process.env.QUO_WEBHOOK_SECRET || process.env.QUO_WEBHOOK_TOKEN),
-      slackSignInConfigured: Boolean(process.env.SLACK_CLIENT_ID && process.env.SLACK_CLIENT_SECRET),
+      slackSignInConfigured: slackSignInConfigured(),
+      googleSignInConfigured: googleConfigured(),
       publicUrl: process.env.PUBLIC_URL || null,
     },
   });

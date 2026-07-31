@@ -78,10 +78,12 @@ delete from followup_sequences;
 delete from followup_operators;
 delete from quo_numbers;
 
-insert into followup_operators (slack_user_id, display_name, is_supervisor, can_admin)
-values ('U0PARALEGAL', 'Paralegal', false, false),
-       ('U0OTHERUSER', 'Someone else', false, false),
-       ('U0SUPERVISOR', 'Intake manager', true, true);
+insert into followup_operators (slack_user_id, email, display_name, is_supervisor, can_admin)
+values ('U0PARALEGAL', 'paralegal@firm.com', 'Paralegal', false, false),
+       ('U0OTHERUSER', null, 'Someone else', false, false),
+       ('U0SUPERVISOR', 'rosa@firm.com', 'Intake manager', true, true),
+       -- The office manager who never touches Slack: email only, no Slack ID.
+       (null, 'office@firm.com', 'Office manager', false, true);
 
 insert into quo_numbers (id, phone_e164, label) values
   ('PNINTAKE', '+15125557777', 'Intake line'),
@@ -540,6 +542,91 @@ begin
     setting_int('dispatch_batch_size', 999) = 25);
   perform pg_temp.check('a boolean setting reads back',
     setting_bool('send_stop_confirmation', false) = true);
+end;
+$$;
+
+/* ------------------------------------------------------------ access list */
+
+do $$
+declare
+  failed boolean;
+begin
+  perform pg_temp.check('somebody can exist with an email and no Slack ID',
+    (select count(*) from followup_operators
+     where slack_user_id is null and email = 'office@firm.com') = 1);
+
+  perform pg_temp.check('somebody can exist with a Slack ID and no email',
+    (select count(*) from followup_operators
+     where slack_user_id = 'U0OTHERUSER' and email is null) = 1);
+
+  -- A row with neither identity is nobody, and would be unreachable by either
+  -- sign-in path.
+  failed := false;
+  begin
+    insert into followup_operators (display_name) values ('Nobody');
+  exception when check_violation then failed := true;
+  end;
+  perform pg_temp.check('a person with no identity at all is rejected', failed);
+
+  -- Emails are compared case-insensitively, so storing a mixed-case one would
+  -- quietly lock somebody out.
+  failed := false;
+  begin
+    insert into followup_operators (email) values ('Mixed@Firm.com');
+  exception when check_violation then failed := true;
+  end;
+  perform pg_temp.check('a mixed-case email is rejected', failed);
+
+  failed := false;
+  begin
+    insert into followup_operators (email) values ('not-an-email');
+  exception when check_violation then failed := true;
+  end;
+  perform pg_temp.check('a malformed email is rejected', failed);
+
+  failed := false;
+  begin
+    insert into followup_operators (email) values ('office@firm.com');
+  exception when unique_violation then failed := true;
+  end;
+  perform pg_temp.check('the same email cannot be added twice', failed);
+
+  failed := false;
+  begin
+    insert into followup_operators (slack_user_id) values ('U0PARALEGAL');
+  exception when unique_violation then failed := true;
+  end;
+  perform pg_temp.check('the same Slack ID cannot be added twice', failed);
+
+  failed := false;
+  begin
+    insert into followup_operators (slack_user_id, email) values ('lower-case', 'x@firm.com');
+  exception when check_violation then failed := true;
+  end;
+  perform pg_temp.check('a malformed Slack ID is still rejected', failed);
+end;
+$$;
+
+do $$
+declare
+  v_session text := 'test-session-1';
+  v_person uuid;
+begin
+  select id into v_person from followup_operators where email = 'office@firm.com';
+
+  insert into app_sessions (id, user_id, provider, email, expires_at)
+  values (v_session, v_person, 'google', 'office@firm.com', now() + interval '1 day');
+
+  perform pg_temp.check('a Google session hangs off the person, not a copy of their rights',
+    (select user_id from app_sessions where id = v_session) = v_person);
+
+  -- Deleting somebody must not leave their session behind.
+  delete from followup_operators where id = v_person;
+  perform pg_temp.check('removing somebody drops their sessions with them',
+    (select count(*) from app_sessions where id = v_session) = 0);
+
+  insert into followup_operators (email, display_name, can_admin)
+  values ('office@firm.com', 'Office manager', true);
 end;
 $$;
 

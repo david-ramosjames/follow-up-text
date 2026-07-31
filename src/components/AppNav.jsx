@@ -7,7 +7,7 @@ const links = [
   { to: "/sequences", label: "Sequences", icon: MessageSquareText },
   { to: "/activity", label: "Activity", icon: Activity },
   { to: "/contacts", label: "Contacts", icon: Users },
-  { to: "/operators", label: "Operators", icon: UserCog },
+  { to: "/operators", label: "Access", icon: UserCog },
   { to: "/settings", label: "Settings", icon: Settings },
   { to: "/help", label: "Help", icon: CircleHelp },
 ];

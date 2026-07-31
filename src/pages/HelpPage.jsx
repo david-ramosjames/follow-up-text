@@ -87,6 +87,21 @@ const FAQ = [
     ],
   },
   {
+    q: "Who can sign in to this dashboard?",
+    a: [
+      "Only the people on the Access list, and only those with dashboard access ticked. Signing in with Google proves who somebody is; the Access list decides whether that person is allowed in. A Google account that is not on the list is refused, whatever domain it is on.",
+      "The list is matched on email address, so it has to be the address they sign in to Google with. Somebody can also be given a Slack member ID, which is what lets them start follow-ups from Slack — the two are separate, and a person can have either or both.",
+      "Turning off Active or Dashboard access ends that person's session on their next click, rather than waiting for their cookie to expire. The system will not let you remove the last account that can sign in.",
+    ],
+  },
+  {
+    q: "What is the administrator password for?",
+    a: [
+      "Getting in the first time, before anybody is on the Access list, and getting back in if Google sign-in breaks. It is a break-glass, not a normal way in.",
+      "Once you have added yourself with your work email and dashboard access, you can remove ADMIN_PASSWORD from the environment entirely.",
+    ],
+  },
+  {
     q: "Does this need a case management system?",
     a: [
       "No. Slack is the system of record. The number, the language, who owns the client and the reference are all captured when the series starts, and the whole history stays in the Activity page here.",
@@ -115,10 +130,13 @@ const ENV = [
   {
     group: "Sign-in",
     vars: [
-      ["ADMIN_PASSWORD", "A password for getting in the first time, before anybody is on the operator list. Set a long random one, and you can remove it once Slack sign-in works."],
-      ["SLACK_CLIENT_ID", "Slack app → Basic Information. Enables “Continue with Slack”."],
-      ["SLACK_CLIENT_SECRET", "Same page as the client ID."],
-      ["SLACK_TEAM_ID", "Optional. Pins sign-in to one Slack workspace."],
+      ["GOOGLE_CLIENT_ID", "Google Cloud console → APIs & Services → Credentials → OAuth client ID (Web application). Enables “Continue with Google”."],
+      ["GOOGLE_CLIENT_SECRET", "Same credential as the client ID."],
+      ["GOOGLE_HOSTED_DOMAIN", "Optional. A Workspace domain such as yourfirm.com. Accounts outside it are refused before the access list is even checked."],
+      ["ADMIN_PASSWORD", "A password for getting in the first time, before anybody is on the access list. Set a long random one, and remove it once Google sign-in works."],
+      ["SLACK_CLIENT_ID", "Optional. Slack app → Basic Information. Enables “Continue with Slack” as well."],
+      ["SLACK_CLIENT_SECRET", "Same page as the Slack client ID."],
+      ["SLACK_TEAM_ID", "Optional. Pins Slack sign-in to one workspace."],
     ],
   },
   {
@@ -137,7 +155,8 @@ const SETUP = [
   ["Add a Postgres service in Railway", "It sets DATABASE_URL for you. Migrations run automatically every time the app boots."],
   ["Deploy this repository", "Railway detects Node, runs npm run build, then npm start."],
   ["Set the environment variables", "At minimum the Required group below, plus ADMIN_PASSWORD so you can get in."],
-  ["Sign in and add yourself under Operators", "Tick dashboard access, then you can use Slack sign-in from then on."],
+  ["Create a Google OAuth client", "Google Cloud console → Credentials → OAuth client ID → Web application. Authorised redirect URI: PUBLIC_URL/auth/google/callback. Put the ID and secret in the environment."],
+  ["Sign in with the password and add yourself under Access", "Use your work email and tick dashboard access, then you can sign in with Google from then on."],
   ["Refresh your Quo numbers under Settings", "Then pick which one each sequence sends from."],
   ["Point Slack at your URL", "Slash command and Interactivity → PUBLIC_URL/slack/commands and /slack/interactivity. Event Subscriptions → /slack/events, subscribed to app_mention. Add a message shortcut with callback ID start_followups."],
   ["Point Quo at your URL", "Webhook → PUBLIC_URL/webhooks/quo, subscribed to message.received at minimum, plus message.delivered and the call events."],

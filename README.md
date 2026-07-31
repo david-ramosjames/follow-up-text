@@ -58,24 +58,56 @@ an opt-out from the dashboard but cannot undo one.
    the running app, which lists every one with an explanation. At minimum:
    `QUO_API_KEY`, `SLACK_SIGNING_SECRET`, `SLACK_BOT_TOKEN`,
    `QUO_WEBHOOK_SECRET`, `PUBLIC_URL`, and `ADMIN_PASSWORD` so you can get in.
-4. **Sign in** with that password and add yourself under **Operators** with
-   dashboard access ticked. From then on you can use Sign in with Slack.
-5. **Refresh your Quo numbers** under Settings, then pick which one each sequence
+4. **Create a Google OAuth client.** Google Cloud console → APIs & Services →
+   Credentials → OAuth client ID → Web application, with the authorised redirect
+   URI `PUBLIC_URL/auth/google/callback`. Put the ID and secret in the
+   environment.
+5. **Sign in** with that password and add yourself under **Access** using your
+   work email, with dashboard access ticked. From then on everyone signs in with
+   Google, and you can drop `ADMIN_PASSWORD` entirely.
+6. **Refresh your Quo numbers** under Settings, then pick which one each sequence
    sends from.
-6. **Point Slack at your URL:**
+7. **Point Slack at your URL:**
    - Slash command `/followup` → `PUBLIC_URL/slack/commands`
    - Interactivity → `PUBLIC_URL/slack/interactivity`
    - Event Subscriptions → `PUBLIC_URL/slack/events`, subscribed to `app_mention`
    - A message shortcut with callback ID **`start_followups`**
    - Bot scopes: `commands`, `chat:write`, `chat:write.public`,
      `app_mentions:read`, `channels:history`, `users:read`
-7. **Point Quo at your URL:** webhook → `PUBLIC_URL/webhooks/quo`, subscribed to
+8. **Point Quo at your URL:** webhook → `PUBLIC_URL/webhooks/quo`, subscribed to
    `message.received` at minimum, plus `message.delivered` and the `call.*`
    events.
-8. **Review the starter sequence and switch it on.** It ships switched off.
+9. **Review the starter sequence and switch it on.** It ships switched off.
 
-Nothing sends until step 8 — the dispatcher runs inside the same process, so
+Nothing sends until step 9 — the dispatcher runs inside the same process, so
 there is no cron to configure.
+
+## Who can get in
+
+One list, under **Access**, controls both things:
+
+| Identity | What it grants |
+| --- | --- |
+| **Email address** + dashboard access | Signing in here with Google |
+| **Slack member ID** | Starting and stopping follow-ups from Slack |
+| **Supervisor** | Stopping anyone's series, and seeing everyone's `/followup list` |
+
+A person can have either identity or both, so the office manager who never
+touches Slack gets an email only, and a paralegal who never needs the dashboard
+gets a Slack ID only.
+
+Google sign-in proves who somebody is; the Access list decides whether they are
+allowed in. An account that is not on the list is refused whatever domain it is
+on. Set `GOOGLE_HOSTED_DOMAIN` to reject anything outside your Workspace before
+the list is even consulted.
+
+Permissions are read from the person's current row on **every request**, so
+switching off Active or Dashboard access ends their session on the next click
+rather than whenever their cookie expires. The system refuses to remove the last
+account that can sign in.
+
+`ADMIN_PASSWORD` is a break-glass for the first sign-in and for when an identity
+provider is misconfigured — remove it once Google sign-in works.
 
 ## Configuration lives in the app, not the environment
 
