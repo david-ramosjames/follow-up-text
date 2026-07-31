@@ -80,9 +80,25 @@ an opt-out from the dashboard but cannot undo one.
    - A message shortcut with callback ID **`start_followups`**
    - Bot scopes: `commands`, `chat:write`, `chat:write.public`,
      `app_mentions:read`, `channels:history`, `users:read`
-8. **Point Quo at your URL:** webhook → `PUBLIC_URL/webhooks/quo`, subscribed to
-   `message.received` at minimum, plus `message.delivered` and the `call.*`
-   events.
+8. **Set up the Quo webhook.** Quo has no webhook screen in its app — webhooks
+   are created through the API, and the signing secret only ever appears in the
+   create response. So there is a script:
+
+   ```bash
+   QUO_API_KEY=... PUBLIC_URL=https://your-app.up.railway.app npm run webhook setup
+   ```
+
+   It registers `PUBLIC_URL/webhooks/quo` for messages and calls, removes any
+   earlier attempt so replies are not delivered twice, and prints the
+   `QUO_WEBHOOK_SECRET` to paste into Railway. Redeploy, then prove it:
+
+   ```bash
+   npm run webhook test
+   ```
+
+   That sends a properly signed request your app is built to ignore, so a green
+   tick means the secret matches without creating a contact or posting to Slack.
+   `npm run webhook list` shows what is registered.
 9. **Review the starter sequence and switch it on.** It ships switched off.
 
 Nothing sends until step 9 — the dispatcher runs inside the same process, so

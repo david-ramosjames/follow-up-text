@@ -95,6 +95,22 @@ const FAQ = [
     ],
   },
   {
+    q: "How do I set up the Quo webhook, and how do I know it works?",
+    a: [
+      "Quo has no webhook screen in its app — webhooks are created through its API, and the signing secret only appears in the response when you create one. Run `npm run webhook setup` with QUO_API_KEY and PUBLIC_URL set. It registers this app's endpoint for both messages and calls, deletes any earlier attempt so replies are not delivered twice, and prints the QUO_WEBHOOK_SECRET to put into Railway.",
+      "After redeploying, `npm run webhook test` sends a properly signed request of a type this app ignores. A green tick means the secret matches, and because the event is ignored it creates no contact, stops no series and posts nothing to Slack. Then text the Quo number from a real phone and watch it appear under Activity.",
+      "`npm run webhook list` shows what is currently registered, which is the first thing to check if replies stop arriving.",
+    ],
+  },
+  {
+    q: "Could we poll the API for replies instead of using the webhook?",
+    a: [
+      "Only partly, and it is not recommended as a replacement. Quo's list-messages endpoint returns one conversation at a time, so polling costs one API call per active client per cycle — the busier intake gets, the closer you sit to the rate limit.",
+      "It also cannot cheaply see call-backs, which is one of the ways a series is meant to stop, and it gives you no delivery receipts, which is how landlines and filtered messages are spotted.",
+      "Polling does make sense as a safety net rather than a replacement, because webhooks can fail silently. Message ingest is already idempotent, so re-reading the same message is harmless.",
+    ],
+  },
+  {
     q: "What is the administrator password for?",
     a: [
       "Getting in the first time, before anybody is on the Access list, and getting back in if Google sign-in breaks. It is a break-glass, not a normal way in.",
@@ -159,7 +175,7 @@ const SETUP = [
   ["Sign in with the password and add yourself under Access", "Use your work email and tick dashboard access, then you can sign in with Google from then on."],
   ["Refresh your Quo numbers under Settings", "Then pick which one each sequence sends from."],
   ["Point Slack at your URL", "Slash command and Interactivity → PUBLIC_URL/slack/commands and /slack/interactivity. Event Subscriptions → /slack/events, subscribed to app_mention. Add a message shortcut with callback ID start_followups."],
-  ["Point Quo at your URL", "Webhook → PUBLIC_URL/webhooks/quo, subscribed to message.received at minimum, plus message.delivered and the call events."],
+  ["Set up the Quo webhook", "Quo has no webhook screen — run `npm run webhook setup` with QUO_API_KEY and PUBLIC_URL set. It registers the endpoint and prints QUO_WEBHOOK_SECRET. Put that in Railway, redeploy, then `npm run webhook test` to prove it."],
   ["Review the starter sequence and switch it on", "It ships switched off on purpose."],
 ];
 
