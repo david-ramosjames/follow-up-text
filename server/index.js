@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import express from "express";
-import { authRouter, cookieParser, purgeExpiredSessions } from "./auth.js";
+import { authRouter, cookieParser, ensureBootstrapAdmins, purgeExpiredSessions } from "./auth.js";
 import { migrate } from "./migrate.js";
 import { startScheduler } from "./lib/dispatch.js";
 import { apiRouter } from "./routes/api.js";
@@ -78,6 +78,8 @@ function reportConfiguration() {
       "signing in with Google"],
     ["ADMIN_PASSWORD", Boolean(process.env.ADMIN_PASSWORD),
       "the first sign-in, before anybody is on the access list"],
+    ["BOOTSTRAP_ADMIN_EMAIL", Boolean(process.env.BOOTSTRAP_ADMIN_EMAIL),
+      "granting yourself dashboard access without the password"],
   ];
 
   const missing = checks.filter(([, present]) => !present);
@@ -90,12 +92,20 @@ function reportConfiguration() {
   for (const [name, , why] of missing) console.log(`  ${name.padEnd(22)} needed for ${why}`);
   if (!process.env.GOOGLE_CLIENT_ID && !process.env.ADMIN_PASSWORD) {
     console.log("  -> With neither GOOGLE_CLIENT_ID nor ADMIN_PASSWORD, nobody can sign in.");
+  } else if (!process.env.BOOTSTRAP_ADMIN_EMAIL && !process.env.ADMIN_PASSWORD) {
+    console.log("  -> Set BOOTSTRAP_ADMIN_EMAIL to your work email to grant yourself access.");
   }
 }
 
 async function main() {
   console.log("Running migrations...");
   await migrate();
+
+  const bootstrapped = await ensureBootstrapAdmins().catch((error) => {
+    console.error("BOOTSTRAP_ADMIN_EMAIL could not be applied:", error.message);
+    return [];
+  });
+  for (const entry of bootstrapped) console.log(`Dashboard access: ${entry}`);
 
   await purgeExpiredSessions().catch(() => {});
   setInterval(() => purgeExpiredSessions().catch(() => {}), 60 * 60 * 1000).unref();

@@ -68,18 +68,33 @@ an opt-out from the dashboard but cannot undo one.
    Credentials → OAuth client ID → Web application, with the authorised redirect
    URI `PUBLIC_URL/auth/google/callback`. Put the ID and secret in the
    environment.
-5. **Sign in** with that password and add yourself under **Access** using your
-   work email, with dashboard access ticked. From then on everyone signs in with
-   Google, and you can drop `ADMIN_PASSWORD` entirely.
+5. **Give yourself access.** Set `BOOTSTRAP_ADMIN_EMAIL` to your work Google
+   address and redeploy — it is applied at every boot, so you can sign in with
+   Google immediately. (`ADMIN_PASSWORD` is the alternative if you would rather
+   not.) Then add everyone else under **Access**.
 6. **Refresh your Quo numbers** under Settings, then pick which one each sequence
    sends from.
-7. **Point Slack at your URL:**
-   - Slash command `/followup` → `PUBLIC_URL/slack/commands`
-   - Interactivity → `PUBLIC_URL/slack/interactivity`
-   - Event Subscriptions → `PUBLIC_URL/slack/events`, subscribed to `app_mention`
-   - A message shortcut with callback ID **`start_followups`**
-   - Bot scopes: `commands`, `chat:write`, `chat:write.public`,
-     `app_mentions:read`, `channels:history`, `users:read`
+7. **Create the Slack app from a manifest**, rather than filling in six screens:
+
+   ```bash
+   PUBLIC_URL=https://your-app.up.railway.app npm run slack:manifest
+   ```
+
+   Paste the output into api.slack.com/apps → **Create New App** → **From a
+   manifest**. That declares the slash command, the message shortcut, the event
+   subscriptions and the scopes in one go.
+
+   A slash command cannot be declared in code — Slack has to be told the command
+   exists and where to send it — so a manifest is as close to keeping it in the
+   repo as Slack allows.
+
+   Then **Install to Workspace**, put the Bot User OAuth Token (`xoxb-…`) in
+   `SLACK_BOT_TOKEN`, and `/invite` the bot to your intake channel.
+
+   **Socket Mode must stay off.** With it on, Slack delivers over a WebSocket
+   and ignores every Request URL, so nothing reaches the app and the failure
+   looks like silence. The manifest sets `socket_mode_enabled: false`; if you
+   turned it on by hand, turn it back off under Settings → Socket Mode.
 8. **Set up the Quo webhook**, in the Quo app under Settings → Webhooks →
    Create a webhook.
 

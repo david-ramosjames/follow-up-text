@@ -14,7 +14,8 @@
     "migrate": "node server/migrate.js",
     "test": "node --test \"tests/**/*.test.js\"",
     "test:db": "node --test tests/db/*.test.js",
-    "webhook": "node scripts/quo-webhook.mjs"
+    "webhook": "node scripts/quo-webhook.mjs",
+    "slack:manifest": "node scripts/slack-manifest.mjs"
   },
   "dependencies": {
     "dotenv": "^16.4.7",

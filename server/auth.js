@@ -378,6 +378,46 @@ authRouter.post("/logout", async (req, res) => {
   res.json({ ok: true });
 });
 
+// Solves the chicken and egg: the access list decides who can sign in, but
+// somebody has to sign in to edit the access list. Naming an email here grants
+// it dashboard access at boot, so the first administrator can come straight in
+// with Google rather than through the password.
+//
+// It only ever grants. Removing an address here does not revoke anything —
+// that is done in the app, deliberately, so access changes are visible.
+export async function ensureBootstrapAdmins() {
+  const raw = process.env.BOOTSTRAP_ADMIN_EMAIL;
+  if (!raw) return [];
+
+  const granted = [];
+  for (const entry of raw.split(",")) {
+    const email = entry.trim().toLowerCase();
+    if (!email) continue;
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+      console.warn(`  BOOTSTRAP_ADMIN_EMAIL: "${email}" is not an email address, skipping.`);
+      continue;
+    }
+
+    // The unique index on email is partial, so an ON CONFLICT would have to
+    // restate its predicate. Reading first is clearer and just as correct.
+    const existing = await one("select id, can_admin, is_active from followup_operators where email = $1", [email]);
+    if (existing) {
+      if (!existing.can_admin || !existing.is_active) {
+        await query("update followup_operators set can_admin = true, is_active = true where id = $1", [existing.id]);
+        granted.push(`${email} (access restored)`);
+      }
+    } else {
+      await query(
+        `insert into followup_operators (email, display_name, can_admin, is_active)
+         values ($1, $2, true, true)`,
+        [email, email.split("@")[0]],
+      );
+      granted.push(`${email} (added)`);
+    }
+  }
+  return granted;
+}
+
 export async function purgeExpiredSessions() {
   const result = await query("delete from app_sessions where expires_at < now()");
   return result.rowCount;

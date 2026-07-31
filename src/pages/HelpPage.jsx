@@ -103,9 +103,25 @@ const FAQ = [
     ],
   },
   {
+    q: "How do I give myself access the first time?",
+    a: [
+      "Set BOOTSTRAP_ADMIN_EMAIL in Railway to your work Google address and redeploy. It is applied at every boot, so you can sign in with Google straight away. Comma-separate it for several people. The deploy log says which addresses it granted.",
+      "It only ever grants access. Taking an address back out revokes nothing — that is done here under Access, on purpose, so a change in who can see client data is visible in the app rather than buried in an environment variable.",
+      "ADMIN_PASSWORD is the alternative if you would rather not put an address in the environment: sign in with it once, add yourself under Access, then remove it.",
+    ],
+  },
+  {
+    q: "Do I have to configure the slash command in Slack, or is it in the code?",
+    a: [
+      "Slack has to be told the command exists and where to send it, so it cannot live in code alone. What you can do is declare the whole app — slash command, message shortcut, event subscriptions, scopes — in a manifest and paste that in once.",
+      "Run `PUBLIC_URL=... npm run slack:manifest` and paste the output into Create New App → From a manifest. That is as close to keeping the configuration in the repo as Slack allows, and it is also how to reapply it if somebody changes a setting by hand.",
+    ],
+  },
+  {
     q: "Slack is not responding to /followup. What is wrong?",
     a: [
-      "Work down in this order. Is the person on the Access list with a Slack member ID? Anyone who is not gets a polite refusal rather than silence, so if there is no reply at all the problem is earlier.",
+      "First: is Socket Mode on? With it on, Slack delivers over a WebSocket and ignores every Request URL, so nothing reaches this app at all. Settings → Socket Mode → off.",
+      "Then work down. Is the person on the Access list with a Slack member ID? Anyone who is not gets a polite refusal rather than silence, so if there is no reply at all the problem is earlier.",
       "Is SLACK_SIGNING_SECRET set in Railway and has the deploy restarted since? Every Slack request is signature-checked before anything else, so a missing or stale secret rejects all of them, including Slack's own URL verification.",
       "Is the Request URL exactly PUBLIC_URL/slack/commands, with the path? Pointed at the bare domain it reaches the web app instead, which answers 200 with an HTML page and looks fine from Slack's side.",
       "For the ⋯ menu specifically, the shortcut's Callback ID has to be exactly start_followups. For mentions in a thread, the app needs the app_mention event subscription and to have been reinstalled after it was added.",
@@ -183,12 +199,8 @@ const SETUP = [
   ["Create a Google OAuth client", "Google Cloud console → Credentials → OAuth client ID → Web application. Authorised redirect URI: PUBLIC_URL/auth/google/callback. Put the ID and secret in the environment."],
   ["Sign in with the password and add yourself under Access", "Use your work email and tick dashboard access, then you can sign in with Google from then on."],
   ["Refresh your Quo numbers under Settings", "Then pick which one each sequence sends from."],
-  ["Create the Slack app", "api.slack.com/apps → Create New App → From scratch, in your firm's workspace. Basic Information → App Credentials → Signing Secret is SLACK_SIGNING_SECRET. Set it in Railway and redeploy before going any further — Slack's own URL checks are signed, and they will fail until the app has it."],
-  ["Add the bot scopes and install", "OAuth & Permissions → Bot Token Scopes: commands, chat:write, chat:write.public, app_mentions:read, channels:history, users:read. Install to Workspace, then the Bot User OAuth Token (xoxb-…) is SLACK_BOT_TOKEN. Adding a scope later means reinstalling."],
-  ["Slash command", "Slash Commands → Create New Command. Command /followup, Request URL PUBLIC_URL/slack/commands."],
-  ["Interactivity and the message shortcut", "Interactivity & Shortcuts → on → Request URL PUBLIC_URL/slack/interactivity. Then Create New Shortcut → On messages → name it \u201cStart follow-up texts\u201d → Callback ID must be exactly start_followups, or the ⋯ menu does nothing."],
-  ["Event subscriptions", "Event Subscriptions → on → Request URL PUBLIC_URL/slack/events. It must show Verified; if it does not, the signing secret is missing or the deploy has not restarted. Under Subscribe to bot events add app_mention, then reinstall if prompted."],
-  ["Invite the bot to your intake channel", "/invite @your-app-name. Without chat:write.public it cannot post anywhere it has not been invited."],
+  ["Create the Slack app from a manifest", "Run `PUBLIC_URL=... npm run slack:manifest` and paste the output into api.slack.com/apps → Create New App → From a manifest. That declares the slash command, the message shortcut, the event subscriptions and the scopes at once. Set SLACK_SIGNING_SECRET in Railway and redeploy first, because Slack verifies the event URL as you save and that check is itself signature-verified."],
+  ["Install it and invite the bot", "Install to Workspace, put the Bot User OAuth Token (xoxb-…) in SLACK_BOT_TOKEN, then /invite the bot to your intake channel. Socket Mode must stay off — with it on, Slack delivers over a WebSocket and ignores every Request URL, so nothing reaches the app."],
   ["Set up the Quo webhook", "Quo app → Settings → Webhooks → Create a webhook. URL must be PUBLIC_URL/webhooks/quo — with the path, or replies silently never arrive. Tick message.received, message.delivered, call.completed and call.ringing. Put the signing secret in Railway as QUO_WEBHOOK_SECRET, redeploy, then `npm run webhook test` to prove it."],
   ["Review the starter sequence and switch it on", "It ships switched off on purpose."],
 ];

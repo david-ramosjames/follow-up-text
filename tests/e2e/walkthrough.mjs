@@ -220,6 +220,31 @@ console.log("\n5. Starting a series from the Slack slash command");
     /already has a series/.test(duplicate.data?.text ?? ""), JSON.stringify(duplicate.data));
 }
 
+console.log("\n5b. Slack's escaped text (should_escape: true in the manifest)");
+{
+  // With should_escape on, Slack rewrites phone numbers as <tel:...> and user
+  // mentions as <@U123|name> before the command text reaches us. The manifest
+  // turns it on because it is what makes "assign to somebody else" possible, so
+  // the parser has to cope with both forms.
+  const started = await slack("/slack/commands", {
+    user_id: "U0PARALEGAL", user_name: "sam", channel_id: "C0INTAKE",
+    text: "start <tel:+15125550140|(512) 555-0140> es Ana <@U0SUPERVISOR|rosa>",
+    response_url: "http://127.0.0.1:4999/__noop",
+  });
+  check("an escaped command is accepted", started.status === 200);
+
+  const list = await api("/api/enrollments?status=active");
+  const ana = list.data.find((row) => row.phone_e164 === "+15125550140");
+  check("the number survives Slack's tel: markup", Boolean(ana),
+    JSON.stringify(list.data.map((r) => r.phone_e164)));
+  check("the language is still read", ana?.language === "es");
+  check("the name is still read", ana?.first_name === "Ana");
+  check("an escaped @mention assigns to that person",
+    ana?.assigned_slack_user_id === "U0SUPERVISOR", ana?.assigned_slack_user_id);
+
+  await api(`/api/enrollments/${ana.id}/stop`, { method: "POST", body: {} });
+}
+
 console.log("\n6. Starting from a Slack message shortcut");
 {
   const payload = {

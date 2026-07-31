@@ -58,10 +58,21 @@ const LANGUAGE_WORDS = {
 // token-by-token, because people paste "(512) 555-0123" — three tokens, none of
 // which is a phone number on its own.
 function takePhone(tokens) {
-  const phones = extractPhones(tokens.join(" "));
+  const text = tokens.join(" ");
+  const phones = extractPhones(text);
   if (!phones.length) return { phone: null, rest: tokens };
-  // Anything made only of digits and phone punctuation was part of the number.
-  const rest = tokens.filter((token) => !(/\d/.test(token) && /^[+()\-.\d\s]+$/.test(token)));
+
+  // Slack rewrites a typed number as <tel:+15125550123|(512) 555-0123>, which
+  // contains a space and so survives tokenising as two fragments. Strip the
+  // whole markup first, then drop any bare token that is only digits and phone
+  // punctuation. Otherwise the leftovers become the client's first name, and
+  // "<tel:+1512..." ends up merged into the text they receive.
+  const rest = text
+    .replace(/<tel:[^>]*>/gi, " ")
+    .split(/\s+/)
+    .filter(Boolean)
+    .filter((token) => !(/\d/.test(token) && /^[+()\-.\d]+$/.test(token)));
+
   return { phone: phones[0], rest };
 }
 
