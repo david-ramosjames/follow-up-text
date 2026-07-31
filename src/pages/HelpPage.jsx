@@ -145,7 +145,7 @@ const ENV = [
       ["QUO_API_BASE", "Defaults to https://api.quo.com/v1. Set to https://api.openphone.com/v1 if your account has not been migrated from OpenPhone."],
       ["QUO_WEBHOOK_TOKEN", "An alternative to the signing secret: a shared value passed as ?token= on the webhook URL. Use it only if signature verification will not work."],
       ["SLACK_WEBHOOK_URL", "An incoming-webhook fallback for notifications if you have no bot token. It cannot post into threads."],
-      ["NODE_ENV", "Set to production on Railway so session cookies are marked Secure."],
+      ["NODE_ENV", "Leave unset. Session cookies are already marked Secure whenever PUBLIC_URL is https. Setting it to production on Railway applies at build time too, where it can make npm skip the dev dependencies the front-end build needs."],
       ["PGSSLMODE", "Set to disable only if your Postgres does not use TLS."],
     ],
   },

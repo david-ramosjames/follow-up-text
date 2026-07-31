@@ -38,7 +38,13 @@ function publicUrl(req) {
   return `${proto}://${req.get("host")}`;
 }
 
-const secureCookies = () => process.env.NODE_ENV === "production";
+// Secure cookies are required over https and are silently dropped by the browser
+// over plain http, so this is derived from the deployed URL rather than asking
+// for NODE_ENV. On Railway, NODE_ENV is applied at build time as well as run
+// time, where setting it to production can make npm skip the dev dependencies
+// the front-end build needs — a footgun worth not having.
+const secureCookies = () => process.env.NODE_ENV === "production"
+  || (process.env.PUBLIC_URL ?? "").startsWith("https://");
 
 function setCookie(res, name, value, maxAgeSeconds) {
   res.append("Set-Cookie", `${name}=${value}; HttpOnly; Path=/; Max-Age=${maxAgeSeconds}; SameSite=Lax`

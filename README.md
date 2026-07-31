@@ -206,6 +206,14 @@ is a reply, not an opt-out. Silently unsubscribing a client who was actually
 re-engaging would be the worst thing this system could do, so only a message that
 is exactly `stop` counts.
 
+**`npm audit` reports one high advisory, and that is the best available.** It is
+a CSRF bypass in React Router's **RSC mode** (GHSA-qwww-vcr4-c8h2). This app is a
+plain client-side SPA — `BrowserRouter` with element routes, no RSC, no data
+router, no server actions — so the vulnerable path is not reachable. Do not
+"fix" it by downgrading: every version below 7.18 sits inside a much larger
+advisory range with fourteen further CVEs, several of which *are* reachable here.
+Staying on the latest 7.x is the safer position; re-check when 8.3 ships.
+
 **Privacy.** Slack shows only the last four digits of a number by default, since
 intake channels tend to be wide. The dashboard requires being on the operator
 list with dashboard access, checked server-side on every request.
