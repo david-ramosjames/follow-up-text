@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 // Sets up the Quo webhook that tells this app a client replied.
 //
-// Quo has no webhook screen in its app — webhooks are created through the API,
-// and the signing secret only comes back in the create response. So this exists.
+// The Quo app has a webhook screen (Settings -> Webhooks), and clicking through
+// it is fine. This covers what that screen cannot: checking what is registered
+// from the command line, and proving the signing secret actually matches what
+// the deployment has.
 //
 //   node scripts/quo-webhook.mjs list        what is registered today
 //   node scripts/quo-webhook.mjs setup       create (or replace) ours, print the secret
@@ -18,11 +20,15 @@ const API_KEY = process.env.QUO_API_KEY;
 const PUBLIC_URL = (process.env.PUBLIC_URL || "").replace(/\/$/, "");
 const LABEL = "Client follow-up texts";
 
-// Quo's docs are not publicly readable, so rather than hard-code a guess these
-// are tried and the ones it rejects are reported. message.received is the only
-// one the system genuinely needs; the rest sharpen it.
+// Only the events this app actually handles. Quo also emits
+// call.recording.completed, call.transcript.completed and call.summary.completed;
+// subscribing to those would just deliver traffic the webhook ignores.
+//
+// message.received is the only one the system genuinely needs. The rest sharpen
+// it: delivered gives delivery receipts, and the call events are what let a
+// client ringing the office stop their series.
 const MESSAGE_EVENTS = ["message.received", "message.delivered"];
-const CALL_EVENTS = ["call.completed", "call.ringing", "call.recording.completed", "call.summary.completed"];
+const CALL_EVENTS = ["call.completed", "call.ringing"];
 
 const bold = (text) => `[1m${text}[0m`;
 const green = (text) => `[32m${text}[0m`;

@@ -80,25 +80,32 @@ an opt-out from the dashboard but cannot undo one.
    - A message shortcut with callback ID **`start_followups`**
    - Bot scopes: `commands`, `chat:write`, `chat:write.public`,
      `app_mentions:read`, `channels:history`, `users:read`
-8. **Set up the Quo webhook.** Quo has no webhook screen in its app — webhooks
-   are created through the API, and the signing secret only ever appears in the
-   create response. So there is a script:
+8. **Set up the Quo webhook**, in the Quo app under Settings → Webhooks →
+   Create a webhook.
 
-   ```bash
-   QUO_API_KEY=... PUBLIC_URL=https://your-app.up.railway.app npm run webhook setup
-   ```
+   - **URL** — `PUBLIC_URL/webhooks/quo`. The path matters: pointed at the bare
+     domain, Quo gets the web app's HTML back with a 200, looks satisfied, and
+     replies silently never arrive.
+   - **Events** — `message.received` is the one nothing works without. Add
+     `message.delivered` for delivery receipts, and `call.completed` plus
+     `call.ringing` so a client calling the office stops their series. Leave the
+     recording, transcript and summary events off; they are not handled and
+     would only be ignored traffic.
+   - **Receive updates from all phone numbers** — on, so a sequence can send
+     from any of your numbers.
 
-   It registers `PUBLIC_URL/webhooks/quo` for messages and calls, removes any
-   earlier attempt so replies are not delivered twice, and prints the
-   `QUO_WEBHOOK_SECRET` to paste into Railway. Redeploy, then prove it:
+   Save, then put the signing secret Quo shows you into Railway as
+   `QUO_WEBHOOK_SECRET` and redeploy. Confirm it end to end with:
 
    ```bash
    npm run webhook test
    ```
 
-   That sends a properly signed request your app is built to ignore, so a green
-   tick means the secret matches without creating a contact or posting to Slack.
-   `npm run webhook list` shows what is registered.
+   That signs a request the way Quo does and sends it to your deployment using
+   an event type the app ignores, so a green tick proves the secret matches
+   without creating a contact or posting to Slack. `npm run webhook list` shows
+   what is currently registered, and `npm run webhook setup` does the whole
+   registration from the command line if you would rather not click.
 9. **Review the starter sequence and switch it on.** It ships switched off.
 
 Nothing sends until step 9 — the dispatcher runs inside the same process, so

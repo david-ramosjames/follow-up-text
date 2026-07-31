@@ -18,8 +18,8 @@ const numbers = [
 ];
 
 // Quo rejects the whole create call if it does not recognise an event. This stub
-// pretends not to know about call summaries.
-const UNSUPPORTED_EVENTS = new Set(["call.summary.completed"]);
+// pretends not to know about call.ringing, so the retry path stays covered.
+const UNSUPPORTED_EVENTS = new Set(["call.ringing"]);
 
 // Same four-part shape Quo hands back, so the signing round-trip is real.
 const SIGNING_KEY = "hmac;1;0;c3R1Yi1zaWduaW5nLWtleS1mb3ItdGVzdHM=";

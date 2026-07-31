@@ -97,9 +97,18 @@ const FAQ = [
   {
     q: "How do I set up the Quo webhook, and how do I know it works?",
     a: [
-      "Quo has no webhook screen in its app — webhooks are created through its API, and the signing secret only appears in the response when you create one. Run `npm run webhook setup` with QUO_API_KEY and PUBLIC_URL set. It registers this app's endpoint for both messages and calls, deletes any earlier attempt so replies are not delivered twice, and prints the QUO_WEBHOOK_SECRET to put into Railway.",
-      "After redeploying, `npm run webhook test` sends a properly signed request of a type this app ignores. A green tick means the secret matches, and because the event is ignored it creates no contact, stops no series and posts nothing to Slack. Then text the Quo number from a real phone and watch it appear under Activity.",
-      "`npm run webhook list` shows what is currently registered, which is the first thing to check if replies stop arriving.",
+      "In the Quo app, under Settings then Webhooks, create a webhook pointing at your URL with /webhooks/quo on the end. The path matters: aimed at the bare domain, Quo receives the web app's HTML back with a 200, looks perfectly happy, and replies silently never arrive.",
+      "Tick message.received — nothing works without it — plus message.delivered for delivery receipts, and call.completed and call.ringing so a client calling the office stops their series. Leave the recording, transcript and summary events off; they are not handled. Keep \u201cReceive updates from all phone numbers\u201d on so any sequence can send from any of your numbers.",
+      "Save, put the signing secret Quo shows you into Railway as QUO_WEBHOOK_SECRET, and redeploy. Then run `npm run webhook test`: it signs a request the way Quo does, using an event type this app ignores, so a green tick proves the secret matches without creating a contact or posting to Slack. `npm run webhook list` shows what is registered, which is the first thing to check if replies stop arriving.",
+    ],
+  },
+  {
+    q: "Slack is not responding to /followup. What is wrong?",
+    a: [
+      "Work down in this order. Is the person on the Access list with a Slack member ID? Anyone who is not gets a polite refusal rather than silence, so if there is no reply at all the problem is earlier.",
+      "Is SLACK_SIGNING_SECRET set in Railway and has the deploy restarted since? Every Slack request is signature-checked before anything else, so a missing or stale secret rejects all of them, including Slack's own URL verification.",
+      "Is the Request URL exactly PUBLIC_URL/slack/commands, with the path? Pointed at the bare domain it reaches the web app instead, which answers 200 with an HTML page and looks fine from Slack's side.",
+      "For the ⋯ menu specifically, the shortcut's Callback ID has to be exactly start_followups. For mentions in a thread, the app needs the app_mention event subscription and to have been reinstalled after it was added.",
     ],
   },
   {
@@ -174,8 +183,13 @@ const SETUP = [
   ["Create a Google OAuth client", "Google Cloud console → Credentials → OAuth client ID → Web application. Authorised redirect URI: PUBLIC_URL/auth/google/callback. Put the ID and secret in the environment."],
   ["Sign in with the password and add yourself under Access", "Use your work email and tick dashboard access, then you can sign in with Google from then on."],
   ["Refresh your Quo numbers under Settings", "Then pick which one each sequence sends from."],
-  ["Point Slack at your URL", "Slash command and Interactivity → PUBLIC_URL/slack/commands and /slack/interactivity. Event Subscriptions → /slack/events, subscribed to app_mention. Add a message shortcut with callback ID start_followups."],
-  ["Set up the Quo webhook", "Quo has no webhook screen — run `npm run webhook setup` with QUO_API_KEY and PUBLIC_URL set. It registers the endpoint and prints QUO_WEBHOOK_SECRET. Put that in Railway, redeploy, then `npm run webhook test` to prove it."],
+  ["Create the Slack app", "api.slack.com/apps → Create New App → From scratch, in your firm's workspace. Basic Information → App Credentials → Signing Secret is SLACK_SIGNING_SECRET. Set it in Railway and redeploy before going any further — Slack's own URL checks are signed, and they will fail until the app has it."],
+  ["Add the bot scopes and install", "OAuth & Permissions → Bot Token Scopes: commands, chat:write, chat:write.public, app_mentions:read, channels:history, users:read. Install to Workspace, then the Bot User OAuth Token (xoxb-…) is SLACK_BOT_TOKEN. Adding a scope later means reinstalling."],
+  ["Slash command", "Slash Commands → Create New Command. Command /followup, Request URL PUBLIC_URL/slack/commands."],
+  ["Interactivity and the message shortcut", "Interactivity & Shortcuts → on → Request URL PUBLIC_URL/slack/interactivity. Then Create New Shortcut → On messages → name it \u201cStart follow-up texts\u201d → Callback ID must be exactly start_followups, or the ⋯ menu does nothing."],
+  ["Event subscriptions", "Event Subscriptions → on → Request URL PUBLIC_URL/slack/events. It must show Verified; if it does not, the signing secret is missing or the deploy has not restarted. Under Subscribe to bot events add app_mention, then reinstall if prompted."],
+  ["Invite the bot to your intake channel", "/invite @your-app-name. Without chat:write.public it cannot post anywhere it has not been invited."],
+  ["Set up the Quo webhook", "Quo app → Settings → Webhooks → Create a webhook. URL must be PUBLIC_URL/webhooks/quo — with the path, or replies silently never arrive. Tick message.received, message.delivered, call.completed and call.ringing. Put the signing secret in Railway as QUO_WEBHOOK_SECRET, redeploy, then `npm run webhook test` to prove it."],
   ["Review the starter sequence and switch it on", "It ships switched off on purpose."],
 ];
 
