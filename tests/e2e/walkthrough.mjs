@@ -1,0 +1,360 @@
+// End-to-end walk through the real server: sign in, configure, start a series
+// from Slack, send it via the Quo stub, then reply to it.
+import crypto from "node:crypto";
+
+const BASE = "http://127.0.0.1:3000";
+const SIGNING = "slack-signing-secret-xyz";
+let cookie = "";
+let failures = 0;
+
+function check(label, condition, detail = "") {
+  if (condition) console.log(`  ok   ${label}`);
+  else { failures += 1; console.log(`  FAIL ${label} ${detail}`); }
+}
+
+async function api(path, options = {}) {
+  const response = await fetch(`${BASE}${path}`, {
+    ...options,
+    headers: { ...(options.body ? { "Content-Type": "application/json" } : {}), cookie, ...(options.headers ?? {}) },
+    body: options.body ? JSON.stringify(options.body) : undefined,
+  });
+  const text = await response.text();
+  let data = null;
+  try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+  return { status: response.status, data, response };
+}
+
+function slackHeaders(body) {
+  const ts = Math.floor(Date.now() / 1000);
+  const sig = crypto.createHmac("sha256", SIGNING).update(`v0:${ts}:${body}`).digest("hex");
+  return {
+    "content-type": "application/x-www-form-urlencoded",
+    "x-slack-request-timestamp": String(ts),
+    "x-slack-signature": `v0=${sig}`,
+  };
+}
+
+async function slack(path, params) {
+  const body = new URLSearchParams(params).toString();
+  const response = await fetch(`${BASE}${path}`, { method: "POST", headers: slackHeaders(body), body });
+  const text = await response.text();
+  let data = null;
+  try { data = text ? JSON.parse(text) : text; } catch { data = text; }
+  return { status: response.status, data };
+}
+
+console.log("\n1. Authentication");
+{
+  const bad = await api("/api/dashboard");
+  check("the API refuses an unauthenticated request", bad.status === 401);
+
+  const wrong = await fetch(`${BASE}/auth/password`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ password: "wrong" }),
+  });
+  check("a wrong password is refused", wrong.status === 401);
+
+  const good = await fetch(`${BASE}/auth/password`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ password: "letmein-please-1234" }),
+  });
+  check("the right password signs in", good.status === 200);
+  cookie = (good.headers.getSetCookie?.() ?? [good.headers.get("set-cookie")])
+    .map((value) => value.split(";")[0]).join("; ");
+
+  const me = await api("/auth/me");
+  check("the session is live", me.data?.signedIn === true);
+}
+
+console.log("\n2. Quo numbers");
+{
+  const synced = await api("/api/quo-numbers/sync", { method: "POST", body: {} });
+  check("numbers sync from Quo", synced.status === 200 && synced.data.length === 2,
+    JSON.stringify(synced.data).slice(0, 120));
+  check("the sending number is stored in E.164",
+    synced.data?.[0]?.phone_e164?.startsWith("+1"));
+
+  const saved = await api("/api/settings", {
+    method: "PUT",
+    body: { default_quo_number_id: "PNINTAKE", firm_name: "Ramos Law", slack_alert_channel: "C0FALLBACK" },
+  });
+  check("settings save", saved.data?.default_quo_number_id === "PNINTAKE");
+  check("the firm name saves", saved.data?.firm_name === "Ramos Law");
+}
+
+console.log("\n3. Operators");
+{
+  const bad = await api("/api/operators", { method: "POST", body: { slack_user_id: "not-an-id" } });
+  check("a malformed Slack ID is refused with an explanation",
+    bad.status === 400 && /member ID/.test(bad.data?.error ?? ""));
+
+  const added = await api("/api/operators", {
+    method: "POST",
+    body: { slack_user_id: "U0PARALEGAL", display_name: "Sam Ortiz", can_admin: true },
+  });
+  check("an operator is added", added.status === 201);
+
+  await api("/api/operators", {
+    method: "POST",
+    body: { slack_user_id: "U0SUPERVISOR", display_name: "Rosa", is_supervisor: true, can_admin: true },
+  });
+
+  const locked = await api("/api/operators/U0PARALEGAL", { method: "PATCH", body: { can_admin: false } });
+  check("removing dashboard access is allowed while somebody else has it", locked.status === 200);
+  await api("/api/operators/U0PARALEGAL", { method: "PATCH", body: { can_admin: true } });
+}
+
+console.log("\n4. Sequence set-up");
+let sequenceId;
+{
+  const sequences = await api("/api/sequences");
+  const seeded = sequences.data.find((row) => row.slug === "new-lead");
+  sequenceId = seeded.id;
+  check("the starter sequence shipped with the migrations", Boolean(seeded));
+  check("it has six texts", (seeded.steps ?? []).length === 6);
+  check("it is switched off until reviewed", seeded.is_active === false);
+  check("every text has both languages",
+    seeded.steps.every((step) => step.body_en?.trim() && step.body_es?.trim()));
+
+  const turnedOn = await api(`/api/sequences/${sequenceId}`, {
+    method: "PATCH",
+    body: { is_active: true, quo_number_id: "PNINTAKE", quiet_hours_start: 0, quiet_hours_end: 24 },
+  });
+  check("the sequence can be switched on", turnedOn.data?.is_active === true);
+}
+
+console.log("\n5. Starting a series from the Slack slash command");
+{
+  const blocked = await slack("/slack/commands", {
+    user_id: "U0NOBODY", user_name: "nobody", channel_id: "C0INTAKE",
+    text: "start 512-555-0123", response_url: "http://127.0.0.1:4999/__noop",
+  });
+  check("a non-operator is refused", /not set up/.test(blocked.data?.text ?? ""));
+
+  const unsigned = await fetch(`${BASE}/slack/commands`, {
+    method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: "user_id=U0PARALEGAL&text=start+5125550123",
+  });
+  check("an unsigned Slack request is rejected", unsigned.status === 401);
+
+  const started = await slack("/slack/commands", {
+    user_id: "U0PARALEGAL", user_name: "sam", channel_id: "C0INTAKE",
+    text: "start (512) 555-0123 es Maria", response_url: "http://127.0.0.1:4999/__noop",
+  });
+  check("the command is accepted", started.status === 200);
+
+  const list = await api("/api/enrollments?status=active");
+  check("a series is running", list.data.length === 1, JSON.stringify(list.data).slice(0, 200));
+  check("the phone number was parsed out of the shorthand",
+    list.data[0]?.phone_e164 === "+15125550123");
+  check("the language was parsed out of the shorthand", list.data[0]?.language === "es");
+  check("the name was parsed out of the shorthand", list.data[0]?.first_name === "Maria");
+  check("it is assigned to whoever ran the command",
+    list.data[0]?.assigned_slack_user_id === "U0PARALEGAL");
+
+  const duplicate = await slack("/slack/commands", {
+    user_id: "U0SUPERVISOR", user_name: "rosa", channel_id: "C0INTAKE",
+    text: "start 512-555-0123", response_url: "http://127.0.0.1:4999/__noop",
+  });
+  check("a second start for the same number is refused",
+    /already has a series/.test(duplicate.data?.text ?? ""), JSON.stringify(duplicate.data));
+}
+
+console.log("\n6. Starting from a Slack message shortcut");
+{
+  const payload = {
+    type: "message_action",
+    callback_id: "start_followups",
+    trigger_id: "trigger-1",
+    user: { id: "U0PARALEGAL", name: "sam" },
+    channel: { id: "C0INTAKE" },
+    message: {
+      ts: "1730000000.000200",
+      text: "New MVA lead from the site: Carlos Nunez, (512) 555-0124, rear-ended on I-35.",
+    },
+  };
+  const shortcut = await slack("/slack/interactivity", { payload: JSON.stringify(payload) });
+  check("the message shortcut is accepted", shortcut.status === 200);
+
+  // views.open needs a bot token, which this run does not have, so drive the
+  // submission directly — that is the step that actually creates the series.
+  const submission = {
+    type: "view_submission",
+    user: { id: "U0PARALEGAL", name: "sam" },
+    view: {
+      callback_id: "followup_start",
+      private_metadata: JSON.stringify({ channel_id: "C0INTAKE", thread_ts: "1730000000.000200" }),
+      state: {
+        values: {
+          phone: { value: { value: "(512) 555-0124" } },
+          first_name: { value: { value: "Carlos" } },
+          language: { value: { selected_option: { value: "en" } } },
+          sequence: { value: { selected_option: { value: "new-lead" } } },
+          assignee: { value: { selected_user: "U0PARALEGAL" } },
+          case_reference: { value: { value: "MVA-2026-118" } },
+        },
+      },
+    },
+  };
+  const submitted = await slack("/slack/interactivity", { payload: JSON.stringify(submission) });
+  check("the form submission is accepted", submitted.status === 200);
+
+  const list = await api("/api/enrollments?status=active");
+  const carlos = list.data.find((row) => row.phone_e164 === "+15125550124");
+  check("a second series started from the message", Boolean(carlos));
+  check("it remembers the thread it came from", carlos?.slack_thread_ts === "1730000000.000200");
+  check("it is recorded as coming from a message", carlos?.source === "message_action");
+  check("the reference was captured", carlos?.case_reference === "MVA-2026-118");
+}
+
+console.log("\n7. Sending the due texts");
+{
+  const run = await api("/api/dispatch/run", { method: "POST", body: {} });
+  check("the dispatcher claimed both series", run.data?.claimed === 2, JSON.stringify(run.data));
+  check("both texts were sent", run.data?.sent === 2, JSON.stringify(run.data));
+
+  const sent = await (await fetch("http://127.0.0.1:4999/__sent")).json();
+  check("Quo received two messages", sent.length === 2);
+  check("they were sent from the sequence's number", sent.every((m) => m.from === "+15125557777"));
+
+  const spanish = sent.find((m) => m.to[0] === "+15125550123");
+  check("the Spanish client got the Spanish copy", /^Hola Maria/.test(spanish.content), spanish.content);
+  check("the firm name was merged in", /Ramos Law/.test(spanish.content), spanish.content);
+  check("the first text carries the Spanish opt-out line",
+    /Responda ALTO/.test(spanish.content), spanish.content);
+
+  const english = sent.find((m) => m.to[0] === "+15125550124");
+  check("the English client got the English copy", /^Hi Carlos/.test(english.content), english.content);
+  check("the first text carries the English opt-out line",
+    /Reply STOP to opt out\.$/.test(english.content), english.content);
+
+  const again = await api("/api/dispatch/run", { method: "POST", body: {} });
+  check("a second run sends nothing, because nothing is due yet", again.data?.claimed === 0);
+}
+
+console.log("\n8. The client replies");
+{
+  const unsigned = await fetch(`${BASE}/webhooks/quo`, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ type: "message.received" }),
+  });
+  check("an unverified Quo webhook is rejected", unsigned.status === 401);
+
+  const reply = await fetch(`${BASE}/webhooks/quo?token=quo-token-abc`, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      type: "message.received",
+      data: { object: { id: "IN-1", from: "+15125550123", to: "+15125557777", body: "Si, llamenme por favor" } },
+    }),
+  });
+  const replyBody = await reply.json();
+  check("the reply is accepted", reply.status === 200);
+  check("it reads as re-engagement", replyBody.action === "reply");
+  check("it stopped the series", replyBody.stopped === true);
+
+  const active = await api("/api/enrollments?status=active");
+  check("only the other series is still running", active.data.length === 1);
+
+  const ended = await api("/api/enrollments?status=ended");
+  check("the stopped series is recorded as a reply",
+    ended.data.some((row) => row.status === "stopped_reply"));
+}
+
+console.log("\n9. The other client opts out");
+{
+  const stop = await fetch(`${BASE}/webhooks/quo?token=quo-token-abc`, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      type: "message.received",
+      data: { object: { id: "IN-2", from: "+15125550124", to: "+15125557777", body: "STOP" } },
+    }),
+  });
+  const stopBody = await stop.json();
+  check("STOP is recognised", stopBody.action === "opt_out");
+
+  const sent = await (await fetch("http://127.0.0.1:4999/__sent")).json();
+  const confirmation = sent[sent.length - 1];
+  check("a confirmation text went back", /unsubscribed/.test(confirmation.content), confirmation.content);
+
+  const contacts = await api("/api/contacts?optedOut=true");
+  check("the number is on the opted-out list", contacts.data.length === 1);
+
+  const restart = await slack("/slack/commands", {
+    user_id: "U0PARALEGAL", user_name: "sam", channel_id: "C0INTAKE",
+    text: "start 512-555-0124", response_url: "http://127.0.0.1:4999/__noop",
+  });
+  check("an opted-out number cannot be restarted", /opted out/.test(restart.data?.text ?? ""));
+
+  const active = await api("/api/enrollments?status=active");
+  check("nothing is running now", active.data.length === 0);
+}
+
+console.log("\n10. Permissions on stopping");
+{
+  await slack("/slack/commands", {
+    user_id: "U0PARALEGAL", user_name: "sam", channel_id: "C0INTAKE",
+    text: "start 512-555-0155 Jo", response_url: "http://127.0.0.1:4999/__noop",
+  });
+  await api("/api/operators", {
+    method: "POST", body: { slack_user_id: "U0OTHER", display_name: "Other" },
+  });
+
+  const denied = await slack("/slack/commands", {
+    user_id: "U0OTHER", user_name: "other", channel_id: "C0INTAKE",
+    text: "stop 512-555-0155", response_url: "http://127.0.0.1:4999/__noop",
+  });
+  check("somebody else cannot stop it", /only they or a supervisor/.test(denied.data?.text ?? ""),
+    JSON.stringify(denied.data));
+
+  const supervisor = await slack("/slack/commands", {
+    user_id: "U0SUPERVISOR", user_name: "rosa", channel_id: "C0INTAKE",
+    text: "stop 512-555-0155", response_url: "http://127.0.0.1:4999/__noop",
+  });
+  check("a supervisor can stop it", /Stopped/.test(supervisor.data?.text ?? ""),
+    JSON.stringify(supervisor.data));
+}
+
+console.log("\n11. Status and list commands");
+{
+  const status = await slack("/slack/commands", {
+    user_id: "U0PARALEGAL", user_name: "sam", channel_id: "C0INTAKE", text: "status 512-555-0123",
+  });
+  check("status finds the client", /Maria/.test(status.data?.text ?? ""), JSON.stringify(status.data));
+
+  const list = await slack("/slack/commands", {
+    user_id: "U0SUPERVISOR", user_name: "rosa", channel_id: "C0INTAKE", text: "list",
+  });
+  check("list reports an empty board", /No follow-up series/.test(list.data?.text ?? ""),
+    JSON.stringify(list.data));
+
+  const help = await slack("/slack/commands", {
+    user_id: "U0PARALEGAL", user_name: "sam", channel_id: "C0INTAKE", text: "help",
+  });
+  check("help mentions the message shortcut", /⋯/.test(help.data?.text ?? ""));
+}
+
+console.log("\n12. Dashboard");
+{
+  const dashboard = await api("/api/dashboard?days=30");
+  check("the dashboard loads", dashboard.status === 200);
+  check("it counts the texts that went out", Number(dashboard.data.totals.sent) === 3,
+    JSON.stringify(dashboard.data.totals));
+  check("it counts the replies", Number(dashboard.data.totals.replies) === 2,
+    JSON.stringify(dashboard.data.totals));
+  check("it counts who came back", Number(dashboard.data.totals.reengaged) === 1);
+  check("it counts opt-outs", Number(dashboard.data.totals.opted_out) === 1);
+  check("it has one row per day", dashboard.data.daily.length === 30);
+  check("it reports per-sequence performance", dashboard.data.bySequence.length >= 1);
+  check("health knows Quo is configured", dashboard.data.health.quoConfigured === true);
+  check("health counts the synced numbers", dashboard.data.health.numbers === 2);
+}
+
+console.log("\n13. Sign out");
+{
+  await fetch(`${BASE}/auth/logout`, { method: "POST", headers: { cookie } });
+  const after = await api("/api/dashboard");
+  check("the session is dead after signing out", after.status === 401);
+}
+
+console.log(failures ? `\n${failures} CHECK(S) FAILED\n` : "\nALL END-TO-END CHECKS PASSED\n");
+process.exit(failures ? 1 : 0);

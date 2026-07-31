@@ -1,7 +1,8 @@
 import { Ban, Search } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import AppNav from "../components/AppNav";
-import { formatPhone, formatWhen, loadContacts, optOutContact } from "../lib/followups";
+import { api, formatWhen } from "../lib/api";
+import { formatPhone } from "../../shared/messaging";
 
 export default function ContactsPage() {
   const [contacts, setContacts] = useState([]);
@@ -10,25 +11,30 @@ export default function ContactsPage() {
   const [status, setStatus] = useState("loading");
   const [error, setError] = useState("");
 
-  const refresh = () => {
+  const refresh = useCallback(async (onlyOptedOut = optedOutOnly, term = search) => {
     setStatus("loading");
-    loadContacts({ optedOutOnly, search })
-      .then((data) => { setContacts(data); setStatus("ready"); })
-      .catch((loadError) => { setError(loadError.message); setStatus("error"); });
-  };
+    try {
+      const query = `?optedOut=${onlyOptedOut}${term ? `&search=${encodeURIComponent(term)}` : ""}`;
+      setContacts(await api.get(`/contacts${query}`));
+      setStatus("ready");
+    } catch (loadError) {
+      setError(loadError.message);
+      setStatus("error");
+    }
+  }, [optedOutOnly, search]);
 
-  useEffect(() => { refresh(); /* eslint-disable-next-line */ }, [optedOutOnly]);
+  useEffect(() => { refresh(optedOutOnly, search); /* eslint-disable-next-line */ }, [optedOutOnly]);
 
   const optOut = async (contact) => {
     const confirmed = window.confirm(
-      `Mark ${formatPhone(contact.phone_e164)} as opted out? Any running series stops and no `
-        + "new one can be started. Only the client can undo this, by texting START.",
+      `Mark ${formatPhone(contact.phone_e164)} as opted out? Any running series stops and no new `
+        + "one can be started. Only the client can undo this, by texting START.",
     );
     if (!confirmed) return;
     setError("");
     try {
-      await optOutContact(contact.id, "staff");
-      refresh();
+      await api.post(`/contacts/${contact.id}/opt-out`);
+      await refresh();
     } catch (optOutError) {
       setError(optOutError.message);
     }
@@ -43,16 +49,11 @@ export default function ContactsPage() {
           <div>
             <p className="eyebrow">Contacts</p>
             <h1>Phone numbers</h1>
-            <p>
-              Opt-outs apply to the number across every sequence, which is what the rules require.
-            </p>
+            <p>An opt-out applies to the number across every sequence, which is what the rules require.</p>
           </div>
         </header>
 
-        <form
-          className="inline-create"
-          onSubmit={(event) => { event.preventDefault(); refresh(); }}
-        >
+        <form className="inline-create" onSubmit={(event) => { event.preventDefault(); refresh(); }}>
           <label>
             <span>Search</span>
             <input
@@ -61,7 +62,7 @@ export default function ContactsPage() {
               placeholder="512-555-0123 or a first name"
             />
           </label>
-          <button type="submit"><Search size={15} /> Search</button>
+          <button type="submit" className="button primary"><Search size={15} /> Search</button>
         </form>
 
         <div className="tabs">
@@ -74,7 +75,7 @@ export default function ContactsPage() {
         </div>
 
         {error && <p className="form-error">{error}</p>}
-        {status === "loading" && <div className="page-state">Loading...</div>}
+        {status === "loading" && <div className="page-state">Loading…</div>}
 
         {status === "ready" && contacts.length === 0 && (
           <div className="empty-state">
@@ -115,12 +116,7 @@ export default function ContactsPage() {
                     <td>
                       <div className="row-actions">
                         {!contact.opted_out_at && (
-                          <button
-                            type="button"
-                            className="danger"
-                            onClick={() => optOut(contact)}
-                            title="Mark as opted out"
-                          >
+                          <button type="button" className="danger" onClick={() => optOut(contact)} title="Mark as opted out">
                             <Ban size={16} />
                           </button>
                         )}

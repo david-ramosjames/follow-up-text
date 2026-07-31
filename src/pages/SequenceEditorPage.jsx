@@ -2,29 +2,25 @@ import { ArrowLeft, ChevronDown, ChevronUp, Plus, Save, Trash2 } from "lucide-re
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import AppNav from "../components/AppNav";
-import {
-  createStep,
-  DAY_NAMES,
-  deleteStep,
-  loadSequence,
-  reorderSteps,
-  saveSequence,
-  saveStep,
-  TIMEZONES,
-} from "../lib/followups";
-import { DELAY_PRESETS, describeDelay, MERGE_FIELDS, previewStep } from "../lib/render";
+import { api, DAY_NAMES, TIMEZONES } from "../lib/api";
+import { DELAY_PRESETS, describeDelay, MERGE_FIELDS, previewStep } from "../../shared/messaging";
 
-const SAMPLE = { first_name: "Maria", last_name: "Alvarez", case_reference: "MVA-2026-118", assigned_user: "Sam", firm_name: "the firm" };
+const SAMPLE = {
+  first_name: "Maria",
+  last_name: "Alvarez",
+  case_reference: "MVA-2026-118",
+  assigned_user: "Sam",
+  firm_name: "the firm",
+};
 
-function StepCard({ step, index, total, sequence, onChange, onMove, onRemove, previewLanguage }) {
+function StepCard({ step, index, total, sequence, onChange, onMove, onRemove, language }) {
   const preview = previewStep(step, {
-    language: previewLanguage,
+    language,
     isFirst: index === 0,
     appendNotice: sequence.append_opt_out_notice,
     vars: SAMPLE,
   });
-
-  const empty = !(previewLanguage === "es" ? step.body_es : step.body_en)?.trim();
+  const empty = !(language === "es" ? step.body_es : step.body_en)?.trim();
 
   return (
     <article className="step-card">
@@ -120,7 +116,7 @@ function StepCard({ step, index, total, sequence, onChange, onMove, onRemove, pr
           {index === 0 && sequence.append_opt_out_notice && " — the opt-out line is added automatically"}
         </p>
         {empty
-          ? <p className="preview-empty">No {previewLanguage === "es" ? "Spanish" : "English"} copy yet.</p>
+          ? <p className="preview-empty">No {language === "es" ? "Spanish" : "English"} copy yet.</p>
           : <p className="preview-body">{preview.body}</p>}
         <p className="preview-meta">
           {preview.characters} characters · {preview.encoding} · {preview.segments} segment
@@ -136,23 +132,26 @@ export default function SequenceEditorPage() {
   const { slug } = useParams();
   const [sequence, setSequence] = useState(null);
   const [steps, setSteps] = useState([]);
+  const [numbers, setNumbers] = useState([]);
   const [status, setStatus] = useState("loading");
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState("");
-  const [previewLanguage, setPreviewLanguage] = useState("en");
+  const [language, setLanguage] = useState("en");
 
   useEffect(() => {
-    loadSequence(slug).then((data) => {
-      if (!data) { setStatus("missing"); return; }
-      setSequence(data);
-      setSteps(data.steps);
-      setStatus("ready");
-    }).catch((loadError) => {
-      setError(loadError.message);
-      setStatus("error");
-    });
+    Promise.all([api.get(`/sequences/${slug}`), api.get("/quo-numbers")])
+      .then(([data, numberData]) => {
+        setSequence(data);
+        setSteps(data.steps ?? []);
+        setNumbers(numberData);
+        setStatus("ready");
+      })
+      .catch((loadError) => {
+        setError(loadError.message);
+        setStatus(loadError.message.includes("No such") ? "missing" : "error");
+      });
   }, [slug]);
 
   const totalSpan = useMemo(() => {
@@ -167,7 +166,7 @@ export default function SequenceEditorPage() {
   };
 
   const updateStep = (step, values) => {
-    setSteps((current) => current.map((item) => item.id === step.id ? { ...item, ...values } : item));
+    setSteps((current) => current.map((item) => (item.id === step.id ? { ...item, ...values } : item)));
     setDirty(true);
     setSaved("");
   };
@@ -187,15 +186,7 @@ export default function SequenceEditorPage() {
   const addStep = async () => {
     setError("");
     try {
-      const last = steps[steps.length - 1];
-      const created = await createStep(sequence.id, steps.length + 1, {
-        delay_minutes: last ? last.delay_minutes + 1440 : 0,
-        body_en: "",
-        body_es: "",
-        // A brand new step has no copy, so it stays out of the rotation until
-        // somebody writes it. Saving an empty body would fail the length check.
-        is_active: false,
-      });
+      const created = await api.post(`/sequences/${sequence.id}/steps`);
       setSteps((current) => [...current, created]);
     } catch (createError) {
       setError(createError.message);
@@ -206,7 +197,7 @@ export default function SequenceEditorPage() {
     if (!window.confirm("Delete this text?")) return;
     setError("");
     try {
-      await deleteStep(step.id);
+      await api.delete(`/steps/${step.id}`);
       setSteps((current) => current.filter((item) => item.id !== step.id));
       setDirty(true);
     } catch (deleteError) {
@@ -219,36 +210,16 @@ export default function SequenceEditorPage() {
     setError("");
     setSaved("");
     try {
-      // An active step with no copy would be sent as an empty text, so catch it
-      // here rather than letting the database constraint produce a raw error.
-      const blank = steps.find((step) => step.is_active && (!step.body_en.trim() || !step.body_es.trim()));
-      if (blank) {
-        throw new Error(`Text ${steps.indexOf(blank) + 1} is switched on but is missing its `
-          + `${!blank.body_en.trim() ? "English" : "Spanish"} copy. Every text needs both, because the `
-          + "language is chosen per client when the series starts.");
-      }
       if (sequence.is_active && !steps.some((step) => step.is_active)) {
         throw new Error("This sequence is switched on but has no texts in it. Add at least one, or switch it off.");
       }
 
-      await reorderSteps(steps);
-      for (const [index, step] of steps.entries()) {
-        await saveStep(step.id, {
-          position: index + 1,
-          label: step.label || null,
-          delay_minutes: step.delay_minutes,
-          body_en: step.body_en,
-          body_es: step.body_es,
-          is_active: step.is_active,
-        });
-      }
-
-      const updated = await saveSequence(sequence.id, {
+      const updated = await api.put(`/sequences/${sequence.id}/steps`, { steps });
+      await api.patch(`/sequences/${sequence.id}`, {
         name: sequence.name,
         description: sequence.description || null,
         is_active: sequence.is_active,
-        quo_from_number: sequence.quo_from_number || null,
-        quo_phone_number_id: sequence.quo_phone_number_id || null,
+        quo_number_id: sequence.quo_number_id || null,
         timezone: sequence.timezone,
         quiet_hours_start: sequence.quiet_hours_start,
         quiet_hours_end: sequence.quiet_hours_end,
@@ -256,8 +227,7 @@ export default function SequenceEditorPage() {
         append_opt_out_notice: sequence.append_opt_out_notice,
       });
 
-      setSequence(updated);
-      setSteps(updated.steps);
+      setSteps(updated.steps ?? []);
       setDirty(false);
       setSaved("Saved. Changes apply to the next text that goes out, including series already running.");
     } catch (saveError) {
@@ -276,7 +246,7 @@ export default function SequenceEditorPage() {
     updateSequence({ send_days: next });
   };
 
-  if (status === "loading") return <main className="page-state">Loading...</main>;
+  if (status === "loading") return <main className="page-state">Loading…</main>;
   if (status === "missing") {
     return (
       <main className="page">
@@ -284,7 +254,7 @@ export default function SequenceEditorPage() {
           <AppNav />
           <div className="empty-state">
             <h2>That sequence does not exist</h2>
-            <Link to="/">Back to sequences</Link>
+            <Link to="/sequences">Back to sequences</Link>
           </div>
         </div>
       </main>
@@ -298,11 +268,11 @@ export default function SequenceEditorPage() {
         <AppNav />
 
         <div className="editor-bar">
-          <Link to="/"><ArrowLeft size={15} /> All sequences</Link>
+          <Link to="/sequences"><ArrowLeft size={15} /> All sequences</Link>
           <div>
             {dirty && <span className="unsaved">Unsaved changes</span>}
-            <button type="button" onClick={save} disabled={saving || !dirty}>
-              <Save size={15} /> {saving ? "Saving..." : "Save"}
+            <button type="button" className="button primary" onClick={save} disabled={saving || !dirty}>
+              <Save size={15} /> {saving ? "Saving…" : "Save"}
             </button>
           </div>
         </div>
@@ -328,7 +298,7 @@ export default function SequenceEditorPage() {
         <section className="editor-section">
           <div>
             <h2>Settings</h2>
-            <p>When texts may go out and which Quo number they come from.</p>
+            <p>Which Quo number the texts come from, and when they may go out.</p>
           </div>
           <div className="editor-fields">
             <label className="checkbox wide">
@@ -339,7 +309,10 @@ export default function SequenceEditorPage() {
               />
               <span>
                 <strong>Sequence is on</strong>
-                <small>Paralegals can only start a series on a sequence that is switched on.</small>
+                <small>
+                  Paralegals can only start a series on a sequence that is switched on. Switching it
+                  off also holds any series already running on it.
+                </small>
               </span>
             </label>
 
@@ -352,22 +325,25 @@ export default function SequenceEditorPage() {
               />
             </label>
 
-            <label>
-              <span>Quo number to send from</span>
-              <input
-                value={sequence.quo_from_number || ""}
-                onChange={(event) => updateSequence({ quo_from_number: event.target.value })}
-                placeholder="+15125550100"
-              />
-            </label>
-
-            <label>
-              <span>Quo phone number ID (optional)</span>
-              <input
-                value={sequence.quo_phone_number_id || ""}
-                onChange={(event) => updateSequence({ quo_phone_number_id: event.target.value })}
-                placeholder="PN..."
-              />
+            <label className="wide">
+              <span>Send from</span>
+              <select
+                value={sequence.quo_number_id || ""}
+                onChange={(event) => updateSequence({ quo_number_id: event.target.value || null })}
+              >
+                <option value="">Use the default number from Settings</option>
+                {numbers.map((number) => (
+                  <option key={number.id} value={number.id} disabled={!number.is_active}>
+                    {number.label ? `${number.label} — ${number.phone_e164}` : number.phone_e164}
+                    {number.is_active ? "" : " (no longer in Quo)"}
+                  </option>
+                ))}
+              </select>
+              {numbers.length === 0 && (
+                <small className="field-note">
+                  No numbers yet. Sync them from Quo under <Link to="/settings">Settings</Link>.
+                </small>
+              )}
             </label>
 
             <label>
@@ -420,9 +396,9 @@ export default function SequenceEditorPage() {
                 ))}
               </div>
               <p className="field-note">
-                A text that comes due outside this window waits for the next opening rather than being
-                skipped. Federal and Texas rules both measure this against the client's local time,
-                which is why the timezone above matters.
+                A text that comes due outside this window waits for the next opening rather than
+                being skipped. Federal and Texas rules both measure this against the client's local
+                time, which is why the timezone matters.
               </p>
             </div>
 
@@ -434,9 +410,7 @@ export default function SequenceEditorPage() {
               />
               <span>
                 <strong>Add the opt-out line to the first text</strong>
-                <small>
-                  Appends “Reply STOP to opt out.” (or the Spanish version) to the first text only.
-                </small>
+                <small>Appends “Reply STOP to opt out.” (or the Spanish version) to the first text only.</small>
               </span>
             </label>
           </div>
@@ -464,17 +438,15 @@ export default function SequenceEditorPage() {
                 <button
                   key={value}
                   type="button"
-                  className={previewLanguage === value ? "on" : ""}
-                  onClick={() => setPreviewLanguage(value)}
+                  className={language === value ? "on" : ""}
+                  onClick={() => setLanguage(value)}
                 >
                   {label}
                 </button>
               ))}
             </div>
 
-            {steps.length === 0 && (
-              <p className="empty-inline">No texts yet. Add the first one below.</p>
-            )}
+            {steps.length === 0 && <p className="empty-inline">No texts yet. Add the first one below.</p>}
 
             {steps.map((step, index) => (
               <StepCard
@@ -486,7 +458,7 @@ export default function SequenceEditorPage() {
                 onChange={updateStep}
                 onMove={moveStep}
                 onRemove={removeStep}
-                previewLanguage={previewLanguage}
+                language={language}
               />
             ))}
 

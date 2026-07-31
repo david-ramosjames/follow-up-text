@@ -2,37 +2,34 @@ import { CheckCircle2, Edit3, Plus, Star, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import AppNav from "../components/AppNav";
-import {
-  createSequence,
-  deleteSequence,
-  loadOverview,
-  loadSequences,
-  setDefaultSequence,
-  slugify,
-} from "../lib/followups";
-import { describeDelay } from "../lib/render";
+import { api, slugify } from "../lib/api";
+import { describeDelay } from "../../shared/messaging";
 
 export default function SequencesPage() {
   const navigate = useNavigate();
   const [sequences, setSequences] = useState([]);
-  const [overview, setOverview] = useState(null);
+  const [numbers, setNumbers] = useState([]);
   const [status, setStatus] = useState("loading");
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
-  const refresh = () => loadSequences().then((data) => {
-    setSequences(data);
-    setStatus("ready");
-  }).catch((loadError) => {
-    setError(loadError.message);
-    setStatus("error");
-  });
+  const refresh = async () => {
+    try {
+      const [sequenceData, numberData] = await Promise.all([
+        api.get("/sequences"),
+        api.get("/quo-numbers"),
+      ]);
+      setSequences(sequenceData);
+      setNumbers(numberData);
+      setStatus("ready");
+    } catch (loadError) {
+      setError(loadError.message);
+      setStatus("error");
+    }
+  };
 
-  useEffect(() => {
-    refresh();
-    loadOverview().then(setOverview).catch(() => setOverview(null));
-  }, []);
+  useEffect(() => { refresh(); }, []);
 
   const create = async (event) => {
     event.preventDefault();
@@ -40,15 +37,10 @@ export default function SequencesPage() {
     setBusy(true);
     setError("");
     try {
-      const sequence = await createSequence({
-        slug: slugify(name),
-        name: name.trim(),
-        is_active: false,
-        is_default: sequences.length === 0,
-      });
-      navigate(`/sequences/${sequence.slug}`);
+      const created = await api.post("/sequences", { name: name.trim(), slug: slugify(name) });
+      navigate(`/sequences/${created.slug}`);
     } catch (createError) {
-      setError(createError.message || "The sequence could not be created.");
+      setError(createError.message);
     } finally {
       setBusy(false);
     }
@@ -57,7 +49,7 @@ export default function SequencesPage() {
   const makeDefault = async (sequence) => {
     setError("");
     try {
-      await setDefaultSequence(sequence.id);
+      await api.post(`/sequences/${sequence.id}/default`);
       await refresh();
     } catch (updateError) {
       setError(updateError.message);
@@ -66,20 +58,25 @@ export default function SequencesPage() {
 
   const remove = async (sequence) => {
     const confirmed = window.confirm(
-      `Delete “${sequence.name}”? Any series already running on it will keep their history, `
-        + "but the schedule and message copy are gone for good.",
+      `Delete “${sequence.name}”? Series already running on it keep their history, but the `
+        + "schedule and message copy are gone for good.",
     );
     if (!confirmed) return;
     setError("");
     try {
-      await deleteSequence(sequence.id);
+      await api.delete(`/sequences/${sequence.id}`);
       await refresh();
     } catch (deleteError) {
-      // A sequence with live enrollments is protected by a foreign key.
-      setError(deleteError.code === "23503"
-        ? "That sequence still has follow-up series attached to it. Stop them first, or just turn the sequence off."
+      setError(deleteError.message.includes("violates foreign key")
+        ? "That sequence still has series attached to it. Stop them first, or just switch the sequence off."
         : deleteError.message);
     }
+  };
+
+  const numberLabel = (id) => {
+    const found = numbers.find((number) => number.id === id);
+    if (!found) return id ? "unknown number" : "default";
+    return found.label || found.phone_e164;
   };
 
   return (
@@ -89,20 +86,11 @@ export default function SequencesPage() {
 
         <header className="page-heading">
           <div>
-            <p className="eyebrow">Text follow-ups</p>
+            <p className="eyebrow">Message copy</p>
             <h1>Sequences</h1>
-            <p>The schedules paralegals start from Slack with <code>/followup</code>.</p>
+            <p>The schedules paralegals start from Slack.</p>
           </div>
         </header>
-
-        {overview && (
-          <div className="stat-row">
-            <div><strong>{overview.active}</strong><span>running now</span></div>
-            <div><strong>{overview.sentToday}</strong><span>texts sent today</span></div>
-            <div><strong>{overview.repliedToday}</strong><span>replies today</span></div>
-            <div><strong>{overview.optedOut}</strong><span>opted out</span></div>
-          </div>
-        )}
 
         <form className="inline-create" onSubmit={create}>
           <label>
@@ -113,21 +101,21 @@ export default function SequencesPage() {
               placeholder="New MVA lead follow-up"
             />
           </label>
-          <button type="submit" disabled={busy || !name.trim()}>
-            <Plus size={16} /> {busy ? "Creating..." : "Create"}
+          <button type="submit" className="button primary" disabled={busy || !name.trim()}>
+            <Plus size={16} /> {busy ? "Creating…" : "Create"}
           </button>
         </form>
         <p className="inline-note">
-          New sequences start switched off so you can write the texts before anyone can send them.
+          New sequences start switched off, so you can write the texts before anyone can send them.
         </p>
 
         {error && <p className="form-error">{error}</p>}
-        {status === "loading" && <div className="page-state">Loading sequences...</div>}
+        {status === "loading" && <div className="page-state">Loading…</div>}
 
         {status === "ready" && sequences.length === 0 && (
           <div className="empty-state">
             <h2>No sequences yet</h2>
-            <p>Create one above, add the texts and timings, then switch it on.</p>
+            <p>Create one above, write the texts and timings, then switch it on.</p>
           </div>
         )}
 
@@ -139,14 +127,15 @@ export default function SequencesPage() {
                   <th>Sequence</th>
                   <th>Texts</th>
                   <th>Spans</th>
-                  <th>Sending window</th>
+                  <th>Sends from</th>
+                  <th>Window</th>
                   <th>Status</th>
                   <th aria-label="Actions" />
                 </tr>
               </thead>
               <tbody>
                 {sequences.map((sequence) => {
-                  const active = sequence.steps.filter((step) => step.is_active);
+                  const active = (sequence.steps ?? []).filter((step) => step.is_active);
                   const last = active[active.length - 1];
                   return (
                     <tr key={sequence.id}>
@@ -159,6 +148,7 @@ export default function SequencesPage() {
                       </td>
                       <td>{active.length}</td>
                       <td>{last ? describeDelay(last.delay_minutes).replace("after ", "") : "—"}</td>
+                      <td>{numberLabel(sequence.quo_number_id)}</td>
                       <td>
                         {String(sequence.quiet_hours_start).padStart(2, "0")}:00–
                         {String(sequence.quiet_hours_end).padStart(2, "0")}:00
@@ -172,21 +162,12 @@ export default function SequencesPage() {
                       <td>
                         <div className="row-actions">
                           {!sequence.is_default && (
-                            <button
-                              type="button"
-                              onClick={() => makeDefault(sequence)}
-                              title="Make this the default sequence"
-                            >
+                            <button type="button" onClick={() => makeDefault(sequence)} title="Make this the default">
                               <CheckCircle2 size={16} />
                             </button>
                           )}
                           <Link to={`/sequences/${sequence.slug}`} title="Edit"><Edit3 size={16} /></Link>
-                          <button
-                            type="button"
-                            className="danger"
-                            onClick={() => remove(sequence)}
-                            title="Delete"
-                          >
+                          <button type="button" className="danger" onClick={() => remove(sequence)} title="Delete">
                             <Trash2 size={16} />
                           </button>
                         </div>

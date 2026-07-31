@@ -1,16 +1,8 @@
-import { MessageSquare, Octagon } from "lucide-react";
-import { useEffect, useState } from "react";
+import { MessageSquare, Octagon, Search } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
 import AppNav from "../components/AppNav";
-import { useAdminAuth } from "../components/AdminAuth";
-import {
-  formatPhone,
-  formatWhen,
-  loadEnrollmentMessages,
-  loadEnrollments,
-  loadEvents,
-  STATUS_LABELS,
-  stopEnrollment,
-} from "../lib/followups";
+import { api, formatWhen, SOURCE_LABELS, STATUS_LABELS } from "../lib/api";
+import { formatPhone } from "../../shared/messaging";
 
 const FILTERS = [
   { value: "active", label: "Running" },
@@ -22,10 +14,10 @@ function Thread({ enrollmentId }) {
   const [messages, setMessages] = useState(null);
 
   useEffect(() => {
-    loadEnrollmentMessages(enrollmentId).then(setMessages).catch(() => setMessages([]));
+    api.get(`/enrollments/${enrollmentId}/messages`).then(setMessages).catch(() => setMessages([]));
   }, [enrollmentId]);
 
-  if (!messages) return <p className="thread-loading">Loading messages...</p>;
+  if (!messages) return <p className="thread-loading">Loading messages…</p>;
   if (!messages.length) return <p className="thread-loading">Nothing has gone out yet.</p>;
 
   return (
@@ -35,8 +27,10 @@ function Thread({ enrollmentId }) {
           <p>{message.body}</p>
           <small>
             {message.direction === "outbound" ? "Sent" : "Received"} {formatWhen(message.created_at)}
+            {message.segments > 1 && ` · ${message.segments} segments`}
             {message.status === "failed" && ` · failed: ${message.error ?? "unknown error"}`}
-            {message.status === "undelivered" && " · not delivered"}
+            {message.status === "undelivered" && " · never arrived"}
+            {message.status === "delivered" && " · delivered"}
           </small>
         </div>
       ))}
@@ -45,41 +39,43 @@ function Thread({ enrollmentId }) {
 }
 
 export default function ActivityPage() {
-  const auth = useAdminAuth();
   const [filter, setFilter] = useState("active");
+  const [search, setSearch] = useState("");
   const [enrollments, setEnrollments] = useState([]);
   const [events, setEvents] = useState([]);
   const [openId, setOpenId] = useState(null);
   const [status, setStatus] = useState("loading");
   const [error, setError] = useState("");
 
-  const refresh = (nextFilter = filter) => {
+  const refresh = useCallback(async (nextFilter = filter, nextSearch = search) => {
     setStatus("loading");
-    Promise.all([loadEnrollments({ status: nextFilter }), loadEvents({ limit: 40 })])
-      .then(([enrollmentData, eventData]) => {
-        setEnrollments(enrollmentData);
-        setEvents(eventData);
-        setStatus("ready");
-      })
-      .catch((loadError) => {
-        setError(loadError.message);
-        setStatus("error");
-      });
-  };
+    try {
+      const query = `?status=${nextFilter}${nextSearch ? `&search=${encodeURIComponent(nextSearch)}` : ""}`;
+      const [enrollmentData, eventData] = await Promise.all([
+        api.get(`/enrollments${query}`),
+        api.get("/events"),
+      ]);
+      setEnrollments(enrollmentData);
+      setEvents(eventData);
+      setStatus("ready");
+    } catch (loadError) {
+      setError(loadError.message);
+      setStatus("error");
+    }
+  }, [filter, search]);
 
-  useEffect(() => { refresh(filter); /* eslint-disable-next-line */ }, [filter]);
+  useEffect(() => { refresh(filter, search); /* eslint-disable-next-line */ }, [filter]);
 
   const stop = async (enrollment) => {
-    const contact = enrollment.followup_contacts;
     const confirmed = window.confirm(
-      `Stop follow-ups for ${contact?.first_name || formatPhone(contact?.phone_e164)}? `
+      `Stop follow-ups for ${enrollment.first_name || formatPhone(enrollment.phone_e164)}? `
         + "No further texts will go out.",
     );
     if (!confirmed) return;
     setError("");
     try {
-      await stopEnrollment(enrollment.id, auth.user?.email);
-      refresh();
+      await api.post(`/enrollments/${enrollment.id}/stop`);
+      await refresh();
     } catch (stopError) {
       setError(stopError.message);
     }
@@ -94,9 +90,21 @@ export default function ActivityPage() {
           <div>
             <p className="eyebrow">Activity</p>
             <h1>Follow-up series</h1>
-            <p>Everything running or recently ended, and the full message history behind each one.</p>
+            <p>Everything running or recently ended, with the full message history behind each one.</p>
           </div>
         </header>
+
+        <form className="inline-create" onSubmit={(event) => { event.preventDefault(); refresh(); }}>
+          <label>
+            <span>Search</span>
+            <input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="512-555-0123 or a first name"
+            />
+          </label>
+          <button type="submit" className="button primary"><Search size={15} /> Search</button>
+        </form>
 
         <div className="tabs">
           {FILTERS.map((item) => (
@@ -112,30 +120,29 @@ export default function ActivityPage() {
         </div>
 
         {error && <p className="form-error">{error}</p>}
-        {status === "loading" && <div className="page-state">Loading...</div>}
+        {status === "loading" && <div className="page-state">Loading…</div>}
 
         {status === "ready" && enrollments.length === 0 && (
           <div className="empty-state">
             <h2>Nothing here</h2>
-            <p>Paralegals start follow-ups from Slack with <code>/followup</code>.</p>
+            <p>Paralegals start follow-ups from Slack — with <code>/followup</code>, or from the
+              <code> ⋯ </code> menu on any message.</p>
           </div>
         )}
 
         <div className="card-list">
           {enrollments.map((enrollment) => {
-            const contact = enrollment.followup_contacts;
-            const sequence = enrollment.followup_sequences;
             const open = openId === enrollment.id;
             return (
               <article key={enrollment.id} className={enrollment.status === "active" ? "live" : ""}>
                 <header>
                   <div>
                     <h2>
-                      {contact?.first_name || "Unknown"}{" "}
-                      <span className="phone">{formatPhone(contact?.phone_e164)}</span>
+                      {enrollment.first_name || "Unknown"}{" "}
+                      <span className="phone">{formatPhone(enrollment.phone_e164)}</span>
                     </h2>
                     <p>
-                      {sequence?.name} · {enrollment.language === "es" ? "Spanish" : "English"}
+                      {enrollment.sequence_name} · {enrollment.language === "es" ? "Spanish" : "English"}
                       {enrollment.case_reference && ` · ${enrollment.case_reference}`}
                     </p>
                   </div>
@@ -143,20 +150,19 @@ export default function ActivityPage() {
                     <span className={`status-dot ${enrollment.status}`}>
                       {STATUS_LABELS[enrollment.status] ?? enrollment.status}
                     </span>
-                    {enrollment.status === "active" && (
-                      <small>next text {formatWhen(enrollment.next_run_at, sequence?.timezone)}</small>
-                    )}
-                    {enrollment.status !== "active" && enrollment.ended_at && (
-                      <small>ended {formatWhen(enrollment.ended_at, sequence?.timezone)}</small>
-                    )}
+                    {enrollment.status === "active"
+                      ? <small>next text {formatWhen(enrollment.next_run_at, enrollment.timezone)}</small>
+                      : enrollment.ended_at && <small>ended {formatWhen(enrollment.ended_at, enrollment.timezone)}</small>}
                   </div>
                 </header>
 
                 <footer>
                   <small>
-                    Assigned to <code>{enrollment.assigned_slack_user_name || enrollment.assigned_slack_user_id}</code>
-                    {" · started "}{formatWhen(enrollment.started_at, sequence?.timezone)}
-                    {contact?.opted_out_at && " · this contact has opted out"}
+                    {enrollment.sent_count} text{Number(enrollment.sent_count) === 1 ? "" : "s"} sent ·
+                    {" "}assigned to <code>{enrollment.assigned_slack_user_name || enrollment.assigned_slack_user_id}</code> ·
+                    {" "}{SOURCE_LABELS[enrollment.source] ?? enrollment.source} ·
+                    {" "}started {formatWhen(enrollment.started_at, enrollment.timezone)}
+                    {enrollment.opted_out_at && " · this contact has opted out"}
                   </small>
                   <div className="card-actions">
                     <button type="button" onClick={() => setOpenId(open ? null : enrollment.id)}>
@@ -180,10 +186,13 @@ export default function ActivityPage() {
           <section className="log">
             <h2>Recent events</h2>
             <ul>
-              {events.map((event) => (
+              {events.slice(0, 40).map((event) => (
                 <li key={event.id}>
                   <time>{formatWhen(event.created_at)}</time>
-                  <span>{event.kind.replace(/_/g, " ")}</span>
+                  <span>
+                    {event.kind.replace(/_/g, " ")}
+                    {event.phone_e164 && ` — ${event.first_name || formatPhone(event.phone_e164)}`}
+                  </span>
                   <small>{event.actor}</small>
                 </li>
               ))}

@@ -1,12 +1,14 @@
-// Browser mirror of supabase/functions/_shared/copy.ts.
+// Message copy: merge fields, opt-out wording, the keyword lists that decide
+// whether an inbound text is an opt-out or an ordinary reply, and SMS segment
+// counting.
 //
-// The admin preview has to show byte-for-byte what Quo will send, including the
-// appended opt-out line and the segment count, so this logic exists twice: once
-// in Deno for the sender and once here for the editor. `npm test` fails if the
-// two copies drift apart.
+// Imported by both the server (which sends the texts) and the browser (which
+// previews them), so the preview is guaranteed to match what actually goes out.
 
 export const FALLBACKS = {
+  // A text opening "Hi ," because intake had no name reads worse than "Hi there,".
   en: { first_name: "there", last_name: "", full_name: "there", case_reference: "your case", assigned_user: "our team", firm_name: "our office" },
+  // Spanish has no neutral equivalent of "there", so the greeting closes up instead.
   es: { first_name: "", last_name: "", full_name: "", case_reference: "su caso", assigned_user: "nuestro equipo", firm_name: "nuestra oficina" },
 };
 
@@ -14,7 +16,7 @@ export const MERGE_FIELDS = [
   { token: "{{first_name}}", label: "First name" },
   { token: "{{last_name}}", label: "Last name" },
   { token: "{{full_name}}", label: "Full name" },
-  { token: "{{case_reference}}", label: "Case reference" },
+  { token: "{{case_reference}}", label: "Case or matter reference" },
   { token: "{{assigned_user}}", label: "Assigned staff member" },
   { token: "{{firm_name}}", label: "Firm name" },
 ];
@@ -31,11 +33,13 @@ export function renderBody(template, vars = {}, language = "en") {
 
   const rendered = String(template ?? "").replace(/\{\{\s*([a-z_]+)\s*\}\}/gi, (whole, rawKey) => {
     const key = rawKey.toLowerCase();
+    // An unknown token is left visible rather than blanked: somebody will notice
+    // "{{frist_name}}" in the preview, but they will not notice a missing clause.
     if (!(key in values)) return whole;
-    return values[key] || FALLBACKS[language][key] || "";
+    return values[key] || FALLBACKS[language]?.[key] || "";
   });
 
-  return rendered.replace(/[ \t]{2,}/g, " ").replace(/\s+([,.!?])/g, "$1").trim();
+  return rendered.replace(/[ \t]{2,}/g, " ").replace(/[ \t]+([,.!?])/g, "$1").trim();
 }
 
 export const OPT_OUT_NOTICE = {
@@ -54,11 +58,15 @@ export const START_CONFIRMATION = {
 };
 
 export function appendOptOutNotice(body, language) {
-  const notice = OPT_OUT_NOTICE[language];
+  const notice = OPT_OUT_NOTICE[language] ?? OPT_OUT_NOTICE.en;
+  // Do not stack a second notice onto copy that already carries one.
   if (body.toLowerCase().includes(notice.toLowerCase().slice(0, 12))) return body;
   return `${body} ${notice}`.trim();
 }
 
+// Matched against the whole normalized message, never as a substring. "Para" is
+// an everyday Spanish preposition and "end" appears mid-sentence constantly, so
+// substring matching would silently unsubscribe clients who were re-engaging.
 export const STOP_KEYWORDS = [
   "stop", "stopall", "stop all", "unsubscribe", "cancel", "end", "quit",
   "revoke", "optout", "opt out", "remove", "remove me", "no more",
@@ -73,6 +81,8 @@ export const START_KEYWORDS = [
   "iniciar", "comenzar", "empezar", "reanudar", "suscribir", "si",
 ];
 
+// Lowercase, strip accents and punctuation, collapse whitespace, so "¡ALTO!",
+// "Alto." and "alto" all land on the same token.
 export function normalizeInbound(body) {
   return String(body ?? "")
     .normalize("NFD")
@@ -96,6 +106,9 @@ const GSM7 = "@£$¥èéùìòÇ\nØø\rÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ !\"#¤
   + "¡ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÑÜ§¿abcdefghijklmnopqrstuvwxyzäöñüà";
 const GSM7_EXTENDED = "^{}\\[~]|€";
 
+// Spanish copy is the reason this exists: é and ñ are in the GSM-7 table but á,
+// í, ó and ú are not, so one accented vowel drops a whole message to UCS-2 and
+// cuts the per-segment budget from 160 characters to 70.
 export function countSegments(body) {
   const text = body ?? "";
   let isGsm = true;
@@ -131,18 +144,17 @@ export function previewStep(step, { language = "en", isFirst = false, appendNoti
   return { body, ...countSegments(body) };
 }
 
-// "in 2 days", "after 3 hours" — how the schedule reads to whoever is editing it.
 export function describeDelay(minutes) {
   const value = Number(minutes) || 0;
   if (value === 0) return "immediately";
   if (value < 60) return `after ${value} minute${value === 1 ? "" : "s"}`;
   if (value < 60 * 24) {
     const hours = value / 60;
-    const rounded = Number.isInteger(hours) ? hours : hours.toFixed(1);
+    const rounded = Number.isInteger(hours) ? hours : Number(hours.toFixed(1));
     return `after ${rounded} hour${rounded === 1 ? "" : "s"}`;
   }
   const days = value / (60 * 24);
-  const rounded = Number.isInteger(days) ? days : days.toFixed(1);
+  const rounded = Number.isInteger(days) ? days : Number(days.toFixed(1));
   return `after ${rounded} day${rounded === 1 ? "" : "s"}`;
 }
 
@@ -156,3 +168,52 @@ export const DELAY_PRESETS = [
   { label: "1 week", minutes: 10080 },
   { label: "2 weeks", minutes: 20160 },
 ];
+
+/* ------------------------------------------------------------ phone numbers */
+
+export function normalizePhone(raw) {
+  if (raw === null || raw === undefined) return null;
+  const text = String(raw).trim();
+
+  if (text.startsWith("+")) {
+    const digits = text.replace(/[^0-9]/g, "");
+    return digits.length >= 8 && digits.length <= 15 ? `+${digits}` : null;
+  }
+
+  const digits = text.replace(/[^0-9]/g, "");
+  if (digits.length === 10) return `+1${digits}`;
+  if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
+  if (digits.length >= 11 && digits.length <= 15) return `+${digits}`;
+  return null;
+}
+
+export function formatPhone(e164) {
+  if (!e164) return "";
+  const match = String(e164).match(/^\+1(\d{3})(\d{3})(\d{4})$/);
+  return match ? `(${match[1]}) ${match[2]}-${match[3]}` : String(e164);
+}
+
+export function maskPhone(phone) {
+  if (!phone || phone.length < 4) return phone ?? "";
+  return `(•••) •••-${String(phone).slice(-4)}`;
+}
+
+// Pulls candidate phone numbers out of free Slack text so a paralegal can start
+// follow-ups straight from the message where the client's number appears.
+// Slack wraps tel: links as <tel:+15125550123|(512) 555-0123>, so unwrap first.
+export function extractPhones(text) {
+  const unwrapped = String(text ?? "")
+    .replace(/<tel:([^|>]+)(\|[^>]*)?>/gi, " $1 ")
+    .replace(/<mailto:[^>]*>/gi, " ")
+    .replace(/<https?:[^>]*>/gi, " ");
+
+  const found = [];
+  const pattern = /\+?\d[\d\s().-]{8,20}\d/g;
+  for (const match of unwrapped.matchAll(pattern)) {
+    const normalized = normalizePhone(match[0]);
+    // A 4-digit year inside a longer run, or a case number, will not normalize
+    // to a plausible mobile, so this filters most false positives on its own.
+    if (normalized && !found.includes(normalized)) found.push(normalized);
+  }
+  return found;
+}

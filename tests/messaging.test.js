@@ -1,22 +1,23 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
 
 import {
   appendOptOutNotice,
   classifyInbound,
   countSegments,
   describeDelay,
+  extractPhones,
+  formatPhone,
+  maskPhone,
   normalizeInbound,
+  normalizePhone,
   previewStep,
   renderBody,
   START_KEYWORDS,
   STOP_KEYWORDS,
-} from "../src/lib/render.js";
+} from "../shared/messaging.js";
 
-const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+/* ------------------------------------------------------------ merge fields */
 
 test("merge fields are filled from the contact", () => {
   assert.equal(
@@ -30,7 +31,6 @@ test("a missing English name falls back to something sayable", () => {
 });
 
 test("a missing Spanish name collapses instead of leaving a gap", () => {
-  // Spanish has no neutral equivalent of "there", so the greeting has to close up.
   assert.equal(renderBody("Hola {{first_name}}, le escribimos.", {}, "es"), "Hola, le escribimos.");
 });
 
@@ -39,9 +39,7 @@ test("spacing around punctuation survives an empty merge field", () => {
   assert.equal(renderBody("A {{first_name}} B", {}, "es"), "A B");
 });
 
-test("unknown tokens are left alone rather than blanked", () => {
-  // Better to send a visible {{oops}} that someone notices than to silently drop
-  // half a sentence.
+test("unknown tokens are left visible rather than blanked", () => {
   assert.equal(renderBody("Hi {{oops}}", { first_name: "X" }), "Hi {{oops}}");
 });
 
@@ -60,7 +58,7 @@ test("copy that already mentions STOP does not get a second notice", () => {
   assert.equal(appendOptOutNotice(body, "en"), body);
 });
 
-// ---------------------------------------------------------------- keywords
+/* ---------------------------------------------------------------- keywords */
 
 test("STOP keywords are recognised in both languages", () => {
   for (const word of ["STOP", "stop", "Stop.", "unsubscribe", "ALTO", "¡Alto!", "no mas", "no más"]) {
@@ -70,7 +68,7 @@ test("STOP keywords are recognised in both languages", () => {
 
 test("keywords are only matched as the whole message", () => {
   // These are the false positives that would unsubscribe a client who was
-  // actually re-engaging, which is the worst possible outcome.
+  // actually re-engaging, which is the worst outcome this system can produce.
   const replies = [
     "please stop by the office tomorrow",
     "gracias, es para mi caso",
@@ -88,19 +86,16 @@ test("accents and punctuation are normalized away", () => {
   assert.equal(normalizeInbound("No más!"), "no mas");
 });
 
-test("bare yes is a START keyword, handled as a reply by the database", () => {
-  // The word alone cannot distinguish "yes, subscribe me" from "yes, call me",
-  // so the database only treats it as an opt-in when the contact is opted out.
+test("bare yes is a START keyword, resolved as a reply by the database", () => {
   assert.equal(classifyInbound("yes").isStart, true);
   assert.equal(classifyInbound("yes please call me").isStart, false);
 });
 
 test("the keyword lists do not overlap", () => {
-  const overlap = STOP_KEYWORDS.filter((word) => START_KEYWORDS.includes(word));
-  assert.deepEqual(overlap, []);
+  assert.deepEqual(STOP_KEYWORDS.filter((word) => START_KEYWORDS.includes(word)), []);
 });
 
-// --------------------------------------------------------------- segments
+/* ---------------------------------------------------------------- segments */
 
 test("plain English copy counts as one GSM-7 segment", () => {
   const result = countSegments("Hi Maria, this is the firm. Do you have a minute to talk?");
@@ -114,10 +109,9 @@ test("161 GSM-7 characters spill into a second segment", () => {
 });
 
 test("only some Spanish accents survive GSM-7", () => {
-  // The GSM-7 basic set covers é, è, ñ, ü, ¿ and ¡ but not á, í, ó or ú. So
-  // "¿Tiene un minuto?" is a cheap single segment while "¿Está bien?" silently
-  // drops to UCS-2 and halves the per-segment budget. That surprise is the whole
-  // reason the editor shows a live segment count.
+  // é, è, ñ, ü, ¿ and ¡ are in the GSM-7 table; á, í, ó and ú are not. One of
+  // those halves the per-segment budget, which is why the editor shows a live
+  // segment count.
   assert.equal(countSegments("Le llamamos del bufete").encoding, "GSM-7");
   assert.equal(countSegments("¿Tiene un minuto para hablar? Señor").encoding, "GSM-7");
   assert.equal(countSegments("¿Está bien?").encoding, "UCS-2");
@@ -134,28 +128,29 @@ test("an empty body is zero segments", () => {
   assert.equal(countSegments("").segments, 0);
 });
 
-// ---------------------------------------------------------------- preview
+/* ----------------------------------------------------------------- preview */
 
 test("the preview shows the opt-out line on the first step only", () => {
   const step = { body_en: "Hi {{first_name}}, checking in.", body_es: "Hola {{first_name}}." };
-  const first = previewStep(step, { language: "en", isFirst: true, vars: { first_name: "Dana" } });
-  const later = previewStep(step, { language: "en", isFirst: false, vars: { first_name: "Dana" } });
-
-  assert.equal(first.body, "Hi Dana, checking in. Reply STOP to opt out.");
-  assert.equal(later.body, "Hi Dana, checking in.");
+  assert.equal(
+    previewStep(step, { language: "en", isFirst: true, vars: { first_name: "Dana" } }).body,
+    "Hi Dana, checking in. Reply STOP to opt out.",
+  );
+  assert.equal(
+    previewStep(step, { language: "en", isFirst: false, vars: { first_name: "Dana" } }).body,
+    "Hi Dana, checking in.",
+  );
 });
 
 test("the preview honours the sequence's opt-out setting", () => {
-  const step = { body_en: "Hi.", body_es: "Hola." };
-  assert.equal(previewStep(step, { isFirst: true, appendNotice: false }).body, "Hi.");
+  assert.equal(previewStep({ body_en: "Hi.", body_es: "Hola." }, { isFirst: true, appendNotice: false }).body, "Hi.");
 });
 
-test("the preview picks the Spanish body for Spanish enrollments", () => {
-  const step = { body_en: "Hello", body_es: "Hola" };
-  assert.equal(previewStep(step, { language: "es" }).body, "Hola");
+test("the preview picks the Spanish body for Spanish clients", () => {
+  assert.equal(previewStep({ body_en: "Hello", body_es: "Hola" }, { language: "es" }).body, "Hola");
 });
 
-// ----------------------------------------------------------------- delays
+/* ------------------------------------------------------------------ delays */
 
 test("delays read the way a person would say them", () => {
   assert.equal(describeDelay(0), "immediately");
@@ -165,37 +160,53 @@ test("delays read the way a person would say them", () => {
   assert.equal(describeDelay(4320), "after 3 days");
 });
 
-// -------------------------------------------------------- drift guard
+/* ------------------------------------------------------------ phone numbers */
 
-// The sender runs on Deno and cannot import this module, so the logic is
-// duplicated. These checks fail the build if only one copy gets edited.
-test("the Deno sender and the browser preview agree", () => {
-  const deno = readFileSync(join(root, "supabase/functions/_shared/copy.ts"), "utf8");
-  const browser = readFileSync(join(root, "src/lib/render.js"), "utf8");
+test("phone numbers normalize the way people type them", () => {
+  assert.equal(normalizePhone("5125550123"), "+15125550123");
+  assert.equal(normalizePhone("(512) 555-0123"), "+15125550123");
+  assert.equal(normalizePhone("1-512-555-0123"), "+15125550123");
+  assert.equal(normalizePhone("+1 512 555 0123"), "+15125550123");
+  assert.equal(normalizePhone("call me"), null);
+  assert.equal(normalizePhone("5550123"), null);
+});
 
-  const listFrom = (source, name) => {
-    const match = source.match(new RegExp(`${name}\\s*=\\s*(?:new Set\\()?\\[([\\s\\S]*?)\\]`));
-    assert.ok(match, `${name} not found`);
-    return match[1].split(",").map((entry) => entry.trim()).filter(Boolean).sort();
-  };
+test("formatting and masking", () => {
+  assert.equal(formatPhone("+15125550123"), "(512) 555-0123");
+  assert.equal(maskPhone("+15125550123"), "(•••) •••-0123");
+});
 
-  assert.deepEqual(listFrom(deno, "STOP_KEYWORDS"), listFrom(browser, "STOP_KEYWORDS"),
-    "STOP keywords differ between the sender and the preview");
-  assert.deepEqual(listFrom(deno, "START_KEYWORDS"), listFrom(browser, "START_KEYWORDS"),
-    "START keywords differ between the sender and the preview");
+/* -------------------------------------------- pulling numbers out of Slack */
 
-  const noticeFrom = (source) => {
-    const match = source.match(/OPT_OUT_NOTICE[^=]*=\s*\{([\s\S]*?)\}/);
-    assert.ok(match, "OPT_OUT_NOTICE not found");
-    return match[1].replace(/\s+/g, " ").trim();
-  };
-  assert.equal(noticeFrom(deno), noticeFrom(browser),
-    "The opt-out wording differs, so the preview would lie about the segment count");
+test("a number is found in an ordinary Slack message", () => {
+  const text = "New MVA lead from the website. Ana Ruiz, 512-555-0123, rear-ended on I-35 yesterday.";
+  assert.deepEqual(extractPhones(text), ["+15125550123"]);
+});
 
-  const gsmFrom = (source) => {
-    const match = source.match(/const GSM7 = ([\s\S]*?);\nconst GSM7_EXTENDED = (.*?);/);
-    assert.ok(match, "GSM-7 tables not found");
-    return `${match[1].replace(/\s+/g, "")}|${match[2]}`;
-  };
-  assert.equal(gsmFrom(deno), gsmFrom(browser), "The GSM-7 tables differ, so segment counts would differ");
+test("Slack's tel: link markup is unwrapped", () => {
+  // Slack rewrites anything phone-shaped into <tel:+15125550123|(512) 555-0123>,
+  // so the raw message text is not what was typed.
+  assert.deepEqual(extractPhones("Call <tel:+15125550123|(512) 555-0123> back"), ["+15125550123"]);
+});
+
+test("several numbers come back in the order they appear", () => {
+  const text = "Client 512-555-0123, her husband on (512) 555-0199.";
+  assert.deepEqual(extractPhones(text), ["+15125550123", "+15125550199"]);
+});
+
+test("the same number written twice is only returned once", () => {
+  assert.deepEqual(extractPhones("512-555-0123 and +1 512 555 0123"), ["+15125550123"]);
+});
+
+test("links and emails do not produce phantom numbers", () => {
+  const text = "Form at <https://firm.com/intake?id=2026001234> from <mailto:a@b.com|a@b.com>";
+  assert.deepEqual(extractPhones(text), []);
+});
+
+test("short digit runs are not mistaken for numbers", () => {
+  assert.deepEqual(extractPhones("Case 2026-118, filed 08/03/2026, $4,500 in bills"), []);
+});
+
+test("a message with no number gives nothing rather than guessing", () => {
+  assert.deepEqual(extractPhones("Following up with the client from yesterday"), []);
 });
