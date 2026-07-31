@@ -59,6 +59,40 @@ app.use((error, req, res, next) => {
 
 const port = Number(process.env.PORT ?? 3000);
 
+// Printed at every boot so "what do I still need to set?" is answered by the
+// deploy logs rather than by reading the source. Nothing here is fatal except a
+// missing DATABASE_URL, which db.js catches first — the app is meant to start
+// half-configured so somebody can sign in and finish the setup.
+function reportConfiguration() {
+  const checks = [
+    ["DATABASE_URL", Boolean(process.env.DATABASE_URL), "the database"],
+    ["PUBLIC_URL", Boolean(process.env.PUBLIC_URL), "OAuth redirects and secure cookies"],
+    ["QUO_API_KEY", Boolean(process.env.QUO_API_KEY), "sending any text at all"],
+    ["QUO_WEBHOOK_SECRET", Boolean(process.env.QUO_WEBHOOK_SECRET || process.env.QUO_WEBHOOK_TOKEN),
+      "receiving replies, so nothing can stop a series"],
+    ["SLACK_SIGNING_SECRET", Boolean(process.env.SLACK_SIGNING_SECRET),
+      "accepting anything from Slack"],
+    ["SLACK_BOT_TOKEN", Boolean(process.env.SLACK_BOT_TOKEN),
+      "the start form and thread notifications"],
+    ["GOOGLE_CLIENT_ID", Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
+      "signing in with Google"],
+    ["ADMIN_PASSWORD", Boolean(process.env.ADMIN_PASSWORD),
+      "the first sign-in, before anybody is on the access list"],
+  ];
+
+  const missing = checks.filter(([, present]) => !present);
+  if (!missing.length) {
+    console.log("Configuration: everything is set.");
+    return;
+  }
+
+  console.log(`Configuration: ${checks.length - missing.length} of ${checks.length} set. Missing:`);
+  for (const [name, , why] of missing) console.log(`  ${name.padEnd(22)} needed for ${why}`);
+  if (!process.env.GOOGLE_CLIENT_ID && !process.env.ADMIN_PASSWORD) {
+    console.log("  -> With neither GOOGLE_CLIENT_ID nor ADMIN_PASSWORD, nobody can sign in.");
+  }
+}
+
 async function main() {
   console.log("Running migrations...");
   await migrate();
@@ -70,8 +104,7 @@ async function main() {
 
   const server = app.listen(port, () => {
     console.log(`Follow-up texts listening on ${port}`);
-    if (!process.env.SLACK_SIGNING_SECRET) console.warn("  SLACK_SIGNING_SECRET is not set: Slack requests will be rejected.");
-    if (!process.env.QUO_API_KEY) console.warn("  QUO_API_KEY is not set: no texts can be sent.");
+    reportConfiguration();
   });
 
   const shutdown = () => {

@@ -52,8 +52,14 @@ an opt-out from the dashboard but cannot undo one.
 
 1. **Add a Postgres service.** Railway sets `DATABASE_URL` for you. Migrations
    run automatically on every boot.
-2. **Deploy this repository.** `railway.json` sets the build and start commands
-   and points the healthcheck at `/healthz`.
+2. **Deploy this repository.** It builds from the `Dockerfile` — explicit and
+   identical every time, rather than letting nixpacks infer it. Delete the
+   Dockerfile to fall back to nixpacks.
+
+   **No environment variable is needed to build.** The build is `npm ci` plus
+   `vite build`, and neither reads any. Everything below is read at run time, and
+   the app boots half-configured on purpose, printing exactly what is still
+   missing in the deploy log.
 3. **Set the environment variables** — see `.env.example`, or the Help page in
    the running app, which lists every one with an explanation. At minimum:
    `QUO_API_KEY`, `SLACK_SIGNING_SECRET`, `SLACK_BOT_TOKEN`,
