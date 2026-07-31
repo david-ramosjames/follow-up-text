@@ -75,6 +75,19 @@ console.log("\n1. Authentication");
     googleStart.headers.get("location") ?? "");
 }
 
+// This walkthrough asserts exact counts, so it only means anything against a
+// clean database. Running it twice in a row otherwise produces a wall of
+// confusing failures that look like regressions but are just leftover rows.
+{
+  const existing = await api("/api/enrollments?status=all");
+  if (existing.data?.length) {
+    console.log(`\nThis database already has ${existing.data.length} follow-up series in it.`);
+    console.log("The walkthrough checks exact counts, so it needs a clean database.");
+    console.log("Use ./tests/e2e/run.sh, which resets one for you.\n");
+    process.exit(1);
+  }
+}
+
 console.log("\n2. Quo numbers");
 {
   const synced = await api("/api/quo-numbers/sync", { method: "POST", body: {} });
