@@ -31,7 +31,7 @@ const HELP = [
   "",
   "*From any message or thread* — hover the message, hit `⋯`, choose *Start follow-up texts*. "
     + "The number is read out of the message and every update comes back in that thread.",
-  "*In a thread* — `@Follow-ups start 512-555-0123 es Maria`.",
+  "*In a thread* — `@sms-follow-up start 512-555-0123 es Maria`.",
   "",
   "*Commands*",
   "`/followup` — open the start form",

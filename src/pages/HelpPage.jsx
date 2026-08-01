@@ -7,7 +7,7 @@ const FAQ = [
     q: "How does a paralegal actually start follow-ups?",
     a: [
       "Three ways, all in Slack. From any message — hover it, open the ⋯ menu, choose “Start follow-up texts”. The client's number is read out of the message and the form opens with it filled in.",
-      "Inside a thread — “@Follow-ups start 512-555-0123 es Maria”. If the number is already in the message that started the thread, you can leave it out.",
+      "Inside a thread — “@sms-follow-up start 512-555-0123 es Maria”. If the number is already in the message that started the thread, you can leave it out.",
       "Or the slash command — “/followup” on its own opens the form, and “/followup start 512-555-0123” skips it.",
     ],
   },

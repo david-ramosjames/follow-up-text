@@ -20,7 +20,7 @@ Three ways, all in Slack:
 | Where | How |
 | --- | --- |
 | **Any message** | Hover it → `⋯` → **Start follow-up texts**. The client's number is read out of the message and the form opens with it filled in. |
-| **Inside a thread** | `@Follow-ups start 512-555-0123 es Maria` — or leave the number out if it is already in the message that started the thread. |
+| **Inside a thread** | `@sms-follow-up start 512-555-0123 es Maria` — or leave the number out if it is already in the message that started the thread. |
 | **Slash command** | `/followup` opens the form; `/followup start 512-555-0123` skips it. |
 
 Started from a message or a thread, **every later update about that client posts
@@ -83,6 +83,10 @@ an opt-out from the dashboard but cannot undo one.
    Paste the output into api.slack.com/apps → **Create New App** → **From a
    manifest**. That declares the slash command, the message shortcut, the event
    subscriptions and the scopes in one go.
+
+   The manifest names the app `sms-follow-up`, which is also the bot's
+   @-handle. If yours is called something else, set `SLACK_APP_NAME` when you
+   generate it — otherwise saving the manifest renames the app.
 
    A slash command cannot be declared in code — Slack has to be told the command
    exists and where to send it — so a manifest is as close to keeping it in the

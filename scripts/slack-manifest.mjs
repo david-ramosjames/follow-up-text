@@ -3,6 +3,10 @@
 //
 //   PUBLIC_URL=https://your-app.up.railway.app npm run slack:manifest
 //
+// Set SLACK_APP_NAME too if your Slack app is not called sms-follow-up — the
+// name in the manifest becomes the app's name and the bot's @-handle, so a
+// mismatch renames the app when you save.
+//
 // Paste it into api.slack.com/apps -> Create New App -> From a manifest, and
 // Slack creates the slash command, the message shortcut, the event
 // subscriptions and the scopes in one go. On an app that already exists, the
@@ -14,6 +18,10 @@
 import "dotenv/config";
 
 const PUBLIC_URL = (process.env.PUBLIC_URL || "").replace(/\/$/, "");
+
+// The app's name in Slack, which is also the bot's @-handle. Override it if you
+// named the app something else, so the manifest does not rename it on save.
+const APP_NAME = process.env.SLACK_APP_NAME || "sms-follow-up";
 
 if (!PUBLIC_URL) {
   console.error(`
@@ -33,13 +41,13 @@ if (!PUBLIC_URL.startsWith("https://")) {
 // on, Slack delivers over a WebSocket and ignores every Request URL below, so
 // nothing reaches this app and the failure looks like silence.
 console.log(`display_information:
-  name: Follow-ups
+  name: ${APP_NAME}
   description: Automated client follow-up texts
   long_description: Starts a scheduled series of English or Spanish follow-up texts for a client who has gone quiet, and stops the moment they reply, call back, or text STOP. Started from any message, from a thread, or with /followup.
   background_color: "#2f5f7a"
 features:
   bot_user:
-    display_name: Follow-ups
+    display_name: ${APP_NAME}
     always_online: true
   slash_commands:
     - command: /followup
