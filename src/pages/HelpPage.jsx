@@ -156,6 +156,46 @@ const FAQ = [
   },
 ];
 
+// Kept deliberately in step with the parser in server/routes/slack.js — if the
+// grammar changes there, this table is what people will be reading.
+const COMMANDS = [
+  ["/followup", "Opens the start form. Nothing to remember, and the only one worth teaching somebody on their first day."],
+  ["/followup 512-555-0123 es Maria", "Starts straight away. With a number in it, the word “start” is optional."],
+  ["/followup start 512-555-0123 es Maria", "The same thing spelled out."],
+  ["/followup stop 512-555-0123", "Stops that client's series. Only the person it is assigned to, or a supervisor."],
+  ["/followup status 512-555-0123", "Where that client is: language, what has been sent, when the next text goes, who owns them, and whether they have opted out."],
+  ["/followup list", "Every series you have running. Supervisors see everyone's."],
+  ["/followup help", "This page's short version, inside Slack."],
+];
+
+const COMMAND_PARTS = [
+  [
+    "The number",
+    "512-555-0123, (512) 555-0123, +15125550123 — any of them",
+    "Required. It is picked out of whatever you typed, so pasting a number straight from a message works.",
+  ],
+  [
+    "The language",
+    "en, english, ingles — or es, spanish, espanol, español",
+    "Optional. Falls back to whatever language you last used for that number, and to English if it is a new one.",
+  ],
+  [
+    "The first name",
+    "Maria",
+    "Optional, but it is what {{first_name}} puts in the text. Left out, English says “there” and the Spanish greeting closes up rather than reading “Hola ,”.",
+  ],
+  [
+    "The sequence",
+    "no-contact — the short name shown under each one on the Sequences page",
+    "Optional. Leave it out and the default sequence is used.",
+  ],
+  [
+    "Who owns it",
+    "@someone",
+    "Optional. Assigned to you unless you @-mention somebody else — and only the assigned person or a supervisor can stop it.",
+  ],
+];
+
 const ENV = [
   {
     group: "Required",
@@ -232,6 +272,79 @@ export default function HelpPage() {
             <p>How the system behaves, and everything it needs configured.</p>
           </div>
         </header>
+
+        <section className="panel">
+          <header className="panel-head">
+            <div>
+              <h2>Slack commands</h2>
+              <p>
+                Every reply is only visible to you, so nothing here clutters the channel.
+                Anyone not on the Access list with a Slack member ID gets a polite refusal.
+              </p>
+            </div>
+          </header>
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead><tr><th>Type this</th><th>What happens</th></tr></thead>
+              <tbody>
+                {COMMANDS.map(([command, detail]) => (
+                  <tr key={command}>
+                    <td><code>{command}</code></td>
+                    <td>{detail}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="env-group">
+            <h3>The parts of a start, in any order</h3>
+            <p>
+              There is nothing to memorise about the order. Anything shaped like a phone
+              number is the number, <code>en</code> or <code>es</code> sets the language, a
+              sequence name picks the sequence, an @-mention assigns it, and whatever is left
+              over is the client's first name. So{" "}
+              <code>/followup Maria es 512-555-0123</code> and{" "}
+              <code>/followup 512-555-0123 es Maria</code> do exactly the same thing.
+            </p>
+            <div className="table-wrap">
+              <table className="data-table">
+                <thead><tr><th>Part</th><th>Looks like</th><th>If you leave it out</th></tr></thead>
+                <tbody>
+                  {COMMAND_PARTS.map(([part, example, note]) => (
+                    <tr key={part}>
+                      <td><strong>{part}</strong></td>
+                      <td><code>{example}</code></td>
+                      <td>{note}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="env-group">
+            <h3>Two ways that are usually faster than typing</h3>
+            <p>
+              <strong>From a message</strong> — hover it, open the <code>⋯</code> menu, choose
+              “Start follow-up texts”. The number is read out of the message and the form opens
+              with it filled in. <strong>In a thread</strong> —{" "}
+              <code>@sms-follow-up start 512-555-0123 es Maria</code>, with the same grammar as
+              above, and you can leave the number out if it is already in the message that
+              started the thread. Both keep every later update in that same thread.
+            </p>
+          </div>
+
+          <div className="env-group">
+            <h3>Stopping</h3>
+            <p>
+              Mostly you will not have to. A series stops on its own the moment the client
+              replies, calls the office, or texts STOP. <code>/followup stop 512-555-0123</code>{" "}
+              is for when the client re-engages somewhere the system cannot see — they email,
+              or walk in, or reach you on your mobile.
+            </p>
+          </div>
+        </section>
 
         <section className="panel">
           <header className="panel-head"><div><h2>Common questions</h2></div></header>

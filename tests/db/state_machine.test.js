@@ -13,9 +13,16 @@ const sql = readFileSync(join(here, "state_machine.sql"), "utf8");
 const connectionString = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
 
 test("the follow-up state machine behaves", { skip: connectionString ? false : "set DATABASE_URL to run" }, async () => {
+  // Same rule as server/db.js: a unix socket or localhost needs no TLS, and
+  // PGSSLMODE=disable turns it off anywhere. Without the socket cases, pointing
+  // this at a local cluster over its socket fails with "the server does not
+  // support SSL connections", which reads like a database fault rather than a
+  // harness one.
+  const isLocal = /localhost|127\.0\.0\.1|@\/|host=\//.test(connectionString);
+  const sslDisabled = process.env.PGSSLMODE === "disable" || isLocal;
   const client = new pg.Client({
     connectionString,
-    ssl: /localhost|127\.0\.0\.1/.test(connectionString) ? false : { rejectUnauthorized: false },
+    ssl: sslDisabled ? false : { rejectUnauthorized: false },
   });
 
   const passed = [];

@@ -35,16 +35,19 @@ const HELP = [
   "",
   "*Commands*",
   "`/followup` — open the start form",
-  "`/followup start 512-555-0123 es Maria` — start without the form",
+  "`/followup 512-555-0123 es Maria` — start straight away (`start` is optional with a number)",
   "`/followup stop 512-555-0123` — stop a series you own",
   "`/followup status 512-555-0123` — where a client is in their series",
   "`/followup list` — everything you have running",
+  "`/followup help` — this",
   "",
   "In the shorthand the order does not matter: anything shaped like a phone number is the "
-    + "number, `en`/`es` sets the language, a sequence name picks the sequence, and whatever is "
-    + "left is the first name. It is assigned to you unless you `@mention` somebody else.",
+    + "number, `en`/`es` sets the language, a sequence name picks the sequence, an `@mention` "
+    + "assigns it, and whatever is left is the first name. Leave the language out and it uses "
+    + "whatever you last used for that number; leave the name out and the text says \"there\".",
   "",
-  "A series stops on its own when the client replies, calls back, or texts STOP.",
+  "A series stops on its own when the client replies, calls back, or texts STOP — `stop` is "
+    + "for when they re-engage somewhere this cannot see.",
 ].join("\n");
 
 /* ------------------------------------------------------------ arg parsing */
