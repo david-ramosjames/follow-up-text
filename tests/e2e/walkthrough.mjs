@@ -454,6 +454,25 @@ console.log("\n13. Revoking access");
   check("the temporary person is on the list",
     before.data.some((person) => person.email === "temp@firm.com"));
 
+  // Somebody added by email alone — which is everybody who arrives through
+  // BOOTSTRAP_ADMIN_EMAIL — starts with no Slack ID and so cannot use the bot.
+  // Giving them one has to work in place, without disturbing what they already
+  // have, because re-adding them through the form resets their access flags.
+  check("added by email, they cannot use the bot yet", target.data.slack_user_id === null);
+
+  const given = await api(`/api/operators/${target.data.id}`, {
+    method: "PATCH", body: { slack_user_id: "u09tempid" },
+  });
+  check("a Slack ID can be added to an existing person",
+    given.status === 200 && given.data.slack_user_id === "U09TEMPID");
+  check("adding it leaves their other access alone",
+    given.data.can_admin === true && given.data.email === "temp@firm.com");
+
+  const rejected = await api(`/api/operators/${target.data.id}`, {
+    method: "PATCH", body: { slack_user_id: "not-an-id" },
+  });
+  check("a malformed Slack ID is refused", rejected.status === 400, `got ${rejected.status}`);
+
   const revoked = await api(`/api/operators/${target.data.id}`, {
     method: "PATCH", body: { can_admin: false },
   });

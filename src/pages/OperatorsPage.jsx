@@ -5,6 +5,41 @@ import { api, formatWhen } from "../lib/api";
 
 const BLANK = { slack_user_id: "", email: "", display_name: "", is_supervisor: false, can_admin: false };
 
+// Somebody added by email — which is everybody who arrived through
+// BOOTSTRAP_ADMIN_EMAIL — has no Slack ID, and until they get one the bot will
+// not take orders from them. Editing it in place beats re-adding them through
+// the form above, which resets the supervisor and dashboard boxes to whatever
+// happens to be ticked at the time.
+function SlackIdCell({ person, onSave }) {
+  const [draft, setDraft] = useState(person.slack_user_id ?? "");
+  useEffect(() => { setDraft(person.slack_user_id ?? ""); }, [person.slack_user_id]);
+
+  const commit = () => {
+    const next = draft.trim().toUpperCase();
+    if (next === (person.slack_user_id ?? "")) return;
+    onSave(person, { slack_user_id: next || null });
+  };
+
+  return (
+    <input
+      className="inline-edit"
+      value={draft}
+      spellCheck={false}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={commit}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") event.currentTarget.blur();
+        if (event.key === "Escape") {
+          setDraft(person.slack_user_id ?? "");
+          event.currentTarget.blur();
+        }
+      }}
+      placeholder="not in Slack"
+      aria-label={`Slack member ID for ${person.display_name || person.email || "this person"}`}
+    />
+  );
+}
+
 // What each person can actually do, spelled out rather than left to be inferred
 // from two checkboxes and a blank column.
 function abilities(person) {
@@ -198,11 +233,7 @@ export default function OperatorsPage() {
                       <strong>{person.display_name || "—"}</strong>
                       <small>{person.email || "no email — cannot sign in"}</small>
                     </td>
-                    <td>
-                      {person.slack_user_id
-                        ? <code>{person.slack_user_id}</code>
-                        : <small>not in Slack</small>}
-                    </td>
+                    <td><SlackIdCell person={person} onSave={update} /></td>
                     <td><small>{abilities(person)}</small></td>
                     <td>
                       <input
@@ -244,6 +275,11 @@ export default function OperatorsPage() {
           </div>
         )}
 
+        <p className="inline-note">
+          <strong>Slack ID</strong> can be typed straight into the table — it saves when you click
+          away. Somebody with no Slack ID here cannot use the bot at all, which is what makes this
+          list the whole allow-list.
+        </p>
         <p className="inline-note">
           Turning off <strong>Active</strong> or <strong>Dashboard access</strong> ends that
           person's session on their next click — it does not wait for their cookie to expire. The

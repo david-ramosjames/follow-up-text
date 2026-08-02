@@ -292,6 +292,22 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--blue); outl
 .data-table td input[type="checkbox"] { width: 16px; min-height: 0; accent-color: var(--blue); }
 .data-table tr.muted-row td { opacity: 0.55; }
 
+/* Reads as text until you go near it, so the table does not look like a form. */
+.data-table td .inline-edit {
+  width: 12ch; min-height: 0; padding: 5px 7px;
+  border: 1px solid transparent; border-radius: 4px; background: transparent;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px; letter-spacing: 0.02em; color: inherit;
+}
+.data-table td .inline-edit::placeholder {
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color: var(--muted); font-size: 11px;
+}
+.data-table td .inline-edit:hover { border-color: var(--line); }
+.data-table td .inline-edit:focus {
+  border-color: var(--blue); background: var(--card); outline: none;
+}
+
 .row-actions { display: flex; justify-content: flex-end; gap: 6px; }
 .row-actions a, .row-actions button {
   display: grid; place-items: center; width: 30px; height: 30px;
