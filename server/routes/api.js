@@ -11,15 +11,36 @@ export const apiRouter = express.Router();
 
 apiRouter.use(express.json({ limit: "1mb" }));
 
+// A check constraint's `detail` is the entire failing row, which is how a
+// mistyped closing hour ended up on screen as a wall of column values. Each
+// constraint that a person can actually trip gets a sentence instead.
+const CONSTRAINT_MESSAGES = {
+  followup_sequences_quiet_hours_range:
+    "The latest hour has to be after the earliest one. Set the sending window so it "
+    + "opens and closes on the same day — 9:00 AM to 7:00 PM, for instance.",
+  followup_sequences_slug_format:
+    "A sequence's short name can only use lowercase letters, numbers and hyphens.",
+  followup_sequences_slug_key: "There is already a sequence with that short name.",
+  followup_operators_email_key: "Somebody on the list already has that email address.",
+  followup_operators_slack_user_id_key: "Somebody on the list already has that Slack member ID.",
+};
+
 const ok = (handler) => requireSession(async (req, res) => {
   try {
     await handler(req, res);
   } catch (error) {
     console.error(`${req.method} ${req.originalUrl} failed`, error);
-    // Postgres constraint violations carry the most useful message the user can
-    // act on, so pass them through rather than flattening to "server error".
-    const status = error.code?.startsWith("23") ? 400 : 500;
-    res.status(status).json({ error: error.detail || error.message || "Something went wrong." });
+    if (!error.code?.startsWith("23")) {
+      return res.status(500).json({ error: error.message || "Something went wrong." });
+    }
+    // Unique violations describe the clash usefully; check violations do not, so
+    // they fall back to the message rather than the row dump.
+    const fallback = error.code === "23505"
+      ? error.detail || error.message
+      : error.message;
+    return res.status(400).json({
+      error: CONSTRAINT_MESSAGES[error.constraint] || fallback || "That change was rejected.",
+    });
   }
 });
 

@@ -13,6 +13,15 @@ const SAMPLE = {
   firm_name: "the firm",
 };
 
+// 24-hour labels were a trap: picking "05:00" for five in the afternoon saves an
+// end hour of 5, which is before the 9am start, and the database rightly refuses
+// it. Nobody in a Texas law office thinks in 24-hour time, so neither does this.
+function hourLabel(hour) {
+  if (hour === 0 || hour === 24) return "Midnight";
+  if (hour === 12) return "Noon";
+  return `${hour % 12 === 0 ? 12 : hour % 12}:00 ${hour < 12 ? "AM" : "PM"}`;
+}
+
 function StepCard({ step, index, total, sequence, onChange, onMove, onRemove, language }) {
   const preview = previewStep(step, {
     language,
@@ -356,6 +365,8 @@ export default function SequenceEditorPage() {
               </select>
             </label>
 
+            {/* Each list is bounded by the other, so an end before the start is
+                not a mistake you can make and then have rejected on save. */}
             <div className="hours">
               <label>
                 <span>Earliest</span>
@@ -363,9 +374,9 @@ export default function SequenceEditorPage() {
                   value={sequence.quiet_hours_start}
                   onChange={(event) => updateSequence({ quiet_hours_start: Number(event.target.value) })}
                 >
-                  {Array.from({ length: 24 }, (_, hour) => (
-                    <option key={hour} value={hour}>{String(hour).padStart(2, "0")}:00</option>
-                  ))}
+                  {Array.from({ length: 24 }, (_, hour) => hour)
+                    .filter((hour) => hour < sequence.quiet_hours_end)
+                    .map((hour) => <option key={hour} value={hour}>{hourLabel(hour)}</option>)}
                 </select>
               </label>
               <label>
@@ -374,9 +385,9 @@ export default function SequenceEditorPage() {
                   value={sequence.quiet_hours_end}
                   onChange={(event) => updateSequence({ quiet_hours_end: Number(event.target.value) })}
                 >
-                  {Array.from({ length: 24 }, (_, hour) => hour + 1).map((hour) => (
-                    <option key={hour} value={hour}>{String(hour).padStart(2, "0")}:00</option>
-                  ))}
+                  {Array.from({ length: 24 }, (_, hour) => hour + 1)
+                    .filter((hour) => hour > sequence.quiet_hours_start)
+                    .map((hour) => <option key={hour} value={hour}>{hourLabel(hour)}</option>)}
                 </select>
               </label>
             </div>

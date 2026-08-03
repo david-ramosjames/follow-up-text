@@ -1,6 +1,6 @@
-import { MessageSquareText } from "lucide-react";
 import { useState } from "react";
 import { Navigate, useLocation, useSearchParams } from "react-router-dom";
+import BrandBar from "../components/BrandBar";
 import { useSession } from "../components/Session";
 import { signInWithPassword } from "../lib/api";
 
@@ -62,7 +62,7 @@ export default function LoginPage() {
   return (
     <main className="login-page">
       <div className="login-panel">
-        <p className="eyebrow"><MessageSquareText size={14} /> Client follow-ups</p>
+        <BrandBar strap="Client follow-ups" />
         <h1>Sign in</h1>
 
         {urlError && (

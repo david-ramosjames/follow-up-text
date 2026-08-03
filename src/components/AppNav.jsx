@@ -1,5 +1,6 @@
 import { Activity, CircleHelp, LayoutDashboard, LogOut, MessageSquareText, Settings, Users, UserCog } from "lucide-react";
 import { NavLink } from "react-router-dom";
+import BrandBar from "./BrandBar";
 import { useSession } from "./Session";
 
 const links = [
@@ -15,16 +16,19 @@ const links = [
 export default function AppNav() {
   const session = useSession();
   return (
-    <div className="app-nav">
-      <nav aria-label="Sections">
-        {links.map(({ to, label, icon: Icon, end }) => (
-          <NavLink key={to} to={to} end={end}><Icon size={15} /> {label}</NavLink>
-        ))}
-      </nav>
-      <div className="app-user">
-        <span>{session.user?.displayName || session.user?.email || "Signed in"}</span>
-        <button type="button" onClick={session.signOut} title="Sign out"><LogOut size={16} /></button>
+    <>
+      <BrandBar />
+      <div className="app-nav">
+        <nav aria-label="Sections">
+          {links.map(({ to, label, icon: Icon, end }) => (
+            <NavLink key={to} to={to} end={end}><Icon size={15} /> {label}</NavLink>
+          ))}
+        </nav>
+        <div className="app-user">
+          <span>{session.user?.displayName || session.user?.email || "Signed in"}</span>
+          <button type="button" onClick={session.signOut} title="Sign out"><LogOut size={16} /></button>
+        </div>
       </div>
-    </div>
+    </>
   );
 }
