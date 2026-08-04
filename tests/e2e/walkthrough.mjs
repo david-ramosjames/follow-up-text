@@ -367,6 +367,16 @@ console.log("\n7. Sending the due texts");
 
   const again = await api("/api/dispatch/run", { method: "POST", body: {} });
   check("a second run sends nothing, because nothing is due yet", again.data?.claimed === 0);
+
+  // What the Activity page reads to say "Next text tomorrow · text 2 of 6".
+  const running = await api("/api/enrollments?status=active");
+  const maria = running.data.find((row) => row.phone_e164 === "+15125550123");
+  check("the card knows how long the sequence is", Number(maria?.step_count) === 6,
+    JSON.stringify({ step_count: maria?.step_count }));
+  check("and which text comes next, having sent one",
+    Number(maria?.next_step_number) === 2,
+    JSON.stringify({ next_step_number: maria?.next_step_number, sent: maria?.sent_count }));
+  check("with a time to show for it", Boolean(maria?.next_run_at));
 }
 
 console.log("\n8. The client replies");

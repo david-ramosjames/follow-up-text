@@ -1,7 +1,7 @@
-import { MessageSquare, Octagon, Search } from "lucide-react";
+import { CalendarClock, MessageSquare, Octagon, Search } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import AppNav from "../components/AppNav";
-import { api, formatWhen, SOURCE_LABELS, STATUS_LABELS } from "../lib/api";
+import { api, formatRelative, formatWhen, formatWhenLong, SOURCE_LABELS, STATUS_LABELS } from "../lib/api";
 import { formatPhone } from "../../shared/messaging";
 
 const FILTERS = [
@@ -150,11 +150,34 @@ export default function ActivityPage() {
                     <span className={`status-dot ${enrollment.status}`}>
                       {STATUS_LABELS[enrollment.status] ?? enrollment.status}
                     </span>
-                    {enrollment.status === "active"
-                      ? <small>next text {formatWhen(enrollment.next_run_at, enrollment.timezone)}</small>
-                      : enrollment.ended_at && <small>ended {formatWhen(enrollment.ended_at, enrollment.timezone)}</small>}
+                    {enrollment.status !== "active" && enrollment.ended_at && (
+                      <small>ended {formatWhen(enrollment.ended_at, enrollment.timezone)}</small>
+                    )}
                   </div>
                 </header>
+
+                {/* The date on this card that somebody actually plans around, so
+                    it gets a label and a line of its own rather than sitting in
+                    the corner in grey. */}
+                {enrollment.status === "active" && (
+                  <div className="next-send">
+                    <CalendarClock size={15} />
+                    <div>
+                      <strong>
+                        Next text {formatRelative(enrollment.next_run_at)}
+                        {Number(enrollment.step_count) > 0 && (
+                          <span className="next-step">
+                            {" "}· text {enrollment.next_step_number} of {enrollment.step_count}
+                          </span>
+                        )}
+                      </strong>
+                      <small>
+                        {formatWhenLong(enrollment.next_run_at, enrollment.timezone)}
+                        {" — the client's local time, inside this sequence's sending window"}
+                      </small>
+                    </div>
+                  </div>
+                )}
 
                 <footer>
                   <small>

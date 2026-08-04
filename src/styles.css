@@ -530,6 +530,17 @@ label.checkbox small { display: block; margin-top: 2px; color: var(--muted); fon
 .card-list header p { margin: 0; color: var(--muted); font-size: 12px; }
 .card-status { text-align: right; }
 .card-status small { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; }
+
+.next-send {
+  display: flex; align-items: flex-start; gap: 9px;
+  margin-top: 13px; padding: 10px 12px;
+  background: var(--raised); border-radius: 5px;
+  border-left: 3px solid var(--primary);
+}
+.next-send svg { margin-top: 1px; color: var(--primary); flex: none; }
+.next-send strong { display: block; font-size: 13px; }
+.next-send .next-step { color: var(--muted); font-weight: 500; }
+.next-send small { display: block; margin-top: 2px; color: var(--muted); font-size: 11px; }
 .card-list footer {
   display: flex; justify-content: space-between; align-items: center; gap: 14px; flex-wrap: wrap;
   margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line-soft);

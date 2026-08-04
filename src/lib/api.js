@@ -121,3 +121,46 @@ export function formatDay(iso) {
     return String(iso);
   }
 }
+
+// Long form, with the weekday and the zone abbreviation, for the one date on a
+// card that somebody actually plans around. The zone is worth the space: the
+// sending window is measured in the client's local time, not the reader's.
+export function formatWhenLong(iso, timezone) {
+  if (!iso) return "—";
+  try {
+    return new Intl.DateTimeFormat("en-US", {
+      ...(timezone ? { timeZone: timezone } : {}),
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      timeZoneName: "short",
+    }).format(new Date(iso));
+  } catch {
+    return String(iso);
+  }
+}
+
+// "in 3 hours", "tomorrow", "2 days ago" — the part people read first. Under a
+// minute is treated as now, because the dispatcher runs on a cycle and the
+// exact second is neither knowable nor interesting.
+export function formatRelative(iso) {
+  if (!iso) return "";
+  const target = new Date(iso).getTime();
+  if (!Number.isFinite(target)) return "";
+
+  const minutes = Math.round((target - Date.now()) / 60_000);
+  if (Math.abs(minutes) < 1) return "any moment now";
+
+  const relative = new Intl.RelativeTimeFormat("en-US", { numeric: "auto" });
+  // Each step is how many of this unit make up the next one.
+  const steps = [["minute", 60], ["hour", 24], ["day", 7], ["week", 4.35], ["month", 12]];
+
+  let value = minutes;
+  for (const [unit, perNext] of steps) {
+    if (Math.abs(value) < perNext) return relative.format(value, unit);
+    value = Math.round(value / perNext);
+  }
+  return relative.format(value, "year");
+}

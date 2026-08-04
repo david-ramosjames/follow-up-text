@@ -304,7 +304,14 @@ apiRouter.get("/enrollments", ok(async (req, res) => {
     select e.*, c.phone_e164, c.first_name, c.last_name, c.opted_out_at, c.last_inbound_at,
            q.name as sequence_name, q.slug as sequence_slug, q.timezone,
            (select count(*) from followup_messages m
-             where m.enrollment_id = e.id and m.direction = 'outbound' and m.status <> 'failed') as sent_count
+             where m.enrollment_id = e.id and m.direction = 'outbound' and m.status <> 'failed') as sent_count,
+           -- Only active steps: a skipped one is not a text anybody is waiting for,
+           -- so counting it would make "text 4 of 6" a promise we do not keep.
+           (select count(*) from followup_steps s
+             where s.sequence_id = e.sequence_id and s.is_active) as step_count,
+           (select count(*) from followup_steps s
+             where s.sequence_id = e.sequence_id and s.is_active
+               and s.position <= e.next_position) as next_step_number
     from followup_enrollments e
     join followup_contacts c on c.id = e.contact_id
     join followup_sequences q on q.id = e.sequence_id
