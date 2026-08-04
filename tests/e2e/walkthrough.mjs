@@ -378,6 +378,10 @@ console.log("\n9. The other client opts out");
   });
   const stopBody = await stop.json();
   check("STOP is recognised", stopBody.action === "opt_out");
+  // This one had a series running, so it announces — as an ending, not as a
+  // STOP alert of its own.
+  check("it stopped their series and said so",
+    stopBody.stopped === true && stopBody.announced === true, JSON.stringify(stopBody));
 
   const sent = await (await fetch("http://127.0.0.1:4999/__sent")).json();
   const confirmation = sent[sent.length - 1];
@@ -385,6 +389,19 @@ console.log("\n9. The other client opts out");
 
   const contacts = await api("/api/contacts?optedOut=true");
   check("the number is on the opted-out list", contacts.data.length === 1);
+
+  // A second STOP, now that nothing is running. The opt-out is already in force,
+  // so there is no ending to report and Slack hears nothing.
+  const again = await fetch(`${BASE}/webhooks/quo?token=quo-token-abc`, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      type: "message.received",
+      data: { object: { id: "IN-2b", from: "+15125550124", to: "+15125557777", body: "STOP" } },
+    }),
+  });
+  const againBody = await again.json();
+  check("a STOP that ends nothing is not announced", againBody.announced === false,
+    JSON.stringify(againBody));
 
   const restart = await slack("/slack/commands", {
     user_id: "U0PARALEGAL", user_name: "sam", channel_id: "C0INTAKE",
@@ -488,12 +505,15 @@ console.log("\n13. Dashboard");
 {
   const dashboard = await api("/api/dashboard?days=30");
   check("the dashboard loads", dashboard.status === 200);
-  check("it counts the texts that went out", Number(dashboard.data.totals.sent) === 3,
+  // Four: two sequence texts and two STOP confirmations. Confirmations are
+  // logged with everything else because they cost the same money and belong in
+  // the client's history.
+  check("it counts the texts that went out", Number(dashboard.data.totals.sent) === 4,
     JSON.stringify(dashboard.data.totals));
-  // Three inbound texts, only two of which Slack was told about — the third
-  // ended nothing. Recording and announcing are deliberately not the same thing.
+  // Four inbound, only two of which Slack was told about — the other two ended
+  // nothing. Recording and announcing are deliberately not the same thing.
   check("it counts every reply, announced in Slack or not",
-    Number(dashboard.data.totals.replies) === 3, JSON.stringify(dashboard.data.totals));
+    Number(dashboard.data.totals.replies) === 4, JSON.stringify(dashboard.data.totals));
   // Two: one texted back and one rang the office. Re-engagement counts both,
   // which is the point — a client who calls has re-engaged just as surely.
   check("it counts who came back, by text and by phone",

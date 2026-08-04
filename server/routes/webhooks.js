@@ -74,38 +74,42 @@ async function handleInboundMessage(object) {
   const assigned = result.assigned_slack_user_id ? ` <@${result.assigned_slack_user_id}>` : "";
   const confirm = await confirmTo(from, result.contact_id, to);
 
+  // One rule for everything the client sends: Slack is told when a series ended,
+  // and otherwise not. The opt-out itself is still enforced and still visible
+  // under Contacts — announcing it is a separate question from recording it.
+  const stoppedSomething = Boolean(result.stopped?.ok);
+  const stoppedAfter = Number(result.stopped?.sent_count ?? 0);
+  const textsPhrase = `after ${stoppedAfter} text${stoppedAfter === 1 ? "" : "s"}`;
+
   if (result.action === "opt_out") {
     // Carriers registered for A2P 10DLC usually auto-reply to STOP themselves. A
     // duplicate confirmation is noise; a missing one is a compliance problem, so
     // this defaults on and is switchable in Settings.
     if (settings.send_stop_confirmation) await confirm(STOP_CONFIRMATION[language]);
+    if (!stoppedSomething) return { action: "opt_out", stopped: false, announced: false };
+
     await postToThread({
       channel: result.slack_channel_id,
       threadTs: result.slack_thread_ts,
-      text: `:no_entry: ${who} texted *STOP*. They are unsubscribed and any running series has been stopped.${assigned}`,
+      text: `:no_entry: ${who} texted STOP — follow-ups stopped ${textsPhrase}. `
+        + `They are also unsubscribed from every sequence.${assigned}`,
     });
-    return { action: "opt_out" };
+    return { action: "opt_out", stopped: true, announced: true };
   }
 
   if (result.action === "opt_in") {
+    // START cannot end a series — by definition nothing was running for a number
+    // that was opted out — so under the same rule it is never announced.
     await confirm(START_CONFIRMATION[language]);
-    await postToThread({
-      channel: result.slack_channel_id,
-      threadTs: result.slack_thread_ts,
-      text: `:white_check_mark: ${who} texted *START* and can receive texts again.`,
-    });
-    return { action: "opt_in" };
+    return { action: "opt_in", stopped: false, announced: false };
   }
 
-  // An ordinary reply. Slack only hears about it when it actually ended a
-  // series — that is the event worth interrupting a channel for. Every other
-  // inbound text belongs to whoever is working the Quo inbox, and echoing it
-  // here turns the intake channel into a second, worse inbox. The message is
-  // still recorded either way and shows up under Activity.
-  const wasRunning = Boolean(result.stopped?.ok);
-  if (!wasRunning) return { action: "reply", stopped: false, announced: false };
+  // An ordinary reply, under the same rule. Every inbound text that ends nothing
+  // belongs to whoever is working the Quo inbox; echoing it here turns the
+  // intake channel into a second, worse inbox. It is still recorded and shows
+  // up under Activity.
+  if (!stoppedSomething) return { action: "reply", stopped: false, announced: false };
 
-  const sent = Number(result.stopped?.sent_count ?? 0);
   await postToThread({
     channel: result.slack_channel_id,
     threadTs: result.slack_thread_ts,
@@ -115,7 +119,7 @@ async function handleInboundMessage(object) {
         type: "section",
         text: {
           type: "mrkdwn",
-          text: `:tada: *${who} replied — follow-ups stopped* after ${sent} text${sent === 1 ? "" : "s"}.${assigned}`,
+          text: `:tada: *${who} replied — follow-ups stopped* ${textsPhrase}.${assigned}`,
         },
       },
       { type: "section", text: { type: "mrkdwn", text: `>${body.slice(0, 2500).replace(/\n/g, "\n>")}` } },

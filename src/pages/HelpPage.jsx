@@ -14,9 +14,9 @@ const FAQ = [
   {
     q: "Which replies get posted to Slack?",
     a: [
-      "Only the ones that ended something. When a client replies and that stops their series, the thread is told and the message is quoted. If the same client texts again afterwards — or a number with no series running texts in — it is recorded and shows up under Activity, but Slack is not told.",
-      "That is deliberate. Once a series has stopped, the conversation belongs to whoever is working the Quo inbox. Echoing every inbound text into the intake channel turns Slack into a second, worse inbox and trains everybody to ignore the bot, which is exactly when it stops being useful for the messages that do matter.",
-      "Opt-outs are the exception and always post, even with nothing running, because an opt-out is a compliance event rather than a conversation. The same rule as replies applies to call-backs: a client ringing the office is announced when it stops a series, and otherwise not.",
+      "Only the ones that ended a series. A reply, a call back, or a STOP that stops something running posts once and says it ended — with the client's message quoted, in the case of a reply.",
+      "Everything else is silent. A client texting again after their series already stopped, a number with nothing running texting in, a second STOP from somebody already unsubscribed — all recorded, all visible under Activity and on the client's history, none of it posted. Once a series has stopped, the conversation belongs to whoever is working the Quo inbox; echoing every inbound text into the intake channel turns Slack into a second, worse inbox and trains everybody to scroll past the bot, which is exactly when it stops working for the messages that matter.",
+      "Recording and announcing are separate things. An opt-out is still enforced and still shows on the Contacts page whether or not anything was posted about it.",
     ],
   },
   {
