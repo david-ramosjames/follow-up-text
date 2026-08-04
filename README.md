@@ -105,22 +105,22 @@ an opt-out from the dashboard but cannot undo one.
    - **URL** — `PUBLIC_URL/webhooks/quo`. The path matters: pointed at the bare
      domain, Quo gets the web app's HTML back with a 200, looks satisfied, and
      replies silently never arrive.
-   - **Events** — `message.received` is the one nothing works without. Add
-     `message.delivered` for delivery receipts. Leave the recording, transcript
-     and summary events off; they are not handled and would only be ignored
-     traffic.
+   - **Events** — under **Calls & messages**, tick exactly four:
+     `message.received` (nothing works without it), `message.delivered` for
+     delivery receipts, and `call.completed` plus `call.ringing` so a client
+     ringing the office stops their series. Leave `call.recording.completed`,
+     `call.transcript.completed` and `call.summary.completed` off — they are
+     acknowledged and ignored, so they are pure noise in the events log.
    - **Receive updates from all phone numbers** — on, so a sequence can send
      from any of your numbers.
 
-   **Then create a second webhook, for calls** — same URL, with
-   `call.completed` and `call.ringing`. Quo keeps message and call webhooks
-   apart, so the call events are not offered on the message one. This second
-   webhook is the only thing that makes a client *ringing the office* stop their
-   series; without it, only a text back does.
+   One webhook covers both calls and messages. (`npm run webhook setup` creates
+   two, because the API splits `/webhooks/messages` from `/webhooks/calls` even
+   though the web UI does not. Each one then has its own signing secret, which is
+   why `QUO_WEBHOOK_SECRET` accepts a comma-separated list.)
 
-   Save both, then put **both** signing secrets into Railway as
-   `QUO_WEBHOOK_SECRET`, comma-separated — each webhook gets its own, and any one
-   of them matching is accepted. Redeploy, then confirm end to end with:
+   Save, then put the signing secret into Railway as `QUO_WEBHOOK_SECRET` and
+   redeploy. Confirm end to end with:
 
    ```bash
    npm run webhook test

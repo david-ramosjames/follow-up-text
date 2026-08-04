@@ -185,30 +185,37 @@ export function verifyWebhook(req, rawBody) {
     return { ok: false, reason: "Signature is not valid base64." };
   }
 
+  // Buffer.from(x, "base64") never throws — it discards anything it does not
+  // recognise and returns whatever is left, so a secret pasted with a stray
+  // quote or a truncated copy silently becomes a different key and every
+  // delivery just fails to match. Check the shape first and say so.
+  const isBase64 = (value) => /^[A-Za-z0-9+/=_-]+$/.test(value) && value.length >= 16;
+
   let usable = 0;
   for (const secret of secrets) {
     const secretParts = secret.split(";");
     const keyMaterial = secretParts.length >= 4 ? secretParts[3] : secret;
+    if (!isBase64(keyMaterial)) continue;
 
-    let computed;
-    try {
-      computed = crypto.createHmac("sha256", Buffer.from(keyMaterial, "base64"))
-        .update(`${timestamp}.${rawBody}`)
-        .digest();
-    } catch {
-      continue; // Not valid base64; counted below rather than failing the lot.
-    }
     usable += 1;
+    const computed = crypto.createHmac("sha256", Buffer.from(keyMaterial, "base64"))
+      .update(`${timestamp}.${rawBody}`)
+      .digest();
     if (timingSafeEqual(computed, expected)) return { ok: true };
   }
 
-  if (!usable) return { ok: false, reason: "No value in QUO_WEBHOOK_SECRET is valid base64." };
+  if (!usable) {
+    return {
+      ok: false,
+      reason: `QUO_WEBHOOK_SECRET does not look like a Quo signing key (${secrets.length} value(s) `
+        + "read). Copy it again from the webhook in Quo — no quotes, no spaces.",
+    };
+  }
   return {
     ok: false,
-    reason: secrets.length > 1
-      ? `Signature did not match any of the ${secrets.length} configured secrets.`
-      : "Signature did not match. If this is a call event, its webhook has its own "
-        + "secret — add it to QUO_WEBHOOK_SECRET, comma-separated.",
+    reason: `Signature did not match ${usable === 1 ? "the configured secret" : `any of the ${usable} configured secrets`}. `
+      + "The secret in QUO_WEBHOOK_SECRET is wrong, stale, or belongs to a different "
+      + "webhook — recopy it from this webhook in Quo and redeploy.",
   };
 }
 

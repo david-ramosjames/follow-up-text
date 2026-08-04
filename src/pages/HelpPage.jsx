@@ -23,7 +23,7 @@ const FAQ = [
     a: [
       "The client replying to a text. The client calling the office. The client texting STOP, ALTO, CANCEL or any of the other opt-out words. The assigned paralegal hitting Stop in Slack. An administrator hitting Stop here. Or the sequence simply running out of texts.",
       "Anything the client does stops it immediately — that is the whole point of the system. Nobody who has already re-engaged should keep getting drip texts.",
-      "One of those needs setting up before it works: the call one. Quo sends call events through a separate webhook from message events, so if only the message webhook exists, a client who rings the office instead of texting back will keep receiving the series. Only an incoming call counts — the firm's own outbound calls to the client are ignored, since those are the reason the series exists.",
+      "The call one needs the call.completed and call.ringing events ticked on your Quo webhook before it works — with only the message events, a client who rings the office instead of texting back keeps receiving the series. Only an incoming call counts: the firm's own outbound calls to the client are ignored, since those are the reason the series exists.",
     ],
   },
   {
@@ -100,8 +100,8 @@ const FAQ = [
     a: [
       "In the Quo app, under Settings then Webhooks, create a webhook pointing at your URL with /webhooks/quo on the end. The path matters: aimed at the bare domain, Quo receives the web app's HTML back with a 200, looks perfectly happy, and replies silently never arrive.",
       "Tick message.received — nothing works without it — plus message.delivered for delivery receipts. Leave the recording, transcript and summary events off; they are not handled. Keep \u201cReceive updates from all phone numbers\u201d on so any sequence can send from any of your numbers.",
-      "Then create a SECOND webhook, for calls, pointing at the same URL, with call.completed and call.ringing. Quo keeps message and call webhooks apart, so those events are not offered on the message one — and this second webhook is the only thing that makes a client ringing the office stop their series. Without it, only a text back does.",
-      "Save both, and put both signing secrets into Railway as QUO_WEBHOOK_SECRET separated by commas — each webhook gets its own, and any one of them matching is accepted. Redeploy, then run `npm run webhook test`: it signs a request the way Quo does, using an event type this app ignores, so a green tick proves the secret matches without creating a contact or posting to Slack. `npm run webhook list` shows what is registered, which is the first thing to check if replies stop arriving.",
+      "One webhook covers both. Under Calls & messages tick exactly four: message.received, message.delivered, call.completed and call.ringing — the last two are what make a client ringing the office stop their series. Leave the recording, transcript and summary events off; they are acknowledged and ignored, so all they do is fill the events log.",
+      "Put the signing secret into Railway as QUO_WEBHOOK_SECRET and redeploy. It takes a comma-separated list, because `npm run webhook setup` registers calls and messages as two webhooks with a secret each — the API splits them even though the web UI does not. Then run `npm run webhook test`: it signs a request the way Quo does, using an event type this app ignores, so a green tick proves the secret matches without creating a contact or posting to Slack. `npm run webhook list` shows what is registered, which is the first thing to check if replies stop arriving.",
     ],
   },
   {
@@ -243,7 +243,7 @@ const SETUP = [
   ["Refresh your Quo numbers under Settings", "Then pick which one each sequence sends from."],
   ["Create the Slack app from a manifest", "Run `PUBLIC_URL=... npm run slack:manifest` and paste the output into api.slack.com/apps → Create New App → From a manifest. That declares the slash command, the message shortcut, the event subscriptions and the scopes at once. Set SLACK_SIGNING_SECRET in Railway and redeploy first, because Slack verifies the event URL as you save and that check is itself signature-verified."],
   ["Install it and invite the bot", "Install to Workspace, put the Bot User OAuth Token (xoxb-…) in SLACK_BOT_TOKEN, then /invite the bot to your intake channel. Socket Mode must stay off — with it on, Slack delivers over a WebSocket and ignores every Request URL, so nothing reaches the app."],
-  ["Set up the Quo webhooks — both of them", "Quo app → Settings → Webhooks. URL must be PUBLIC_URL/webhooks/quo — with the path, or replies silently never arrive. Create one for messages (message.received, message.delivered) and a second for calls (call.completed, call.ringing); Quo keeps them apart, and the call one is what stops a series when a client rings the office. Put both signing secrets in Railway as QUO_WEBHOOK_SECRET, comma-separated, redeploy, then `npm run webhook test` to prove it."],
+  ["Set up the Quo webhook", "Quo app → Settings → Webhooks → Create a webhook. URL must be PUBLIC_URL/webhooks/quo — with the path, or replies silently never arrive. Tick message.received, message.delivered, call.completed and call.ringing, and leave the recording, transcript and summary events off. Put the signing secret in Railway as QUO_WEBHOOK_SECRET, redeploy, then `npm run webhook test` to prove it. If Quo's events log fills with 401s, the response body says which part of the secret is wrong."],
   ["Review the starter sequence and switch it on", "It ships switched off on purpose."],
 ];
 

@@ -167,7 +167,11 @@ webhookRouter.post("/quo", async (req, res) => {
   const verified = verifyWebhook(req, req.rawBody);
   if (!verified.ok) {
     console.warn("Rejected a Quo webhook:", verified.reason);
-    return res.status(401).send("Unauthorized");
+    // The reason goes in the body, not just the log. Quo's own Events log shows
+    // the response to each delivery, so a wall of 401s there should say what is
+    // wrong with the secret rather than making somebody go and read Railway's
+    // logs to find out. None of these reasons discloses anything secret.
+    return res.status(401).json({ error: "Unauthorized", reason: verified.reason });
   }
 
   let body;
@@ -187,7 +191,13 @@ webhookRouter.post("/quo", async (req, res) => {
     if (type === "message.failed" || type === "message.undelivered") {
       return res.json(await handleDelivery(object, "undelivered"));
     }
-    if (type.startsWith("call.")) return res.json(await handleInboundCall(object));
+    // Only the two events that mean "a call happened". The recording, transcript
+    // and summary events are also call.* but carry a recording as their object,
+    // not a call, so running them through the caller check would be reading
+    // fields that are not there.
+    if (type === "call.completed" || type === "call.ringing") {
+      return res.json(await handleInboundCall(object));
+    }
 
     // Unknown events are acknowledged rather than rejected, so Quo does not keep
     // retrying something we will never handle.
