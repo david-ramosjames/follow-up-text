@@ -97,28 +97,31 @@ async function handleInboundMessage(object) {
     return { action: "opt_in" };
   }
 
-  // An ordinary reply. This is the outcome the whole system exists to produce,
-  // so it goes back into the client's thread with the message quoted in full.
+  // An ordinary reply. Slack only hears about it when it actually ended a
+  // series — that is the event worth interrupting a channel for. Every other
+  // inbound text belongs to whoever is working the Quo inbox, and echoing it
+  // here turns the intake channel into a second, worse inbox. The message is
+  // still recorded either way and shows up under Activity.
   const wasRunning = Boolean(result.stopped?.ok);
+  if (!wasRunning) return { action: "reply", stopped: false, announced: false };
+
+  const sent = Number(result.stopped?.sent_count ?? 0);
   await postToThread({
     channel: result.slack_channel_id,
     threadTs: result.slack_thread_ts,
-    text: `:tada: ${who} replied${wasRunning ? " — follow-ups stopped" : ""}.${assigned}`,
+    text: `:tada: ${who} replied — follow-ups stopped.${assigned}`,
     blocks: [
-      { type: "section", text: { type: "mrkdwn", text: `:tada: *${who} replied*${assigned}` } },
-      { type: "section", text: { type: "mrkdwn", text: `>${body.slice(0, 2500).replace(/\n/g, "\n>")}` } },
       {
-        type: "context",
-        elements: [{
+        type: "section",
+        text: {
           type: "mrkdwn",
-          text: wasRunning
-            ? `Follow-ups stopped after ${result.stopped?.sent_count ?? 0} text(s). Somebody should reply in Quo.`
-            : "No series was running for this number.",
-        }],
+          text: `:tada: *${who} replied — follow-ups stopped* after ${sent} text${sent === 1 ? "" : "s"}.${assigned}`,
+        },
       },
+      { type: "section", text: { type: "mrkdwn", text: `>${body.slice(0, 2500).replace(/\n/g, "\n>")}` } },
     ],
   });
-  return { action: "reply", stopped: wasRunning };
+  return { action: "reply", stopped: true, announced: true };
 }
 
 async function handleInboundCall(object) {

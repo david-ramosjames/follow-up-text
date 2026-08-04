@@ -336,6 +336,28 @@ console.log("\n8. The client replies");
   check("the reply is accepted", reply.status === 200);
   check("it reads as re-engagement", replyBody.action === "reply");
   check("it stopped the series", replyBody.stopped === true);
+  check("stopping a series is announced in Slack", replyBody.announced === true);
+
+  // Everything the client says after that belongs to whoever is working the Quo
+  // inbox. Echoing it into the intake channel would make Slack a second, worse
+  // inbox, so a reply that ends nothing is recorded silently.
+  const chatter = await fetch(`${BASE}/webhooks/quo?token=quo-token-abc`, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      type: "message.received",
+      data: { object: { id: "IN-1b", from: "+15125550123", to: "+15125557777", body: "Do yall handle ER neglect" } },
+    }),
+  });
+  const chatterBody = await chatter.json();
+  check("a later reply with no series running is not announced",
+    chatterBody.action === "reply" && chatterBody.stopped === false && chatterBody.announced === false,
+    JSON.stringify(chatterBody));
+
+  // Silent in Slack, but not lost: it is counted with the other inbound
+  // messages, which the dashboard check further down asserts.
+  const contact = await api("/api/contacts?search=5125550123");
+  check("but it is still recorded against the client",
+    Boolean(contact.data?.[0]?.last_inbound_at), JSON.stringify(contact.data?.[0] ?? null));
 
   const active = await api("/api/enrollments?status=active");
   check("only the other series is still running", active.data.length === 1);
@@ -468,8 +490,10 @@ console.log("\n13. Dashboard");
   check("the dashboard loads", dashboard.status === 200);
   check("it counts the texts that went out", Number(dashboard.data.totals.sent) === 3,
     JSON.stringify(dashboard.data.totals));
-  check("it counts the replies", Number(dashboard.data.totals.replies) === 2,
-    JSON.stringify(dashboard.data.totals));
+  // Three inbound texts, only two of which Slack was told about — the third
+  // ended nothing. Recording and announcing are deliberately not the same thing.
+  check("it counts every reply, announced in Slack or not",
+    Number(dashboard.data.totals.replies) === 3, JSON.stringify(dashboard.data.totals));
   // Two: one texted back and one rang the office. Re-engagement counts both,
   // which is the point — a client who calls has re-engaged just as surely.
   check("it counts who came back, by text and by phone",

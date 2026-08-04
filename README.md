@@ -36,6 +36,7 @@ than in application code, and every path ends up in the same place:
 | What happens | Result |
 | --- | --- |
 | The client texts anything back | Series stops, the thread is told, with the message quoted |
+| The client texts again afterwards | Recorded, but Slack is not told — see below |
 | The client calls the office | Series stops (needs Quo call webhooks switched on) |
 | The client texts STOP, ALTO, CANCEL… | Series stops **and** the number is opted out of every sequence |
 | The client texts START after opting out | The number can be texted again |
@@ -47,6 +48,13 @@ than in application code, and every path ends up in the same place:
 Only the assigned person, or a supervisor, can stop a series from Slack. An
 opt-out is permanent until the client themselves texts START — staff can honour
 an opt-out from the dashboard but cannot undo one.
+
+**Slack only hears about a reply that ended something.** An inbound text from a
+number with no series running is recorded and appears under Activity, but is not
+posted — that conversation belongs to whoever is working the Quo inbox, and
+echoing it into the intake channel would turn Slack into a second, worse inbox.
+Opt-outs are the exception and always post, because an opt-out is a compliance
+event whether or not a series was running.
 
 ## Deploying on Railway
 
