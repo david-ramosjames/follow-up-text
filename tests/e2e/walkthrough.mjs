@@ -34,6 +34,11 @@ function slackHeaders(body) {
   };
 }
 
+// Everything the bot posted, in order, with the channel and thread it went to.
+async function slackPosts() {
+  return (await fetch("http://127.0.0.1:4999/__posts")).json();
+}
+
 async function slack(path, params) {
   const body = new URLSearchParams(params).toString();
   const response = await fetch(`${BASE}${path}`, { method: "POST", headers: slackHeaders(body), body });
@@ -290,6 +295,53 @@ console.log("\n6. Starting from a Slack message shortcut");
   check("it remembers the thread it came from", carlos?.slack_thread_ts === "1730000000.000200");
   check("it is recorded as coming from a message", carlos?.source === "message_action");
   check("the reference was captured", carlos?.case_reference === "MVA-2026-118");
+
+  const posts = await slackPosts();
+  const confirmation = posts[posts.length - 1];
+  check("the confirmation posts into that message's thread",
+    confirmation?.channel === "C0INTAKE" && confirmation?.thread_ts === "1730000000.000200",
+    JSON.stringify(confirmation));
+}
+
+console.log("\n6b. Where later updates go");
+{
+  // A series started with the slash command has no thread to hang off, so its
+  // own confirmation becomes one. Everything afterwards has to land there rather
+  // than loose in the channel.
+  const before = (await slackPosts()).length;
+  await slack("/slack/commands", {
+    user_id: "U0PARALEGAL", user_name: "sam", channel_id: "C0INTAKE",
+    text: "start 512-555-0177 Dana", response_url: "http://127.0.0.1:4999/__noop",
+  });
+
+  const posts = await slackPosts();
+  const confirmation = posts[before];
+  check("a slash-command series confirms in the channel, not in a thread",
+    confirmation?.channel === "C0INTAKE" && confirmation?.thread_ts === null,
+    JSON.stringify(confirmation));
+
+  const list = await api("/api/enrollments?status=active");
+  const dana = list.data.find((row) => row.phone_e164 === "+15125550177");
+  check("that confirmation becomes the thread for everything later",
+    dana?.slack_thread_ts === confirmation?.ts,
+    `${dana?.slack_thread_ts} vs ${confirmation?.ts}`);
+
+  // Now end it and check the notice threads off the confirmation.
+  await fetch(`${BASE}/webhooks/quo?token=quo-token-abc`, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      type: "message.received",
+      data: { object: { id: "IN-DANA", from: "+15125550177", to: "+15125557777", body: "yes please call me" } },
+    }),
+  });
+
+  const after = await slackPosts();
+  const notice = after[after.length - 1];
+  check("the reply notice lands in that same thread",
+    notice?.channel === "C0INTAKE" && notice?.thread_ts === confirmation?.ts,
+    JSON.stringify(notice));
+  check("and it says the follow-ups stopped", /follow-ups stopped/i.test(notice?.text ?? ""),
+    notice?.text);
 }
 
 console.log("\n7. Sending the due texts");
@@ -510,14 +562,14 @@ console.log("\n13. Dashboard");
   // the client's history.
   check("it counts the texts that went out", Number(dashboard.data.totals.sent) === 4,
     JSON.stringify(dashboard.data.totals));
-  // Four inbound, only two of which Slack was told about — the other two ended
+  // Five inbound, only three of which Slack was told about — the other two ended
   // nothing. Recording and announcing are deliberately not the same thing.
   check("it counts every reply, announced in Slack or not",
-    Number(dashboard.data.totals.replies) === 4, JSON.stringify(dashboard.data.totals));
-  // Two: one texted back and one rang the office. Re-engagement counts both,
-  // which is the point — a client who calls has re-engaged just as surely.
+    Number(dashboard.data.totals.replies) === 5, JSON.stringify(dashboard.data.totals));
+  // Three: two texted back and one rang the office. Re-engagement counts both
+  // kinds, which is the point — a client who calls has re-engaged just as surely.
   check("it counts who came back, by text and by phone",
-    Number(dashboard.data.totals.reengaged) === 2, JSON.stringify(dashboard.data.totals));
+    Number(dashboard.data.totals.reengaged) === 3, JSON.stringify(dashboard.data.totals));
   check("it counts opt-outs", Number(dashboard.data.totals.opted_out) === 1);
   check("it has one row per day", dashboard.data.daily.length === 30);
   check("it reports per-sequence performance", dashboard.data.bySequence.length >= 1);

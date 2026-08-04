@@ -37,12 +37,17 @@ export function slackConfigured() {
   return Boolean(process.env.SLACK_BOT_TOKEN);
 }
 
+// Overridable only so the end-to-end suite can point this at a stub and assert
+// which channel and thread each message actually landed in. Nothing in a real
+// deployment should set it.
+const SLACK_API_BASE = (process.env.SLACK_API_BASE || "https://slack.com/api").replace(/\/$/, "");
+
 export async function slackApi(method, payload) {
   const token = process.env.SLACK_BOT_TOKEN;
   if (!token) return { ok: false, error: "no_bot_token" };
 
   try {
-    const response = await fetch(`https://slack.com/api/${method}`, {
+    const response = await fetch(`${SLACK_API_BASE}/${method}`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json; charset=utf-8" },
       body: JSON.stringify(payload),

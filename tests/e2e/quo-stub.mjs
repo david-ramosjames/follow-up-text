@@ -1,8 +1,9 @@
-// Stand-in for the Quo API so the whole pipeline can be exercised without
-// sending real texts or touching a real Quo workspace.
+// Stand-in for the Quo API — and for the handful of Slack methods this app
+// calls — so the whole pipeline can be exercised without sending real texts,
+// touching a real Quo workspace, or posting into a real Slack channel.
 //
-// Implements the endpoints this app uses: phone numbers, sending a message, and
-// webhook management. It deliberately rejects one call event so the setup
+// Implements the Quo endpoints this app uses: phone numbers, sending a message,
+// and webhook management. It deliberately rejects one call event so the setup
 // script's "narrow the event list and retry" path gets exercised too.
 import http from "node:http";
 
@@ -10,7 +11,9 @@ const PORT = Number(process.env.E2E_STUB_PORT ?? 4999);
 
 const sent = [];
 const webhooks = [];
+const posts = [];
 let nextId = 1;
+let nextTs = 1;
 
 const numbers = [
   { id: "PNINTAKE", number: "+15125557777", name: "Intake line" },
@@ -75,11 +78,24 @@ http.createServer((req, res) => {
       return json(res, 204, {});
     }
 
+    // Slack. Only chat.postMessage records anything: the point is to be able to
+    // assert which channel and thread each notice landed in.
+    if (path === "/slack/chat.postMessage" && req.method === "POST") {
+      const ts = `1799${String(nextTs++).padStart(6, "0")}.000000`;
+      posts.push({ ts, channel: body.channel, thread_ts: body.thread_ts ?? null, text: body.text ?? "" });
+      return json(res, 200, { ok: true, ts, channel: body.channel });
+    }
+    if (path.startsWith("/slack/")) return json(res, 200, { ok: true });
+
     // Test-only helpers.
+    if (path === "/__posts") return json(res, 200, posts);
     if (path === "/__sent") return json(res, 200, sent);
     if (path === "/__webhooks") return json(res, 200, webhooks);
     if (path === "/__signing-key") return json(res, 200, { key: SIGNING_KEY });
-    if (path === "/__reset") { sent.length = 0; webhooks.length = 0; return json(res, 200, { ok: true }); }
+    if (path === "/__reset") {
+      sent.length = 0; webhooks.length = 0; posts.length = 0;
+      return json(res, 200, { ok: true });
+    }
 
     return json(res, 404, {});
   });
