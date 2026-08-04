@@ -106,15 +106,21 @@ an opt-out from the dashboard but cannot undo one.
      domain, Quo gets the web app's HTML back with a 200, looks satisfied, and
      replies silently never arrive.
    - **Events** — `message.received` is the one nothing works without. Add
-     `message.delivered` for delivery receipts, and `call.completed` plus
-     `call.ringing` so a client calling the office stops their series. Leave the
-     recording, transcript and summary events off; they are not handled and
-     would only be ignored traffic.
+     `message.delivered` for delivery receipts. Leave the recording, transcript
+     and summary events off; they are not handled and would only be ignored
+     traffic.
    - **Receive updates from all phone numbers** — on, so a sequence can send
      from any of your numbers.
 
-   Save, then put the signing secret Quo shows you into Railway as
-   `QUO_WEBHOOK_SECRET` and redeploy. Confirm it end to end with:
+   **Then create a second webhook, for calls** — same URL, with
+   `call.completed` and `call.ringing`. Quo keeps message and call webhooks
+   apart, so the call events are not offered on the message one. This second
+   webhook is the only thing that makes a client *ringing the office* stop their
+   series; without it, only a text back does.
+
+   Save both, then put **both** signing secrets into Railway as
+   `QUO_WEBHOOK_SECRET`, comma-separated — each webhook gets its own, and any one
+   of them matching is accepted. Redeploy, then confirm end to end with:
 
    ```bash
    npm run webhook test

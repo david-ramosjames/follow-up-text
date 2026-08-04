@@ -153,8 +153,13 @@ export function verifyWebhook(req, rawBody) {
     if (!process.env.QUO_WEBHOOK_SECRET) return { ok: false, reason: "Bad or missing ?token=." };
   }
 
-  const secret = process.env.QUO_WEBHOOK_SECRET;
-  if (!secret) {
+  // Quo issues a separate webhook — and a separate signing secret — for calls
+  // and for messages. With room for only one secret, whichever of the two was
+  // registered second would have every event rejected as a bad signature, and
+  // the symptom is silent: a client rings the office and their series carries on
+  // regardless. So this reads a list, and any one of them matching is enough.
+  const secrets = String(process.env.QUO_WEBHOOK_SECRET ?? "").split(/[\s,]+/).filter(Boolean);
+  if (!secrets.length) {
     return { ok: false, reason: "Set QUO_WEBHOOK_SECRET or QUO_WEBHOOK_TOKEN before exposing this endpoint." };
   }
 
@@ -173,18 +178,6 @@ export function verifyWebhook(req, rawBody) {
     return { ok: false, reason: "Signature timestamp is outside the accepted window." };
   }
 
-  const secretParts = secret.split(";");
-  const keyMaterial = secretParts.length >= 4 ? secretParts[3] : secret;
-
-  let computed;
-  try {
-    computed = crypto.createHmac("sha256", Buffer.from(keyMaterial, "base64"))
-      .update(`${timestamp}.${rawBody}`)
-      .digest();
-  } catch {
-    return { ok: false, reason: "QUO_WEBHOOK_SECRET is not valid base64." };
-  }
-
   let expected;
   try {
     expected = Buffer.from(provided, "base64");
@@ -192,9 +185,31 @@ export function verifyWebhook(req, rawBody) {
     return { ok: false, reason: "Signature is not valid base64." };
   }
 
-  return timingSafeEqual(computed, expected)
-    ? { ok: true }
-    : { ok: false, reason: "Signature did not match." };
+  let usable = 0;
+  for (const secret of secrets) {
+    const secretParts = secret.split(";");
+    const keyMaterial = secretParts.length >= 4 ? secretParts[3] : secret;
+
+    let computed;
+    try {
+      computed = crypto.createHmac("sha256", Buffer.from(keyMaterial, "base64"))
+        .update(`${timestamp}.${rawBody}`)
+        .digest();
+    } catch {
+      continue; // Not valid base64; counted below rather than failing the lot.
+    }
+    usable += 1;
+    if (timingSafeEqual(computed, expected)) return { ok: true };
+  }
+
+  if (!usable) return { ok: false, reason: "No value in QUO_WEBHOOK_SECRET is valid base64." };
+  return {
+    ok: false,
+    reason: secrets.length > 1
+      ? `Signature did not match any of the ${secrets.length} configured secrets.`
+      : "Signature did not match. If this is a call event, its webhook has its own "
+        + "secret — add it to QUO_WEBHOOK_SECRET, comma-separated.",
+  };
 }
 
 // Quo nests the interesting part under data.object, but has shipped payloads

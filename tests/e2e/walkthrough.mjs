@@ -374,7 +374,51 @@ console.log("\n9. The other client opts out");
   check("nothing is running now", active.data.length === 0);
 }
 
-console.log("\n10. Permissions on stopping");
+console.log("\n10. The client calls the office instead");
+{
+  // The call path has its own webhook in Quo, its own signing secret and its own
+  // handler, so proving it at the database level is not enough — this is the
+  // whole route, from a signed call.completed to a stopped series.
+  await slack("/slack/commands", {
+    user_id: "U0PARALEGAL", user_name: "sam", channel_id: "C0INTAKE",
+    text: "start 512-555-0166 Ana", response_url: "http://127.0.0.1:4999/__noop",
+  });
+  const running = await api("/api/enrollments?status=active");
+  check("a series is running for the caller", running.data.length === 1);
+
+  // Our own outbound call is the reason the series exists; it must not end it.
+  const outgoing = await fetch(`${BASE}/webhooks/quo?token=quo-token-abc`, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      type: "call.completed",
+      data: { object: { id: "CALL-OUT", direction: "outgoing", from: "+15125557777", to: "+15125550166" } },
+    }),
+  });
+  check("our own outbound call is ignored", (await outgoing.json()).ignored === "outgoing_call");
+  check("the series is still running",
+    (await api("/api/enrollments?status=active")).data.length === 1);
+
+  const incoming = await fetch(`${BASE}/webhooks/quo?token=quo-token-abc`, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      type: "call.completed",
+      data: { object: { id: "CALL-IN", direction: "incoming", from: "+15125550166", to: "+15125557777" } },
+    }),
+  });
+  const called = await incoming.json();
+  check("a call back from the client is accepted", incoming.status === 200);
+  check("it stops the series", called.action === "call" && called.stopped === true,
+    JSON.stringify(called));
+
+  check("nothing is left running",
+    (await api("/api/enrollments?status=active")).data.length === 0);
+  const ended = await api("/api/enrollments?status=ended");
+  check("it is recorded as a call back, not a reply",
+    ended.data.some((row) => row.status === "stopped_call"),
+    JSON.stringify(ended.data.map((row) => row.status)));
+}
+
+console.log("\n11. Permissions on stopping");
 {
   await slack("/slack/commands", {
     user_id: "U0PARALEGAL", user_name: "sam", channel_id: "C0INTAKE",
@@ -399,7 +443,7 @@ console.log("\n10. Permissions on stopping");
     JSON.stringify(supervisor.data));
 }
 
-console.log("\n11. Status and list commands");
+console.log("\n12. Status and list commands");
 {
   const status = await slack("/slack/commands", {
     user_id: "U0PARALEGAL", user_name: "sam", channel_id: "C0INTAKE", text: "status 512-555-0123",
@@ -418,7 +462,7 @@ console.log("\n11. Status and list commands");
   check("help mentions the message shortcut", /⋯/.test(help.data?.text ?? ""));
 }
 
-console.log("\n12. Dashboard");
+console.log("\n13. Dashboard");
 {
   const dashboard = await api("/api/dashboard?days=30");
   check("the dashboard loads", dashboard.status === 200);
@@ -426,7 +470,10 @@ console.log("\n12. Dashboard");
     JSON.stringify(dashboard.data.totals));
   check("it counts the replies", Number(dashboard.data.totals.replies) === 2,
     JSON.stringify(dashboard.data.totals));
-  check("it counts who came back", Number(dashboard.data.totals.reengaged) === 1);
+  // Two: one texted back and one rang the office. Re-engagement counts both,
+  // which is the point — a client who calls has re-engaged just as surely.
+  check("it counts who came back, by text and by phone",
+    Number(dashboard.data.totals.reengaged) === 2, JSON.stringify(dashboard.data.totals));
   check("it counts opt-outs", Number(dashboard.data.totals.opted_out) === 1);
   check("it has one row per day", dashboard.data.daily.length === 30);
   check("it reports per-sequence performance", dashboard.data.bySequence.length >= 1);
@@ -434,7 +481,7 @@ console.log("\n12. Dashboard");
   check("health counts the synced numbers", dashboard.data.health.numbers === 2);
 }
 
-console.log("\n13. Revoking access");
+console.log("\n14. Revoking access");
 {
   // Removing somebody's access must end their session on the next request, not
   // whenever their two-week cookie happens to expire.
@@ -492,7 +539,7 @@ console.log("\n13. Revoking access");
     JSON.stringify(survivors.map((p) => p.email)));
 }
 
-console.log("\n14. Sign out");
+console.log("\n15. Sign out");
 {
   await fetch(`${BASE}/auth/logout`, { method: "POST", headers: { cookie } });
   const after = await api("/api/dashboard");
