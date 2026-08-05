@@ -207,6 +207,14 @@ console.log("\n5. Starting a series from the Slack slash command");
     text: "start (512) 555-0123 es Maria", response_url: "http://127.0.0.1:4999/__noop",
   });
   check("the command is accepted", started.status === 200);
+  // Slack sends no thread with a slash command, so this always confirms at the
+  // top of the channel. Run inside a thread that looks like nothing happened,
+  // so the person who ran it is told where it went and what to use instead.
+  check("the runner is told where the confirmation went",
+    /rather than in this thread/.test(started.data?.text ?? ""), JSON.stringify(started.data));
+  check("and pointed at the route that does keep to a thread",
+    /@sms-follow-up start/.test(started.data?.text ?? ""), JSON.stringify(started.data));
+  check("only they see it", started.data?.response_type === "ephemeral");
 
   const list = await api("/api/enrollments?status=active");
   check("a series is running", list.data.length === 1, JSON.stringify(list.data).slice(0, 200));

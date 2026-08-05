@@ -24,6 +24,7 @@ const FAQ = [
     a: [
       "Because intake conversations already happen in threads. When a series starts from a message or a thread, every later update about that client — the reply, the stop, the “no answer after six texts” — posts back into that same thread instead of scattering down the channel.",
       "A series started with the slash command has no thread to attach to, so its own confirmation message becomes the thread that later updates hang off.",
+      "That is true even when the command is typed inside a thread, and it is Slack's doing rather than a setting: a slash command payload carries the channel and nothing about where in it the command was run, so there is no thread for the app to attach to. Run in a thread it looks like nothing happened, so it replies privately to whoever ran it saying where the confirmation went. Inside a thread, use “@sms-follow-up start 512-555-0123” or the ⋯ menu instead — both carry the thread.",
     ],
   },
   {
@@ -169,7 +170,7 @@ const FAQ = [
 // Kept deliberately in step with the parser in server/routes/slack.js — if the
 // grammar changes there, this table is what people will be reading.
 const COMMANDS = [
-  ["/followup", "Opens the start form. Nothing to remember, and the only one worth teaching somebody on their first day."],
+  ["/followup", "Opens the start form. Nothing to remember, and the only one worth teaching somebody on their first day. Slack gives a slash command no thread, so inside a thread use the @-mention or the ⋯ menu instead."],
   ["/followup 512-555-0123 es Maria", "Starts straight away. With a number in it, the word “start” is optional."],
   ["/followup start 512-555-0123 es Maria", "The same thing spelled out."],
   ["/followup stop 512-555-0123", "Stops that client's series. Only the person it is assigned to, or a supervisor."],

@@ -28,6 +28,13 @@ back into that same thread** — the reply, the stop, the "no answer after six
 texts". Intake conversations stay in one place instead of scattering down the
 channel.
 
+**The slash command is the exception, and it is Slack's doing.** A slash command
+payload carries the channel and nothing about where in it the command was typed,
+so `/followup` run inside a thread cannot know that and confirms at the top of
+the channel instead. Run in a thread it looks like nothing happened, so it
+replies — just to whoever ran it — saying where the confirmation went. **In a
+thread, use `@sms-follow-up start …` or the `⋯` menu**; both carry the thread.
+
 ## How a series ends
 
 This matters more than how it starts, so it is enforced in the database rather

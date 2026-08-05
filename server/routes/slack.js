@@ -46,6 +46,10 @@ const HELP = [
     + "assigns it, and whatever is left is the first name. Leave the language out and it uses "
     + "whatever you last used for that number; leave the name out and the text says \"there\".",
   "",
+  "*Inside a thread, use the mention, not the command.* Slack tells a slash command which "
+    + "channel it was run in but not which thread, so `/followup` always confirms at the top of "
+    + "the channel. `@sms-follow-up start …` and the `⋯` menu both keep to the thread.",
+  "",
   "A series stops on its own when the client replies, calls back, or texts STOP — `stop` is "
     + "for when they re-engage somewhere this cannot see.",
 ].join("\n");
@@ -134,6 +138,18 @@ async function doStart({ tokens, actorId, actorName, channelId, threadTs, source
   if (!result?.ok) return ephemeral(enrollFailureText(result, parsed.phone));
 
   await announceEnrollment(result, { fallbackResponseUrl: responseUrl });
+
+  // Slack sends no thread with a slash command — the payload has channel_id and
+  // nothing else about where it was typed — so a series started this way always
+  // confirms at the top of the channel. Run in a thread that reads as the
+  // command doing nothing, so say where it went and how to keep it in the thread.
+  if (source === "command") {
+    return ephemeral(`:white_check_mark: Started for ${formatPhone(parsed.phone)}. The confirmation, `
+      + "with the Stop button, is at the bottom of the channel rather than in this thread — Slack "
+      + "does not tell a slash command which thread it was run in.\n"
+      + "To keep everything in a thread, use `@sms-follow-up start "
+      + `${formatPhone(parsed.phone)}\` in it instead, or the \`⋯\` menu on a message.`);
+  }
   return null;
 }
 
