@@ -8,6 +8,7 @@ import {
   describeDelay,
   extractPhones,
   formatPhone,
+  hasEmoji,
   maskPhone,
   normalizeInbound,
   normalizePhone,
@@ -15,6 +16,7 @@ import {
   renderBody,
   START_KEYWORDS,
   STOP_KEYWORDS,
+  truncateChars,
 } from "../shared/messaging.js";
 
 /* ------------------------------------------------------------ merge fields */
@@ -209,4 +211,53 @@ test("short digit runs are not mistaken for numbers", () => {
 
 test("a message with no number gives nothing rather than guessing", () => {
   assert.deepEqual(extractPhones("Following up with the client from yesterday"), []);
+});
+
+/* -------------------------------------------------------------------- emoji */
+
+test("one emoji drops the whole message to UCS-2", () => {
+  const plain = countSegments("Hi Maria, checking in about your case.");
+  const withEmoji = countSegments("Hi Maria \u{1F44B}, checking in about your case.");
+  assert.equal(plain.encoding, "GSM-7");
+  assert.equal(withEmoji.encoding, "UCS-2");
+});
+
+test("an emoji costs two characters, because it is two UTF-16 units", () => {
+  // This is not a quirk of the implementation — UCS-2 SMS counts code units,
+  // so a surrogate pair really does take two of the seventy.
+  assert.equal(countSegments("\u{1F44B}").characters, 2);
+  assert.equal(countSegments("ab").characters, 2);
+});
+
+test("emoji made of several code points cost all of them", () => {
+  // 👨‍👩‍👧 is three people joined by two zero-width joiners: 8 units, not 1.
+  assert.equal(countSegments("\u{1F468}‍\u{1F469}‍\u{1F467}").characters, 8);
+});
+
+test("a 36-emoji message is already two segments", () => {
+  // 70 units per single segment, two units each, so 35 is the whole budget.
+  assert.equal(countSegments("\u{1F44B}".repeat(35)).segments, 1);
+  assert.equal(countSegments("\u{1F44B}".repeat(36)).segments, 2);
+});
+
+test("hasEmoji tells emoji apart from accents", () => {
+  assert.equal(hasEmoji("Gracias \u{1F64F}"), true);
+  assert.equal(hasEmoji("❤️"), true);
+  // Accented Spanish is also UCS-2, but for a different reason and with
+  // different advice, so it must not read as an emoji.
+  assert.equal(hasEmoji("Su caso está listo"), false);
+  assert.equal(hasEmoji(""), false);
+  assert.equal(hasEmoji(null), false);
+});
+
+test("truncating never leaves half an emoji behind", () => {
+  // Cutting at 5 lands mid-surrogate-pair; slice() would emit a lone half.
+  const text = `abcd\u{1F44B}efg`;
+  const cut = truncateChars(text, 5);
+  assert.equal(cut, "abcd");
+  assert.ok(!/[\uD800-\uDFFF]/.test(cut), "no unpaired surrogate survives");
+});
+
+test("truncating leaves short text alone", () => {
+  assert.equal(truncateChars("Hi \u{1F44B}", 50), "Hi \u{1F44B}");
 });

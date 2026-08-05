@@ -136,6 +136,29 @@ export function countSegments(body) {
   };
 }
 
+// Emoji are welcome in the copy — they just cost more than people expect, so
+// the editor calls this to explain the encoding rather than only naming it.
+// Note the arithmetic above is already right for them: an emoji outside the BMP
+// is a surrogate pair, two UTF-16 code units, and UCS-2 counts it as two
+// characters. `text.length` is the correct measure, not the code-point count.
+const PICTOGRAPHIC = /\p{Extended_Pictographic}/u;
+
+export function hasEmoji(body) {
+  return PICTOGRAPHIC.test(body ?? "");
+}
+
+// Cutting a string with slice() can land between the two halves of a surrogate
+// pair and leave a lone half, which renders as a replacement character. Used
+// wherever a client's own message is shortened for display.
+export function truncateChars(body, limit) {
+  const text = String(body ?? "");
+  if (text.length <= limit) return text;
+  const kept = [...text].slice(0, limit).join("");
+  // Taking whole code points can still exceed the limit by one unit, since one
+  // code point may be two of them; drop the last one when it does.
+  return kept.length > limit ? [...kept].slice(0, -1).join("") : kept;
+}
+
 // What one step will look like on the client's phone.
 export function previewStep(step, { language = "en", isFirst = false, appendNotice = true, vars = {} } = {}) {
   const template = language === "es" ? step.body_es : step.body_en;

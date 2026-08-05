@@ -64,6 +64,14 @@ const FAQ = [
     ],
   },
   {
+    q: "Can I put emoji in the texts?",
+    a: [
+      "Yes. There is a picker on the right of each message box with a short list that suits client texts, and your keyboard's own picker works as well — Ctrl+Cmd+Space on a Mac, Win+. on Windows. Pasting one in works too.",
+      "They are not free, though. An emoji drops the message to UCS-2, the same as an accented á does, so the budget goes from 160 characters per segment to 70 — and each emoji eats two of those 70, because of how it is encoded. The live counter under the preview shows the real number and tells you which of the two causes did it.",
+      "The practical shape: one emoji in the first text reads as warmth and usually still fits in a single segment. The same emoji in all six texts of a sequence can quietly double what the sequence costs to run.",
+    ],
+  },
+  {
     q: "Why is my Spanish message suddenly two texts?",
     a: [
       "Accented characters. The GSM-7 character set that lets a text be 160 characters includes é, è, ñ and ü, but not á, í, ó or ú. A single “está” or “último” drops the whole message to a different encoding where the limit is 70 characters.",

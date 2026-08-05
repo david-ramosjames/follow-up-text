@@ -213,6 +213,13 @@ in the GSM-7 character set but `á`, `í`, `ó` and `ú` are not, and one of the
 drops a message to UCS-2, cutting the per-segment budget from 160 characters to
 70. The starter copy is written to stay inside GSM-7.
 
+**Emoji work**, and there is a picker beside each box — your keyboard's own
+picker and plain pasting work too. They cost more than they look, though: an
+emoji forces the same drop to UCS-2, and each one takes **two** of the 70, since
+it is a surrogate pair. A 👋 in the first text is cheap warmth; the same in all
+six doubles the bill for the sequence. The editor names which of the two causes
+put a message into UCS-2 so you know whether it was the emoji or an accent.
+
 ## Sending windows
 
 Each sequence has a timezone, an earliest and latest hour, and the days it may

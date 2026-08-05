@@ -2,8 +2,9 @@ import { ArrowLeft, ChevronDown, ChevronUp, Plus, Save, Trash2 } from "lucide-re
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import AppNav from "../components/AppNav";
+import EmojiField from "../components/EmojiField";
 import { api, DAY_NAMES, TIMEZONES } from "../lib/api";
-import { DELAY_PRESETS, describeDelay, MERGE_FIELDS, previewStep } from "../../shared/messaging";
+import { DELAY_PRESETS, describeDelay, hasEmoji, MERGE_FIELDS, previewStep } from "../../shared/messaging";
 
 const SAMPLE = {
   first_name: "Maria",
@@ -101,19 +102,17 @@ function StepCard({ step, index, total, sequence, onChange, onMove, onRemove, la
       <div className="body-grid">
         <label>
           <span>English</span>
-          <textarea
-            rows={4}
+          <EmojiField
             value={step.body_en}
-            onChange={(event) => onChange(step, { body_en: event.target.value })}
+            onChange={(body_en) => onChange(step, { body_en })}
             placeholder="Hi {{first_name}}, this is the firm following up about your accident."
           />
         </label>
         <label>
           <span>Spanish</span>
-          <textarea
-            rows={4}
+          <EmojiField
             value={step.body_es}
-            onChange={(event) => onChange(step, { body_es: event.target.value })}
+            onChange={(body_es) => onChange(step, { body_es })}
             placeholder="Hola {{first_name}}, le escribimos del bufete sobre su accidente."
           />
         </label>
@@ -128,10 +127,20 @@ function StepCard({ step, index, total, sequence, onChange, onMove, onRemove, la
           ? <p className="preview-empty">No {language === "es" ? "Spanish" : "English"} copy yet.</p>
           : <p className="preview-body">{preview.body}</p>}
         <p className="preview-meta">
-          {preview.characters} characters · {preview.encoding} · {preview.segments} segment
-          {preview.segments === 1 ? "" : "s"}
+          {preview.characters} of {preview.encoding === "UCS-2" ? 70 : 160} characters ·
+          {" "}{preview.encoding} · {preview.segments} segment{preview.segments === 1 ? "" : "s"}
           {preview.segments > 1 && " — this bills as more than one text"}
         </p>
+        {/* Naming the encoding is not an explanation. An emoji costs two of the
+            seventy, and it is the emoji rather than the accents that surprises
+            people, so say which one did it. */}
+        {preview.encoding === "UCS-2" && (
+          <p className="preview-note">
+            {hasEmoji(preview.body)
+              ? "An emoji puts this message in UCS-2: 70 characters per segment instead of 160, and each emoji counts as two of them. Worth it for a first text, expensive on all six."
+              : "An accent outside the GSM-7 set (á, í, ó, ú — but not é or ñ) puts this in UCS-2: 70 characters per segment instead of 160."}
+          </p>
+        )}
       </div>
     </article>
   );

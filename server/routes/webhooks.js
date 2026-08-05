@@ -1,5 +1,11 @@
 import express from "express";
-import { classifyInbound, countSegments, START_CONFIRMATION, STOP_CONFIRMATION } from "../../shared/messaging.js";
+import {
+  classifyInbound,
+  countSegments,
+  START_CONFIRMATION,
+  STOP_CONFIRMATION,
+  truncateChars,
+} from "../../shared/messaging.js";
 import { query, rpc } from "../db.js";
 import { readEvent, readPhone, resolveSendingNumber, sendText } from "../lib/quo.js";
 import { displayPhone, postToThread } from "../lib/slack.js";
@@ -122,7 +128,7 @@ async function handleInboundMessage(object) {
           text: `:tada: *${who} replied — follow-ups stopped* ${textsPhrase}.${assigned}`,
         },
       },
-      { type: "section", text: { type: "mrkdwn", text: `>${body.slice(0, 2500).replace(/\n/g, "\n>")}` } },
+      { type: "section", text: { type: "mrkdwn", text: `>${truncateChars(body, 2500).replace(/\n/g, "\n>")}` } },
     ],
   });
   return { action: "reply", stopped: true, announced: true };
