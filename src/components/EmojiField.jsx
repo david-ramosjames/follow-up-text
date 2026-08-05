@@ -8,7 +8,10 @@ import { useEffect, useRef, useState } from "react";
 // Ctrl+Cmd+Space on a Mac, Win+. on Windows — and typing or pasting works too.
 const GROUPS = [
   { label: "Warm", emoji: ["👋", "🙂", "😊", "🙏", "💙", "🤝", "👍", "✨"] },
-  { label: "Getting in touch", emoji: ["📞", "📱", "💬", "📩", "📅", "⏰", "✅", "❗"] },
+  // ⚠️ carries its variation selector on purpose: bare U+26A0 renders as a flat
+  // monochrome glyph on a lot of handsets, and the yellow sign is the point.
+  { label: "Time and urgency", emoji: ["⏳", "⚠️", "⏰", "📅", "❗", "✅"] },
+  { label: "Getting in touch", emoji: ["📞", "📱", "💬", "📩"] },
   { label: "The case", emoji: ["⚖️", "📄", "📋", "🏥", "🚗", "🩺", "💼", "📌"] },
 ];
 
