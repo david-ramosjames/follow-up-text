@@ -5,6 +5,7 @@ import {
 } from "../../shared/messaging.js";
 import { rpc, rpcSet } from "../db.js";
 import { resolveSendingNumber, sendText } from "./quo.js";
+import { retireStartCard } from "./followups.js";
 import { displayPhone, postToThread } from "./slack.js";
 import { loadSettings } from "./settings.js";
 
@@ -74,6 +75,9 @@ async function sendOne(row, settings) {
         + `<@${row.assigned_slack_user_id}>`,
     });
   }
+
+  // Both of those end the series, so the start card's Stop button goes too.
+  if (recorded?.final || recorded?.completed) await retireStartCard(row.enrollment_id);
 
   return { sent: result.ok, error: result.error, segments };
 }

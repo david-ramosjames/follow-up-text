@@ -54,7 +54,64 @@ const HELP = [
     + "for when they re-engage somewhere this cannot see.",
 ].join("\n");
 
+const MENTION_SYNTAX = [
+  "`@sms-follow-up start 512-555-0123 es Maria` — start a series",
+  "`@sms-follow-up stop 512-555-0123` — stop one you own",
+  "`@sms-follow-up status 512-555-0123` — where a client is",
+  "`@sms-follow-up list` — everything you have running",
+].join("\n");
+
+const MENTION_ORDER_NOTE = "The order does not matter: anything shaped like a phone number is the "
+  + "number, `en`/`es` sets the language, an `@mention` assigns it to somebody else, and whatever "
+  + "is left over is the client's first name.";
+
 /* ------------------------------------------------------------ arg parsing */
+
+const VERBS = ["start", "stop", "status", "list", "help"];
+
+// How many single-character edits apart two words are. Only used to turn "stauts"
+// into "did you mean status?", so the cheap full matrix is more than enough.
+function editDistance(a, b) {
+  if (a === b) return 0;
+  let previous = Array.from({ length: b.length + 1 }, (_, index) => index);
+  for (let i = 1; i <= a.length; i += 1) {
+    const current = [i];
+    for (let j = 1; j <= b.length; j += 1) {
+      current[j] = Math.min(
+        previous[j] + 1,
+        current[j - 1] + 1,
+        previous[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1),
+      );
+    }
+    previous = current;
+  }
+  return previous[b.length];
+}
+
+// A word that was meant to be a verb but is not one. Getting this wrong in the
+// permissive direction is expensive: an unrecognised first word used to fall
+// through to start and become {{first_name}}, so `@sms-follow-up stauts 512…`
+// texted the client "Hi stauts,". Better to ask than to guess.
+function nearestVerb(word) {
+  const lower = String(word ?? "").toLowerCase();
+  if (!/^[a-z]{2,}$/.test(lower)) return null;
+  if (VERBS.includes(lower)) return null;
+
+  let best = null;
+  let bestDistance = Infinity;
+  for (const verb of VERBS) {
+    const distance = editDistance(lower, verb);
+    // Two edits on a short word turns almost anything into almost anything, so
+    // scale the tolerance: 1 for four letters or fewer, 2 above that.
+    const allowed = Math.min(verb.length, lower.length) <= 4 ? 1 : 2;
+    if (distance <= allowed && distance < bestDistance) {
+      best = verb;
+      bestDistance = distance;
+    }
+  }
+  return best;
+}
+
 
 const LANGUAGE_WORDS = {
   en: "en", eng: "en", english: "en", ingles: "en",
@@ -393,14 +450,44 @@ slackRouter.post("/events", async (req, res) => {
     let tokens = withoutMention.split(/\s+/).filter(Boolean);
     if ((tokens[0] ?? "").toLowerCase() === "start") tokens = tokens.slice(1);
 
-    if (!tokens.length || (tokens[0] ?? "").toLowerCase() === "help") {
+    // Only the person who mistyped needs to see the correction, so it does not
+    // clutter a thread everyone else is reading.
+    const privately = (text) => slackApi("chat.postEphemeral", {
+      channel: event.channel, user: event.user, thread_ts: threadTs, text,
+    });
+
+    const verb = (tokens[0] ?? "").toLowerCase();
+
+    if (!tokens.length || verb === "help") {
       await slackApi("chat.postMessage", { channel: event.channel, thread_ts: threadTs, text: HELP });
       return;
     }
 
-    if ((tokens[0] ?? "").toLowerCase() === "stop") {
+    if (verb === "stop") {
       const reply = await doStop({ tokens: tokens.slice(1), operator });
-      await slackApi("chat.postMessage", { channel: event.channel, thread_ts: threadTs, text: reply.text });
+      await privately(reply.text);
+      return;
+    }
+
+    // These two exist as slash commands, and without them here an unrecognised
+    // first word fell through to start and became {{first_name}} — so
+    // `@sms-follow-up status 512-555-0123` texted the client "Hi status,".
+    if (verb === "status") {
+      await privately((await doStatus(tokens.slice(1))).text);
+      return;
+    }
+    if (verb === "list") {
+      await privately((await doList(operator)).text);
+      return;
+    }
+
+    // A word that was aiming at a verb and missed. Guessing here is what sends a
+    // client a text addressed to "stauts", so ask instead — even when a usable
+    // number is sitting right there.
+    const meant = nearestVerb(tokens[0]);
+    if (meant) {
+      await privately(`:grey_question: Did you mean \`${meant}\`? I read \`${tokens[0]}\` and could `
+        + `not place it.\n\n${MENTION_SYNTAX}`);
       return;
     }
 
@@ -415,6 +502,16 @@ slackRouter.post("/events", async (req, res) => {
       const parentText = parent?.messages?.[0]?.text ?? "";
       const found = extractPhones(parentText);
       if (found[0]) tokens = [found[0], ...tokens];
+    }
+
+    // Still nothing phone-shaped, here or in the message above. Whatever was
+    // typed, it was not a start, so show the syntax rather than the generic
+    // "I need a number" — which used to answer with the slash-command form even
+    // though they had just used the mention.
+    if (!takePhone(tokens).phone) {
+      await privately(`:grey_question: I could not find a mobile number in that.\n\n`
+        + `${MENTION_SYNTAX}\n\n${MENTION_ORDER_NOTE}`);
+      return;
     }
 
     const reply = await doStart({

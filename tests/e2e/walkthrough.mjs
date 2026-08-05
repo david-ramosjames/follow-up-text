@@ -350,6 +350,63 @@ console.log("\n6b. Where later updates go");
     JSON.stringify(notice));
   check("and it says the follow-ups stopped", /follow-ups stopped/i.test(notice?.text ?? ""),
     notice?.text);
+
+  // The card that offered "Stop follow-ups" is now offering it for a series
+  // that has already stopped, so it gets rewritten rather than left standing.
+  const card = after.find((post) => post.ts === confirmation?.ts);
+  check("the start card was rewritten once the series ended", card?.updated === true,
+    JSON.stringify(card));
+  check("its Stop button is gone",
+    !JSON.stringify(card?.blocks ?? []).includes("followup_stop"),
+    JSON.stringify(card?.blocks));
+  check("and it now says why it ended", /have stopped — the client replied/.test(card?.text ?? "")
+    || /the client replied/.test(JSON.stringify(card?.blocks ?? [])),
+    JSON.stringify(card?.blocks));
+}
+
+console.log("\n6c. Mentioning the bot with the wrong words");
+{
+  const mention = async (text) => {
+    const body = JSON.stringify({
+      type: "event_callback",
+      event: { type: "app_mention", user: "U0PARALEGAL", channel: "C0INTAKE", ts: "1730000900.000100", text },
+    });
+    const ts = Math.floor(Date.now() / 1000);
+    const sig = crypto.createHmac("sha256", SIGNING).update(`v0:${ts}:${body}`).digest("hex");
+    const before = (await slackPosts()).length;
+    await fetch(`${BASE}/slack/events`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-slack-request-timestamp": String(ts),
+        "x-slack-signature": `v0=${sig}`,
+      },
+      body,
+    });
+    // The handler acknowledges first and works afterwards, so give it a moment.
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    return { before, posts: await slackPosts() };
+  };
+
+  // A typo used to fall through to start and become the client's first name, so
+  // the client got a text addressed to "stauts".
+  const typo = await mention("<@U0BOT> stauts 512-555-0123");
+  check("a mistyped verb is not treated as a client's name",
+    !(await api("/api/enrollments?status=active")).data.some((row) => row.first_name === "stauts"));
+  check("it suggests what was meant", /Did you mean/.test(JSON.stringify(typo.posts.slice(typo.before))),
+    JSON.stringify(typo.posts.slice(typo.before)));
+
+  // status and list only existed as slash commands; via a mention they fell
+  // through to start the same way.
+  const status = await mention("<@U0BOT> status 512-555-0123");
+  check("status works from a mention rather than starting a series",
+    /Maria|No history/.test(JSON.stringify(status.posts.slice(status.before))),
+    JSON.stringify(status.posts.slice(status.before)));
+
+  const nonsense = await mention("<@U0BOT> please call this person back");
+  check("something with no number gets the syntax, in mention form",
+    /@sms-follow-up start/.test(JSON.stringify(nonsense.posts.slice(nonsense.before))),
+    JSON.stringify(nonsense.posts.slice(nonsense.before)));
 }
 
 console.log("\n7. Sending the due texts");
@@ -573,6 +630,26 @@ console.log("\n12. Status and list commands");
 
 console.log("\n13. Dashboard");
 {
+  // A text from a number that has never been in a sequence. This is the office's
+  // ordinary traffic — a wrong number, an old client, a cold enquiry — and
+  // counting it as a "reply" made the reply rate meaningless.
+  const strangerBefore = await api("/api/dashboard?days=30");
+  await fetch(`${BASE}/webhooks/quo?token=quo-token-abc`, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      type: "message.received",
+      data: { object: { id: "IN-STRANGER", from: "+15125550999", to: "+15125557777", body: "Do yall do wills" } },
+    }),
+  });
+  const strangerAfter = await api("/api/dashboard?days=30");
+  check("a text from a stranger does not count as a reply",
+    Number(strangerAfter.data.totals.replies) === Number(strangerBefore.data.totals.replies),
+    `${strangerBefore.data.totals.replies} -> ${strangerAfter.data.totals.replies}`);
+  check("it is counted separately instead",
+    Number(strangerAfter.data.totals.other_inbound)
+      === Number(strangerBefore.data.totals.other_inbound) + 1,
+    `${strangerBefore.data.totals.other_inbound} -> ${strangerAfter.data.totals.other_inbound}`);
+
   const dashboard = await api("/api/dashboard?days=30");
   check("the dashboard loads", dashboard.status === 200);
   // Four: two sequence texts and two STOP confirmations. Confirmations are

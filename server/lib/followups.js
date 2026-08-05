@@ -1,4 +1,4 @@
-import { rows, rpc, query } from "../db.js";
+import { one, rows, rpc, query } from "../db.js";
 import { displayPhone, enrollmentBlocks, postToThread, slackApi } from "./slack.js";
 
 export async function loadOperator(slackUserId) {
@@ -120,6 +120,66 @@ export async function announceStop(result, actorLabel) {
     threadTs: result.slack_thread_ts,
     text: `:octagonal_sign: ${actorLabel} stopped follow-ups for ${phone} after ${sent} `
       + `text${sent === 1 ? "" : "s"}.`,
+  });
+  await retireStartCard(result.enrollment_id);
+}
+
+const ENDED_LABELS = {
+  reply: "the client replied",
+  call: "the client called back",
+  opt_out: "the client texted STOP",
+  manual: "somebody stopped it",
+  sequence_complete: "every text went out with no reply",
+  failed: "the texts kept failing",
+};
+
+// Rewrites the original "Follow-up texts started" card once the series is over,
+// so the red Stop button goes away with it. Clicking a stale one was already
+// harmless — the database refuses a second stop — but a live-looking button on a
+// finished series is a question every paralegal has to stop and answer.
+export async function retireStartCard(enrollmentId) {
+  if (!enrollmentId) return;
+
+  const row = await one(
+    `select e.status, e.end_reason, e.slack_channel_id, e.slack_message_ts,
+            e.assigned_slack_user_id, c.phone_e164, c.first_name,
+            (select count(*) from followup_messages m
+              where m.enrollment_id = e.id and m.direction = 'outbound' and m.status <> 'failed') as sent_count
+     from followup_enrollments e
+     join followup_contacts c on c.id = e.contact_id
+     where e.id = $1`,
+    [enrollmentId],
+  );
+
+  // No stored message means the confirmation never posted — nothing to retire.
+  if (!row?.slack_message_ts || !row.slack_channel_id || row.status === "active") return;
+
+  const phone = await displayPhone(String(row.phone_e164));
+  const who = row.first_name ? `*${row.first_name}* ${phone}` : `*${phone}*`;
+  const sent = Number(row.sent_count ?? 0);
+  const why = ENDED_LABELS[row.end_reason] ?? String(row.end_reason ?? "it ended").replace(/_/g, " ");
+
+  await slackApi("chat.update", {
+    channel: row.slack_channel_id,
+    ts: row.slack_message_ts,
+    text: `Follow-up texts for ${phone} have stopped`,
+    blocks: [
+      {
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: `:white_check_mark: Follow-up texts for ${who} have stopped — ${why}.`,
+        },
+      },
+      {
+        type: "context",
+        elements: [{
+          type: "mrkdwn",
+          text: `${sent} text${sent === 1 ? "" : "s"} went out · was assigned to `
+            + `<@${row.assigned_slack_user_id}>`,
+        }],
+      },
+    ],
   });
 }
 

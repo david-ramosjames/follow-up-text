@@ -98,14 +98,14 @@ export function DailyChart({ data, height = 240 }) {
     <div className="chart" ref={ref}>
       <div className="chart-legend">
         <span><i style={{ background: "var(--series-1)" }} /> Texts sent</span>
-        <span><i style={{ background: "var(--series-2)" }} /> Replies in</span>
+        <span><i style={{ background: "var(--series-2)" }} /> Replies from clients in a series</span>
       </div>
 
       <svg
         width={width}
         height={height}
         role="img"
-        aria-label={`Texts sent and replies received per day. ${points.length} days shown.`}
+        aria-label={`Texts sent, and replies from clients in a follow-up series, per day. ${points.length} days shown.`}
         onMouseMove={onMove}
         onMouseLeave={() => setHover(null)}
       >
@@ -172,7 +172,7 @@ export function DailyChart({ data, height = 240 }) {
         >
           <strong>{formatDay(points[hover].day)}</strong>
           <span><i style={{ background: "var(--series-1)" }} /> {points[hover].sent} sent</span>
-          <span><i style={{ background: "var(--series-2)" }} /> {points[hover].replies} replies</span>
+          <span><i style={{ background: "var(--series-2)" }} /> {points[hover].replies} replies in series</span>
         </div>
       )}
     </div>

@@ -137,7 +137,17 @@ export default function DashboardPage() {
           <header className="panel-head">
             <div>
               <h2>Texts out, replies in</h2>
-              <p>Replies are the point. A day with sends and no replies is worth looking at.</p>
+              <p>
+                Replies are the point. A day with sends and no replies is worth looking at.
+                {" "}Only replies from clients in a series are counted
+                {Number(totals.other_inbound) > 0 && (
+                  <>
+                    {" "}— the other {Number(totals.other_inbound)} inbound text
+                    {Number(totals.other_inbound) === 1 ? "" : "s"} in this period came from numbers
+                    with no series running, and belong to the Quo inbox rather than here
+                  </>
+                )}.
+              </p>
             </div>
           </header>
           <DailyChart data={data?.daily ?? []} />

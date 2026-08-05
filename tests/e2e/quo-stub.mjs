@@ -82,8 +82,35 @@ http.createServer((req, res) => {
     // assert which channel and thread each notice landed in.
     if (path === "/slack/chat.postMessage" && req.method === "POST") {
       const ts = `1799${String(nextTs++).padStart(6, "0")}.000000`;
-      posts.push({ ts, channel: body.channel, thread_ts: body.thread_ts ?? null, text: body.text ?? "" });
+      posts.push({
+        ts, channel: body.channel, thread_ts: body.thread_ts ?? null,
+        text: body.text ?? "", blocks: body.blocks ?? [],
+      });
       return json(res, 200, { ok: true, ts, channel: body.channel });
+    }
+
+    // Ephemeral messages are how the app corrects somebody's syntax, so they
+    // have to be visible here too — recorded with the user they went to, since
+    // "only that person saw it" is part of what is being asserted.
+    if (path === "/slack/chat.postEphemeral" && req.method === "POST") {
+      const ts = `1799${String(nextTs++).padStart(6, "0")}.000000`;
+      posts.push({
+        ts, channel: body.channel, thread_ts: body.thread_ts ?? null,
+        text: body.text ?? "", ephemeralTo: body.user ?? null,
+      });
+      return json(res, 200, { ok: true, message_ts: ts });
+    }
+    // chat.update rewrites a message in place. Recorded against the original ts
+    // so a test can ask what a card looks like now, not what it looked like when
+    // it was posted.
+    if (path === "/slack/chat.update" && req.method === "POST") {
+      const post = posts.find((entry) => entry.ts === body.ts);
+      if (post) {
+        post.text = body.text ?? "";
+        post.blocks = body.blocks ?? [];
+        post.updated = true;
+      }
+      return json(res, 200, { ok: true, ts: body.ts, channel: body.channel });
     }
     if (path.startsWith("/slack/")) return json(res, 200, { ok: true });
 

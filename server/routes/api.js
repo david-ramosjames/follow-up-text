@@ -62,8 +62,15 @@ apiRouter.get("/dashboard", ok(async (req, res) => {
       (select coalesce(sum(segments), 0) from followup_messages
          where direction = 'outbound' and status <> 'failed'
            and created_at >= now() - ($1 || ' days')::interval) as segments,
+      -- Replies from somebody actually in a series. Every other inbound text is
+      -- the office's ordinary traffic — a wrong number, an existing client, a
+      -- cold enquiry — and counting those made the reply rate meaningless.
       (select count(*) from followup_messages
-         where direction = 'inbound' and created_at >= now() - ($1 || ' days')::interval) as replies,
+         where direction = 'inbound' and enrollment_id is not null
+           and created_at >= now() - ($1 || ' days')::interval) as replies,
+      (select count(*) from followup_messages
+         where direction = 'inbound' and enrollment_id is null
+           and created_at >= now() - ($1 || ' days')::interval) as other_inbound,
       (select count(*) from followup_enrollments
          where status in ('stopped_reply', 'stopped_call')
            and ended_at >= now() - ($1 || ' days')::interval) as reengaged,
@@ -83,7 +90,8 @@ apiRouter.get("/dashboard", ok(async (req, res) => {
       (select count(*) from followup_messages m
         where m.direction = 'outbound' and m.status <> 'failed' and m.created_at::date = d::date) as sent,
       (select count(*) from followup_messages m
-        where m.direction = 'inbound' and m.created_at::date = d::date) as replies
+        where m.direction = 'inbound' and m.enrollment_id is not null
+          and m.created_at::date = d::date) as replies
     from generate_series(now() - ($1 || ' days')::interval, now(), interval '1 day') d
     order by day
   `, [String(days - 1)]);

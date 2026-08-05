@@ -8,6 +8,7 @@ import {
 } from "../../shared/messaging.js";
 import { query, rpc } from "../db.js";
 import { readEvent, readPhone, resolveSendingNumber, sendText } from "../lib/quo.js";
+import { retireStartCard } from "../lib/followups.js";
 import { displayPhone, postToThread } from "../lib/slack.js";
 import { loadSettings } from "../lib/settings.js";
 import { verifyWebhook } from "../lib/quo.js";
@@ -87,6 +88,10 @@ async function handleInboundMessage(object) {
   const stoppedAfter = Number(result.stopped?.sent_count ?? 0);
   const textsPhrase = `after ${stoppedAfter} text${stoppedAfter === 1 ? "" : "s"}`;
 
+  // Whatever the client did, if it ended a series the original card no longer
+  // has a live Stop button to offer.
+  if (stoppedSomething) await retireStartCard(result.stopped.enrollment_id);
+
   if (result.action === "opt_out") {
     // Carriers registered for A2P 10DLC usually auto-reply to STOP themselves. A
     // duplicate confirmation is noise; a missing one is a compliance problem, so
@@ -153,6 +158,7 @@ async function handleInboundCall(object) {
   });
   if (!result?.ok) return { ignored: result?.reason };
   if (!result.stopped?.ok) return { action: "call", stopped: false };
+  await retireStartCard(result.stopped.enrollment_id);
 
   const shown = await displayPhone(from);
   const who = result.first_name ? `${result.first_name} (${shown})` : shown;
