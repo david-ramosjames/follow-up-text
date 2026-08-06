@@ -81,6 +81,17 @@ export const SETTING_DEFINITIONS = [
     min: 1,
     max: 240,
   },
+  {
+    key: "min_gap_minutes",
+    label: "Minimum minutes between two texts to one client",
+    type: "number",
+    default: 60,
+    min: 5,
+    max: 1440,
+    help: "A backstop against catch-up bursts. A series started at 11pm has several texts "
+      + "overdue by the time the window opens; this spaces them out rather than sending "
+      + "them together. It only ever delays a text, never brings one forward.",
+  },
 ];
 
 const DEFAULTS = Object.fromEntries(SETTING_DEFINITIONS.map((item) => [item.key, item.default]));

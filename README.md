@@ -232,8 +232,18 @@ the federal TCPA rules and the Texas Business & Commerce Code measure against.
 The defaults are 9am to 7pm, weekdays and Saturday — deliberately tighter than
 the legal 8am–9pm.
 
-Delays are measured from when the series started, not from the previous text, so
-editing the timing of text 2 never shifts text 3.
+Delays are measured from the **first text the client actually received**, not
+from the moment somebody pressed start, and not from the previous text. For a
+series begun inside the window those are the same moment. For one begun at 11pm
+it means "+4 hours" is four hours after they heard from the firm, which is what
+the copy assumes — rather than four hours after a start they never saw. Editing
+the timing of text 2 still never shifts text 3.
+
+There is also a floor on how close together two texts can land, under Settings,
+one hour by default. Without it a series begun at 11pm with touches at 0, +4h and
++8h has all three overdue by 9am, and they go out one dispatch cycle apart —
+three texts in two minutes. The floor only ever delays a text, never brings one
+forward.
 
 ## Layout
 

@@ -6,7 +6,11 @@ import { fileURLToPath } from "node:url";
 import pg from "pg";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const sql = readFileSync(join(here, "state_machine.sql"), "utf8");
+// Both files raise the same `ok  ` / `FAIL ` notices and roll themselves back,
+// so they run as one pass.
+const sql = ["state_machine.sql", "catchup.sql"]
+  .map((file) => readFileSync(join(here, file), "utf8"))
+  .join("\n");
 
 // These tests write real rows. Point DATABASE_URL at a scratch database, never
 // at production.

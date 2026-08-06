@@ -83,6 +83,7 @@ const FAQ = [
     a: [
       "Only inside each sequence's sending window, measured in the client's local time — that is what both the federal TCPA rules and the Texas Business & Commerce Code key off. The default is 9am to 7pm on weekdays and Saturday, deliberately tighter than the legal 8am–9pm.",
       "A text that comes due outside the window waits for the next opening rather than being skipped. A series started at 11pm sends its first text the following morning.",
+      "The rest of the schedule then follows from that first text rather than from when the series was started, so “+4 hours” means four hours after the client actually heard from you. There is also a floor on how close two texts can land — one hour by default, under Settings. Without it, a series started at 11pm with touches at 0, +4h and +8h would have all three overdue by 9am and send them a dispatch cycle apart: three texts in two minutes. It only ever delays a text, never brings one forward.",
     ],
   },
   {
