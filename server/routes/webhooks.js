@@ -223,6 +223,21 @@ webhookRouter.post("/quo", async (req, res) => {
     return res.json({ ignored: type || "unknown_event" });
   } catch (error) {
     console.error("quo webhook failed", error);
+
+    // Quo disables a webhook after repeated failed deliveries, and it does not
+    // care whether the failure was its payload or our database — so a single
+    // message it will redeliver forever can take every reply down with it. That
+    // is exactly what happened with a `from` of "@04961199404".
+    //
+    // A message we cannot make sense of is therefore acknowledged and logged,
+    // because retrying it will never help. A 500 is kept only for the failures a
+    // retry genuinely fixes — the database being briefly unreachable — where
+    // Quo's redelivery is what saves the reply.
+    const permanent = typeof error.code === "string"
+      && (error.code.startsWith("22") || error.code.startsWith("23"));
+    if (permanent) {
+      return res.json({ ignored: "unprocessable", constraint: error.constraint ?? null });
+    }
     return res.status(500).json({ error: error.message });
   }
 });

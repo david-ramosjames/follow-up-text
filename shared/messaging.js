@@ -194,20 +194,22 @@ export const DELAY_PRESETS = [
 
 /* ------------------------------------------------------------ phone numbers */
 
+// The same shape the contacts table enforces. Keeping the two in step matters:
+// when they drifted, this returned "+04961199404" for a Quo handle and the
+// insert raised, which answered 500 and got the whole webhook disabled.
+const E164 = /^\+[1-9][0-9]{7,14}$/;
+
 export function normalizePhone(raw) {
   if (raw === null || raw === undefined) return null;
   const text = String(raw).trim();
-
-  if (text.startsWith("+")) {
-    const digits = text.replace(/[^0-9]/g, "");
-    return digits.length >= 8 && digits.length <= 15 ? `+${digits}` : null;
-  }
-
   const digits = text.replace(/[^0-9]/g, "");
-  if (digits.length === 10) return `+1${digits}`;
-  if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
-  if (digits.length >= 11 && digits.length <= 15) return `+${digits}`;
-  return null;
+
+  let candidate = null;
+  if (text.startsWith("+")) candidate = `+${digits}`;
+  else if (digits.length === 10) candidate = `+1${digits}`;
+  else if (digits.length >= 11 && digits.length <= 15) candidate = `+${digits}`;
+
+  return candidate && E164.test(candidate) ? candidate : null;
 }
 
 export function formatPhone(e164) {

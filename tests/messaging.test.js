@@ -261,3 +261,40 @@ test("truncating never leaves half an emoji behind", () => {
 test("truncating leaves short text alone", () => {
   assert.equal(truncateChars("Hi \u{1F44B}", 50), "Hi \u{1F44B}");
 });
+
+/* ---------------------------------------------- numbers that are not numbers */
+
+test("a Quo handle is refused rather than turned into a fake number", () => {
+  // The payload that disabled the webhook: `from` was "@04961199404". Stripping
+  // the "@" left eleven digits, which used to become "+04961199404" — a value
+  // the contacts table rejects, so the insert raised and the webhook 500ed.
+  assert.equal(normalizePhone("@04961199404"), null);
+  assert.equal(normalizePhone("@06813922298"), null);
+});
+
+test("a leading zero is never a valid country code", () => {
+  assert.equal(normalizePhone("+04961199404"), null);
+  assert.equal(normalizePhone("0123456789012"), null);
+});
+
+test("anything returned is a number the contacts table will accept", () => {
+  // Same expression as the check constraint on followup_contacts.phone_e164.
+  const constraint = /^\+[1-9][0-9]{7,14}$/;
+  const inputs = [
+    "5125550123", "(512) 555-0123", "+1 512 555 0123", "1-512-555-0123",
+    "@04961199404", "+04961199404", "not a phone", "", "12345", "+",
+    "+999999999999999999", "0000000000",
+  ];
+  for (const input of inputs) {
+    const result = normalizePhone(input);
+    if (result !== null) {
+      assert.match(result, constraint, `${input} produced ${result}, which the table would refuse`);
+    }
+  }
+});
+
+test("real numbers still normalize", () => {
+  assert.equal(normalizePhone("+15125550123"), "+15125550123");
+  assert.equal(normalizePhone("5125550123"), "+15125550123");
+  assert.equal(normalizePhone("+44 20 7946 0958"), "+442079460958");
+});
