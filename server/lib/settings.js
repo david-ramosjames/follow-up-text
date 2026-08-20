@@ -82,6 +82,48 @@ export const SETTING_DEFINITIONS = [
     max: 240,
   },
   {
+    key: "lead_autostart_enabled",
+    label: "Start follow-ups automatically from lead posts",
+    type: "boolean",
+    default: false,
+    help: "Watches the lead channel below, reads each form fill, and starts the matching "
+      + "series without anybody clicking. Off until you switch it on.",
+  },
+  {
+    key: "lead_channel_id",
+    label: "Lead channel ID",
+    type: "text",
+    default: "",
+    help: "The channel your form fills post into, e.g. C09ABCDEFG — in Slack, right-click "
+      + "the channel, Copy link, and take the last part. Only this channel is read.",
+  },
+  {
+    key: "lead_default_owner_slack_id",
+    label: "Who owns an automatic lead",
+    type: "text",
+    default: "",
+    help: "The Slack member ID an automatically started series is assigned to. They can "
+      + "stop it, and anybody can hand it over afterwards.",
+  },
+  {
+    key: "night_starts_hour",
+    label: "Night starts at",
+    type: "number",
+    default: 21,
+    min: 12,
+    max: 23,
+    help: "From this hour, in the client's local time, a step's night copy is used instead "
+      + "of its usual copy.",
+  },
+  {
+    key: "night_ends_hour",
+    label: "Night ends at",
+    type: "number",
+    default: 8,
+    min: 1,
+    max: 11,
+  },
+  {
     key: "min_gap_minutes",
     label: "Minimum minutes between two texts to one client",
     type: "number",

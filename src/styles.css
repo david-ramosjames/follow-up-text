@@ -563,6 +563,17 @@ label.checkbox small { display: block; margin-top: 2px; color: var(--muted); fon
   background: var(--raised); font-family: inherit; font-size: 9px;
 }
 
+.night-copy {
+  margin-top: 12px; padding: 10px 12px;
+  background: var(--raised); border: 1px solid var(--line-soft); border-radius: 5px;
+}
+.night-copy summary {
+  display: flex; align-items: center; gap: 7px; cursor: pointer;
+  color: var(--ink-soft); font-size: 12px; font-weight: 600;
+}
+.night-copy summary span { color: var(--muted); font-weight: 400; }
+.night-copy > p { margin: 8px 0 10px; color: var(--muted); font-size: 11px; line-height: 1.6; }
+
 .preview-note { margin: 6px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
 
 .next-send {

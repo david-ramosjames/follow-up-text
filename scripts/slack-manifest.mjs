@@ -74,6 +74,10 @@ settings:
     request_url: ${PUBLIC_URL}/slack/events
     bot_events:
       - app_mention
+      # Only needed for automatic lead intake. The app reads messages in the one
+      # channel set under Settings and discards everything else before looking
+      # at it. Remove this line if you are not using that.
+      - message.channels
   interactivity:
     is_enabled: true
     request_url: ${PUBLIC_URL}/slack/interactivity

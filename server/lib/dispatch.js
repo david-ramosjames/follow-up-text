@@ -16,7 +16,14 @@ const SEND_INTERVAL_MS = 125;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export function buildBody(row, settings) {
-  const template = row.language === "es" ? row.body_es : row.body_en;
+  // A step may carry separate copy for the middle of the night, because "we
+  // just received your message" reads wrong at 3am. Falls back to the ordinary
+  // body, so night copy is something you add where it matters rather than
+  // something every step has to have. Whether it is night was decided in the
+  // database, on the client's clock, at the moment the text was claimed.
+  const night = row.language === "es" ? row.body_es_night : row.body_en_night;
+  const day = row.language === "es" ? row.body_es : row.body_en;
+  const template = row.is_night && night?.trim() ? night : day;
   const rendered = renderBody(template, {
     first_name: row.first_name,
     last_name: row.last_name,

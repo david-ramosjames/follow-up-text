@@ -80,6 +80,8 @@ function reportConfiguration() {
       "the first sign-in, before anybody is on the access list"],
     ["BOOTSTRAP_ADMIN_EMAIL", Boolean(process.env.BOOTSTRAP_ADMIN_EMAIL),
       "granting yourself dashboard access without the password"],
+    ["ANTHROPIC_API_KEY", Boolean(process.env.ANTHROPIC_API_KEY),
+      "routing lead posts to the right track"],
   ];
 
   const missing = checks.filter(([, present]) => !present);

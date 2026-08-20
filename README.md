@@ -35,6 +35,59 @@ the channel instead. Run in a thread it looks like nothing happened, so it
 replies — just to whoever ran it — saying where the confirmation went. **In a
 thread, use `@sms-follow-up start …` or the `⋯` menu**; both carry the thread.
 
+## Starting from a lead, automatically
+
+Form fills from the website, the chatbot, Facebook, TikTok and Meta lead forms
+all land in one Slack channel, each shaped differently. The app can read that
+channel and start the right series without anybody clicking.
+
+**It is off until you switch it on**, under Settings: tick *Start follow-ups
+automatically from lead posts*, give it the lead channel's ID, and name the
+person automatic leads are assigned to. Any administrator can switch it off
+again, and nothing else in the app changes if you never do.
+
+How a post becomes a series:
+
+| Step | Done by |
+| --- | --- |
+| Flatten the post — blocks, attachments, link markup | Code |
+| Find the phone number and email | Code |
+| Decide the track, the language and the first name | Claude |
+| Start the series and post the decision in the thread | Code |
+
+**The phone number is never left to the model.** It is read by the same parser
+the Slack shorthand uses, and a post without a usable one is not acted on. Being
+wrong about a number means texting a stranger; being wrong about a track shows
+up in the thread with a *Wrong track* menu next to it, and can be corrected in
+one click long before the second text goes out.
+
+**The tracks are just sequences.** The model chooses from your active sequences
+by slug, and it reads the name and description you wrote for your own benefit.
+Adding a track is therefore a thing you do in the dashboard — no code changes
+here, and no list to keep in step. A slug it invents is discarded rather than
+used.
+
+Set `ANTHROPIC_API_KEY` for the routing. Without it leads still start, on the
+default sequence, and the thread says why — so a missing key is a degraded
+service rather than a silent one.
+
+## Answering at once, and at 3am
+
+A sequence can be marked **Answer immediately, whatever the hour**. Its *first*
+text ignores the sending window, because somebody who filled in a form thirty
+seconds ago is waiting; every later text respects the window as usual.
+
+That first text can then go out at any hour, so each step can carry **separate
+night wording** — "we received your message tonight and will call you in the
+morning" instead of "we just received your message". Night is defined under
+Settings and judged on the client's clock. Leave the night boxes empty and the
+usual copy is used at every hour.
+
+One thing to decide deliberately: federal and Texas quiet-hours rules are
+written about telemarketing, and a reply to somebody's own form fill is a
+different thing. Answering at 3am is a defensible choice and it is the one this
+supports — it is not the cautious one, and it is yours to make.
+
 ## How a series ends
 
 This matters more than how it starts, so it is enforced in the database rather
@@ -188,13 +241,16 @@ Only secrets are environment variables. Everything the firm might want to change
 is in the database and editable under **Settings**, taking effect within one
 dispatch cycle:
 
-firm name · default timezone · default Quo number · fallback Slack channel ·
+automatic lead intake, its channel and its default owner · when night starts and
+ends · firm name · default timezone · default Quo number · fallback Slack channel ·
 whether Slack shows full phone numbers · whether we send our own STOP
 confirmation · texts per run · seconds between runs · attempts before giving up ·
 minutes between retries.
 
 Per sequence: which Quo number it sends from, its timezone, its sending window,
-which days it may send, and whether the opt-out line is appended.
+which days it may send, whether the opt-out line is appended, and whether it
+answers immediately. Per text: its wording in English and Spanish, and
+optionally different wording for the middle of the night.
 
 ## Writing the message copy
 

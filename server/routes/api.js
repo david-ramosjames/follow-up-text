@@ -192,6 +192,7 @@ apiRouter.post("/sequences", ok(async (req, res) => {
 const SEQUENCE_FIELDS = [
   "name", "description", "is_active", "quo_number_id", "timezone",
   "quiet_hours_start", "quiet_hours_end", "send_days", "append_opt_out_notice",
+  "respond_immediately",
 ];
 
 apiRouter.patch("/sequences/:id", ok(async (req, res) => {
@@ -269,11 +270,15 @@ apiRouter.put("/sequences/:id/steps", ok(async (req, res) => {
     for (const [index, step] of steps.entries()) {
       await client.query(
         `update followup_steps
-         set position = $2, label = $3, delay_minutes = $4, body_en = $5, body_es = $6, is_active = $7
+         set position = $2, label = $3, delay_minutes = $4, body_en = $5, body_es = $6, is_active = $7,
+             body_en_night = $9, body_es_night = $10
          where id = $1 and sequence_id = $8`,
         [
           step.id, index + 1, step.label || null, Math.max(0, Number(step.delay_minutes) || 0),
           step.body_en, step.body_es, Boolean(step.is_active), req.params.id,
+          // Empty means "no night variant", not an empty text.
+          String(step.body_en_night ?? "").trim() || null,
+          String(step.body_es_night ?? "").trim() || null,
         ],
       );
     }

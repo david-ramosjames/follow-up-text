@@ -1,4 +1,4 @@
-import { ArrowLeft, ChevronDown, ChevronUp, Plus, Save, Trash2 } from "lucide-react";
+import { ArrowLeft, ChevronDown, ChevronUp, Moon, Plus, Save, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import AppNav from "../components/AppNav";
@@ -117,6 +117,43 @@ function StepCard({ step, index, total, sequence, onChange, onMove, onRemove, la
           />
         </label>
       </div>
+
+      {/* Only worth the space on a text that can actually go out at night, which
+          in practice is the first one of a sequence that answers immediately. */}
+      {(index === 0 || step.body_en_night || step.body_es_night) && (
+        <details className="night-copy" open={Boolean(step.body_en_night || step.body_es_night)}>
+          <summary>
+            <Moon size={13} /> Different wording at night
+            {!step.body_en_night && !step.body_es_night && <span> — optional</span>}
+          </summary>
+          <p>
+            Used instead of the copy above when the text goes out during the night hours set
+            under Settings, judged by the client's clock. Leave either box empty to use the
+            usual wording at any hour. “We just received your message” is the sort of line
+            that needs this.
+          </p>
+          <div className="body-grid">
+            <label>
+              <span>English at night</span>
+              <EmojiField
+                value={step.body_en_night || ""}
+                onChange={(body_en_night) => onChange(step, { body_en_night })}
+                rows={3}
+                placeholder="Hi {{first_name}}, we have your message and will call you in the morning."
+              />
+            </label>
+            <label>
+              <span>Spanish at night</span>
+              <EmojiField
+                value={step.body_es_night || ""}
+                onChange={(body_es_night) => onChange(step, { body_es_night })}
+                rows={3}
+                placeholder="Hola {{first_name}}, recibimos su mensaje y le llamamos por la mañana."
+              />
+            </label>
+          </div>
+        </details>
+      )}
 
       <div className={`preview ${preview.segments > 1 ? "warn" : ""}`}>
         <p className="preview-label">
@@ -243,6 +280,7 @@ export default function SequenceEditorPage() {
         quiet_hours_end: sequence.quiet_hours_end,
         send_days: sequence.send_days,
         append_opt_out_notice: sequence.append_opt_out_notice,
+        respond_immediately: Boolean(sequence.respond_immediately),
       });
 
       setSteps(updated.steps ?? []);
@@ -431,6 +469,23 @@ export default function SequenceEditorPage() {
               <span>
                 <strong>Add the opt-out line to the first text</strong>
                 <small>Appends “Reply STOP to opt out.” (or the Spanish version) to the first text only.</small>
+              </span>
+            </label>
+
+            <label className="checkbox wide">
+              <input
+                type="checkbox"
+                checked={Boolean(sequence.respond_immediately)}
+                onChange={(event) => updateSequence({ respond_immediately: event.target.checked })}
+              />
+              <span>
+                <strong>Answer immediately, whatever the hour</strong>
+                <small>
+                  For sequences that reply to a form the person filled in seconds ago, where
+                  waiting until 9am is the wrong answer. The <em>first</em> text ignores the
+                  window above; every later text still respects it. Give text 1 night wording
+                  so a 3am reply reads properly.
+                </small>
               </span>
             </label>
           </div>

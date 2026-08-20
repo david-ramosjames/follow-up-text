@@ -20,6 +20,24 @@ const FAQ = [
     ],
   },
   {
+    q: "Can follow-ups start on their own when a lead form comes in?",
+    a: [
+      "Yes, and it is off until you switch it on. Under Settings, tick “Start follow-ups automatically from lead posts”, paste the lead channel's ID, and name the person automatic leads are assigned to. Any administrator can switch it off again.",
+      "The app then reads that one channel — and only that one — and for each new post: flattens it (the sources put their fields in blocks, attachments and plain text, differently each), finds the phone number and email in code, asks Claude which of your sequences fits and in which language, starts the series, and posts the decision in the thread.",
+      "The phone number is never left to the model. It is read by the same parser the Slack shorthand uses, and a post without a usable one is not acted on — being wrong about a number means texting a stranger. Being wrong about a track is visible in the thread, with a “Wrong track” menu next to it, and one click moves them before the second text goes out.",
+      "The tracks are simply your active sequences. Claude chooses among them by short name and reads the name and description you wrote, so adding a track is something you do on the Sequences page — there is no list in the code to keep in step. A short name it invents is discarded rather than used.",
+      "ANTHROPIC_API_KEY is what pays for the routing. Without it leads still start, on the default sequence, and the thread says why — a missing key degrades the service rather than silencing it.",
+    ],
+  },
+  {
+    q: "How do I answer a lead at 3am without it reading strangely?",
+    a: [
+      "Two settings that work together. On the sequence, tick “Answer immediately, whatever the hour” — its first text then ignores the sending window, because somebody who filled in a form thirty seconds ago is waiting. Every later text still respects the window, so the sequence does not spend a week texting at odd hours.",
+      "Then give text 1 night wording, under “Different wording at night” in the editor. “We received your message tonight and will call you in the morning” instead of “we just received your message”. When night starts and ends is under Settings, and it is judged on the client's clock, not yours. Leave the night boxes empty and the usual copy is used at every hour.",
+      "Worth deciding deliberately rather than drifting into: the federal and Texas quiet-hours rules are written about telemarketing, and answering somebody's own form fill is a different thing. Texting back at 3am is defensible and it is what this supports. It is not the cautious choice, and it is the firm's to make.",
+    ],
+  },
+  {
     q: "Why do updates land in a thread?",
     a: [
       "Because intake conversations already happen in threads. When a series starts from a message or a thread, every later update about that client — the reply, the stop, the “no answer after six texts” — posts back into that same thread instead of scattering down the channel.",

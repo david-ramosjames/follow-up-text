@@ -8,7 +8,7 @@ import pg from "pg";
 const here = dirname(fileURLToPath(import.meta.url));
 // Both files raise the same `ok  ` / `FAIL ` notices and roll themselves back,
 // so they run as one pass.
-const sql = ["state_machine.sql", "catchup.sql"]
+const sql = ["state_machine.sql", "catchup.sql", "leads.sql"]
   .map((file) => readFileSync(join(here, file), "utf8"))
   .join("\n");
 

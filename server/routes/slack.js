@@ -1,6 +1,8 @@
 import express from "express";
 import { extractPhones, formatPhone, maskPhone, normalizePhone } from "../../shared/messaging.js";
 import { rows, rpc } from "../db.js";
+import { assessLeadPost } from "../lib/leads.js";
+import { loadSettings } from "../lib/settings.js";
 import {
   activeSequences,
   announceEnrollment,
@@ -9,6 +11,7 @@ import {
   enrollFailureText,
   loadOperator,
   lookupSlackName,
+  retireStartCard,
   startSeries,
   stopSeries,
 } from "../lib/followups.js";
@@ -412,6 +415,113 @@ slackRouter.post("/commands", async (req, res) => {
   }
 });
 
+/* ------------------------------------------------------------ lead intake */
+
+const CONFIDENCE_ICON = { high: ":large_green_circle:", medium: ":large_yellow_circle:", low: ":red_circle:" };
+
+// A form fill posted by another app. Everything about this is off by default:
+// no channel configured, or the setting switched off, and the message is
+// discarded without being read.
+export async function handleLeadPost(event) {
+  const settings = await loadSettings();
+  const channel = String(settings.lead_channel_id ?? "").trim();
+
+  // The first and cheapest gate. The app is in other channels for its own
+  // reasons and must not read leads out of them, so this comes before anything
+  // touches the message body.
+  if (!channel || event.channel !== channel) return { ignored: "other_channel" };
+  if (!settings.lead_autostart_enabled) return { ignored: "autostart_off" };
+
+  // Our own posts, edits, deletions and thread replies are not new leads.
+  if (event.subtype && event.subtype !== "bot_message") return { ignored: event.subtype };
+  if (event.thread_ts && event.thread_ts !== event.ts) return { ignored: "thread_reply" };
+  if (event.app_id && event.app_id === process.env.SLACK_APP_ID) return { ignored: "self" };
+
+  const owner = String(settings.lead_default_owner_slack_id ?? "").trim();
+  if (!owner) {
+    console.warn("A lead arrived but no default owner is set, so nothing was started.");
+    return { ignored: "no_owner" };
+  }
+
+  const assessment = await assessLeadPost(event);
+  if (!assessment.act) return { ignored: assessment.reason };
+
+  const threadTs = event.thread_ts ?? event.ts;
+  const result = await startSeries({
+    phone: assessment.phone,
+    language: assessment.language,
+    first_name: assessment.firstName,
+    last_name: assessment.lastName,
+    sequence_slug: assessment.sequenceSlug,
+    assigned_slack_user_id: owner,
+    assigned_slack_user_name: await lookupSlackName(owner),
+    started_by_slack_user_id: owner,
+    slack_channel_id: event.channel,
+    slack_thread_ts: threadTs,
+    source: "lead",
+    lead_source: assessment.leadSource,
+    lead_detail: {
+      confidence: assessment.confidence,
+      reasoning: assessment.reasoning,
+      case_type: assessment.caseType ?? null,
+      email: assessment.email ?? null,
+      classifier_failed: assessment.classifierFailed ?? null,
+      post: assessment.text.slice(0, 4000),
+    },
+  });
+
+  if (!result?.ok) {
+    // Worth saying out loud in the thread: silence here looks like the
+    // automation working, when in fact this lead is getting no texts.
+    await slackApi("chat.postMessage", {
+      channel: event.channel,
+      thread_ts: threadTs,
+      text: `:warning: No follow-ups started for this lead — ${enrollFailureText(result, assessment.phone)}`,
+    });
+    return { ignored: result?.reason ?? "enroll_failed" };
+  }
+
+  await announceEnrollment(result);
+
+  // The routing decision, in the thread, next to the lead it was made about.
+  // A wrong track is then something anybody can see and correct rather than
+  // something they discover from the texts a client received.
+  const icon = CONFIDENCE_ICON[assessment.confidence] ?? ":white_circle:";
+  await slackApi("chat.postMessage", {
+    channel: event.channel,
+    thread_ts: threadTs,
+    text: `${icon} Routed to *${result.sequence?.name}* — ${assessment.reasoning}`,
+    blocks: [
+      {
+        type: "context",
+        elements: [{
+          type: "mrkdwn",
+          text: `${icon} Routed to *${result.sequence?.name}*`
+            + `${assessment.caseType ? ` · ${assessment.caseType}` : ""}`
+            + ` · ${assessment.language === "es" ? "Spanish" : "English"}`
+            + `\n_${assessment.reasoning}_`,
+        }],
+      },
+      // A select rather than a button: correcting the track is one click from
+      // here, and the whole point is that it happens before text two.
+      {
+        type: "actions",
+        elements: [{
+          type: "static_select",
+          action_id: "followup_reroute",
+          placeholder: { type: "plain_text", text: "Wrong track? Move to…" },
+          options: (await activeSequences()).slice(0, 100).map((sequence) => ({
+            text: { type: "plain_text", text: sequence.name.slice(0, 75) },
+            value: `${result.enrollment_id}|${sequence.slug}`,
+          })),
+        }],
+      },
+    ],
+  });
+
+  return { started: true, enrollment_id: result.enrollment_id };
+}
+
 /* ------------------------------------------------------------- events API */
 
 // Lets somebody start follow-ups by @mentioning the app inside an existing
@@ -428,7 +538,17 @@ slackRouter.post("/events", async (req, res) => {
   res.status(200).send("");
 
   const event = body.event;
-  if (!event || event.type !== "app_mention" || event.bot_id) return;
+  if (!event) return;
+
+  // Lead posts come from other apps, so they arrive as ordinary channel
+  // messages rather than mentions. handleLeadPost drops anything outside the
+  // one configured channel before looking at it at all.
+  if (event.type === "message") {
+    await handleLeadPost(event).catch((error) => console.error("lead intake failed", error));
+    return;
+  }
+
+  if (event.type !== "app_mention" || event.bot_id) return;
 
   try {
     const operator = await loadOperator(event.user);
@@ -704,6 +824,80 @@ async function handleModalSubmit(payload, res) {
   return undefined;
 }
 
+// Moving a lead the classifier put on the wrong track. Stops the current series
+// and starts the chosen one for the same client, in the same thread — which is
+// the correction worth making, and only useful before the second text.
+async function handleReroute(payload, res) {
+  const operator = await loadOperator(payload.user.id);
+  const responseUrl = payload.response_url;
+  const say = (text) => respondToUrl(responseUrl, {
+    response_type: "ephemeral", replace_original: false, text,
+  });
+
+  if (!operator) {
+    await say(":lock: You are not set up to manage client follow-ups.");
+    return res.status(200).send("");
+  }
+
+  const [enrollmentId, slug] = String(payload.actions[0].selected_option?.value ?? "").split("|");
+  if (!enrollmentId || !slug) {
+    await say(":warning: That option could not be read.");
+    return res.status(200).send("");
+  }
+
+  const current = await rows(
+    `select e.id, e.slack_channel_id, e.slack_thread_ts, e.language, e.case_reference,
+            e.lead_source, e.lead_detail, e.status, c.phone_e164, c.first_name, c.last_name
+     from followup_enrollments e join followup_contacts c on c.id = e.contact_id
+     where e.id = $1`,
+    [enrollmentId],
+  );
+  const enrollment = current[0];
+  if (!enrollment) {
+    await say(":warning: That series no longer exists.");
+    return res.status(200).send("");
+  }
+
+  if (enrollment.status === "active") {
+    const stopped = await stopSeries({
+      enrollmentId, actor: operator.slack_user_id, reason: "manual", enforceAssignment: true,
+    });
+    if (!stopped?.ok) {
+      await say(stopped?.reason === "not_assigned"
+        ? `:lock: That series belongs to <@${stopped.assigned_slack_user_id}>, so only they or a supervisor can move it.`
+        : ":warning: The series could not be stopped, so it has not been moved.");
+      return res.status(200).send("");
+    }
+    await retireStartCard(enrollmentId);
+  }
+
+  const started = await startSeries({
+    phone: enrollment.phone_e164,
+    language: enrollment.language,
+    first_name: enrollment.first_name,
+    last_name: enrollment.last_name,
+    sequence_slug: slug,
+    assigned_slack_user_id: operator.slack_user_id,
+    assigned_slack_user_name: operator.display_name,
+    started_by_slack_user_id: operator.slack_user_id,
+    slack_channel_id: enrollment.slack_channel_id,
+    slack_thread_ts: enrollment.slack_thread_ts,
+    source: "lead",
+    case_reference: enrollment.case_reference,
+    lead_source: enrollment.lead_source,
+    lead_detail: { ...(enrollment.lead_detail ?? {}), rerouted_by: operator.slack_user_id },
+  });
+
+  if (!started?.ok) {
+    await say(`:warning: ${enrollFailureText(started, enrollment.phone_e164)}`);
+    return res.status(200).send("");
+  }
+
+  await announceEnrollment(started);
+  await say(`:white_check_mark: Moved to *${started.sequence?.name}*.`);
+  return res.status(200).send("");
+}
+
 slackRouter.post("/interactivity", async (req, res) => {
   const verified = verifySlackRequest(req, req.rawBody);
   if (!verified.ok) {
@@ -727,6 +921,9 @@ slackRouter.post("/interactivity", async (req, res) => {
     }
     if (payload.type === "block_actions" && payload.actions?.[0]?.action_id === "followup_stop") {
       return await handleStopButton(payload, res);
+    }
+    if (payload.type === "block_actions" && payload.actions?.[0]?.action_id === "followup_reroute") {
+      return await handleReroute(payload, res);
     }
     return res.status(200).send("");
   } catch (error) {
