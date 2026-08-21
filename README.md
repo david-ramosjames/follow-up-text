@@ -41,10 +41,22 @@ Form fills from the website, the chatbot, Facebook, TikTok and Meta lead forms
 all land in one Slack channel, each shaped differently. The app can read that
 channel and start the right series without anybody clicking.
 
-**It is off until you switch it on**, under Settings: tick *Start follow-ups
-automatically from lead posts*, give it the lead channel's ID, and name the
-person automatic leads are assigned to. Any administrator can switch it off
-again, and nothing else in the app changes if you never do.
+**Three modes**, under Settings, starting at off:
+
+| Mode | What happens |
+| --- | --- |
+| **Off** | The channel is not read at all. |
+| **Watch and record** | Every post is read and its decision written to the **Leads** page — including the exact text that person would have received. Nothing is texted, nothing is posted to Slack. |
+| **Live** | Follow-ups start automatically. |
+
+Watch and record is the point: run it for a week, read the Leads page, and only
+go live once the decisions look right. Any administrator can change the mode.
+
+**Only form fills are read.** A post from a *person* is never treated as a lead,
+whatever it contains — a colleague pasting a client's number into the channel is
+not a form fill. Beyond that, list the apps that post your form fills under
+Settings (RJL, Web Chat Lead, rj-tiktok-leads…) and everything else is skipped
+and recorded as skipped, so "why did it ignore that one?" has an answer.
 
 How a post becomes a series:
 
@@ -61,11 +73,13 @@ wrong about a number means texting a stranger; being wrong about a track shows
 up in the thread with a *Wrong track* menu next to it, and can be corrected in
 one click long before the second text goes out.
 
-**The tracks are just sequences.** The model chooses from your active sequences
-by slug, and it reads the name and description you wrote for your own benefit.
-Adding a track is therefore a thing you do in the dashboard — no code changes
-here, and no list to keep in step. A slug it invents is discarded rather than
-used.
+**A track is a sequence that opted in.** Tick *Offer this sequence to the lead
+router* in a sequence's editor and it becomes a track; leave it off and the
+sequence can only ever be started by a person, which is how the original New
+lead follow-up stays manual. The router reads the name and description you
+wrote, so a referral track is built by writing "Another lawyer or firm referring
+a case, not an injured person" in the description — there is no separate concept
+to learn and no list in the code. A slug it invents is discarded.
 
 Set `ANTHROPIC_API_KEY` for the routing. Without it leads still start, on the
 default sequence, and the thread says why — so a missing key is a degraded
@@ -259,7 +273,14 @@ client when the series starts, so a sequence never has to be duplicated and the
 two versions cannot drift apart.
 
 Merge fields: `{{first_name}}`, `{{last_name}}`, `{{full_name}}`,
-`{{case_reference}}`, `{{assigned_user}}`, `{{firm_name}}`. A missing English
+`{{case_type}}`, `{{case_reference}}`, `{{assigned_user}}`, `{{firm_name}}`.
+
+Two of those are easy to confuse. **`{{case_type}}` is what happened to them** —
+"car accident", "slip and fall" — filled in by the lead router or by hand, and it
+is the one message copy usually wants. **`{{case_reference}}` is the firm's own
+case number**, typed by whoever starts a series. Copy almost always writes "your
+{{case_type}}", so the fallback carries no article of its own: with nothing
+known, "about your {{case_type}}" becomes "about your case". A missing English
 name falls back to "there"; in Spanish, which has no neutral equivalent, the
 greeting closes up instead, so `Hola {{first_name}},` becomes `Hola,`.
 

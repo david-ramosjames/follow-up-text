@@ -7,16 +7,17 @@
 
 export const FALLBACKS = {
   // A text opening "Hi ," because intake had no name reads worse than "Hi there,".
-  en: { first_name: "there", last_name: "", full_name: "there", case_reference: "your case", assigned_user: "our team", firm_name: "our office" },
+  en: { first_name: "there", last_name: "", full_name: "there", case_reference: "your case", case_type: "case", assigned_user: "our team", firm_name: "our office" },
   // Spanish has no neutral equivalent of "there", so the greeting closes up instead.
-  es: { first_name: "", last_name: "", full_name: "", case_reference: "su caso", assigned_user: "nuestro equipo", firm_name: "nuestra oficina" },
+  es: { first_name: "", last_name: "", full_name: "", case_reference: "su caso", case_type: "caso", assigned_user: "nuestro equipo", firm_name: "nuestra oficina" },
 };
 
 export const MERGE_FIELDS = [
   { token: "{{first_name}}", label: "First name" },
   { token: "{{last_name}}", label: "Last name" },
   { token: "{{full_name}}", label: "Full name" },
-  { token: "{{case_reference}}", label: "Case or matter reference" },
+  { token: "{{case_reference}}", label: "Case number — the firm's own reference" },
+  { token: "{{case_type}}", label: "Case type — car accident, slip and fall" },
   { token: "{{assigned_user}}", label: "Assigned staff member" },
   { token: "{{firm_name}}", label: "Firm name" },
 ];
@@ -27,6 +28,7 @@ export function renderBody(template, vars = {}, language = "en") {
     last_name: (vars.last_name ?? "").trim(),
     full_name: (vars.full_name ?? [vars.first_name, vars.last_name].filter(Boolean).join(" ")).trim(),
     case_reference: (vars.case_reference ?? "").trim(),
+    case_type: (vars.case_type ?? "").trim(),
     assigned_user: (vars.assigned_user ?? "").trim(),
     firm_name: (vars.firm_name ?? "").trim(),
   };

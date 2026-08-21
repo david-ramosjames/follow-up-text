@@ -1,4 +1,4 @@
-import { Activity, CircleHelp, LayoutDashboard, LogOut, MessageSquareText, Settings, Users, UserCog } from "lucide-react";
+import { Activity, CircleHelp, Inbox, LayoutDashboard, LogOut, MessageSquareText, Settings, Users, UserCog } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import BrandBar from "./BrandBar";
 import { useSession } from "./Session";
@@ -6,6 +6,7 @@ import { useSession } from "./Session";
 const links = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
   { to: "/sequences", label: "Sequences", icon: MessageSquareText },
+  { to: "/leads", label: "Leads", icon: Inbox },
   { to: "/activity", label: "Activity", icon: Activity },
   { to: "/contacts", label: "Contacts", icon: Users },
   { to: "/operators", label: "Access", icon: UserCog },

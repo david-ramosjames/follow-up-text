@@ -82,28 +82,44 @@ export const SETTING_DEFINITIONS = [
     max: 240,
   },
   {
-    key: "lead_autostart_enabled",
-    label: "Start follow-ups automatically from lead posts",
-    type: "boolean",
-    default: false,
-    help: "Watches the lead channel below, reads each form fill, and starts the matching "
-      + "series without anybody clicking. Off until you switch it on.",
+    key: "lead_mode",
+    label: "Reading the lead channel",
+    type: "select",
+    default: "off",
+    options: [
+      { value: "off", label: "Off — do not read the channel at all" },
+      { value: "preview", label: "Watch and record — decide, but never text" },
+      { value: "live", label: "Live — start follow-ups automatically" },
+    ],
+    help: "Watch and record is how to try this safely: every post is read and its decision "
+      + "written to the Leads page, including the exact text that would have gone out, but "
+      + "nothing is sent and nothing is posted to Slack. Move to Live when the decisions look right.",
   },
   {
     key: "lead_channel_id",
     label: "Lead channel ID",
     type: "text",
     default: "",
-    help: "The channel your form fills post into, e.g. C09ABCDEFG — in Slack, right-click "
-      + "the channel, Copy link, and take the last part. Only this channel is read.",
+    help: "The channel your form fills post into, e.g. C09ABCDEFG — in Slack, right-click the "
+      + "channel, Copy link, and take the last part. No other channel is read.",
+  },
+  {
+    key: "lead_senders",
+    label: "Which apps count as form fills",
+    type: "text",
+    default: "",
+    help: "Comma-separated names of the apps that post form fills — for example "
+      + "RJL, Web Chat Lead, rj-tiktok-leads. Only posts from these are considered. "
+      + "Leave empty to accept any app, but never a person: a colleague pasting a client's "
+      + "number into the channel is not a form fill and is always ignored.",
   },
   {
     key: "lead_default_owner_slack_id",
     label: "Who owns an automatic lead",
     type: "text",
     default: "",
-    help: "The Slack member ID an automatically started series is assigned to. They can "
-      + "stop it, and anybody can hand it over afterwards.",
+    help: "The Slack member ID an automatically started series is assigned to. They can stop "
+      + "it, and anybody can hand it over afterwards.",
   },
   {
     key: "night_starts_hour",
@@ -172,6 +188,16 @@ function coerce(definition, raw) {
         throw new Error(`${definition.label} cannot be above ${definition.max}.`);
       }
       return Math.round(value);
+    }
+    case "select": {
+      // A value outside the list would silently disable whatever it controls,
+      // and for lead_mode that means either texting nobody or texting everybody.
+      const value = String(raw ?? "");
+      const allowed = (definition.options ?? []).map((option) => option.value);
+      if (!allowed.includes(value)) {
+        throw new Error(`${definition.label} must be one of: ${allowed.join(", ")}.`);
+      }
+      return value;
     }
     case "quo_number":
       return raw ? String(raw) : null;

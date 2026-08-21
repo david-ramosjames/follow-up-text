@@ -563,6 +563,15 @@ label.checkbox small { display: block; margin-top: 2px; color: var(--muted); fon
   background: var(--raised); font-family: inherit; font-size: 9px;
 }
 
+.lead-post {
+  margin: 12px 0 0; padding: 12px; max-height: 320px; overflow: auto;
+  background: var(--raised); border-radius: 5px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px; line-height: 1.6; white-space: pre-wrap; word-break: break-word;
+}
+.warning-panel.quiet { border-color: var(--line); }
+.warning-panel.quiet h2 { color: var(--ink-soft); }
+
 .night-copy {
   margin-top: 12px; padding: 10px 12px;
   background: var(--raised); border: 1px solid var(--line-soft); border-radius: 5px;

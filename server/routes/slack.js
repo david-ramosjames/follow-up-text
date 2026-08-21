@@ -1,6 +1,16 @@
 import express from "express";
-import { extractPhones, formatPhone, maskPhone, normalizePhone } from "../../shared/messaging.js";
-import { rows, rpc } from "../db.js";
+import {
+  appendOptOutNotice,
+  countSegments,
+  extractPhones,
+  formatPhone,
+  maskPhone,
+  normalizePhone,
+  renderBody,
+  truncateChars,
+} from "../../shared/messaging.js";
+import { flattenSlackMessage } from "../../shared/leads.js";
+import { one, rows, rpc } from "../db.js";
 import { assessLeadPost } from "../lib/leads.js";
 import { loadSettings } from "../lib/settings.js";
 import {
@@ -419,32 +429,187 @@ slackRouter.post("/commands", async (req, res) => {
 
 const CONFIDENCE_ICON = { high: ":large_green_circle:", medium: ":large_yellow_circle:", low: ":red_circle:" };
 
-// A form fill posted by another app. Everything about this is off by default:
-// no channel configured, or the setting switched off, and the message is
-// discarded without being read.
+// The name Slack shows against an app's post. Different sources fill different
+// fields, so try all of them before giving up.
+function senderName(event) {
+  return String(event.bot_profile?.name || event.username || event.app_id || event.bot_id || "").trim();
+}
+
+// Only a form fill counts, and the strongest available signal for that is who
+// posted it. A person pasting a client's number into the channel is not a form
+// fill, and this is the check that keeps the rest of the channel out.
+function isFormFill(event, allowedNames) {
+  // A human message has a user and no bot identity. Never read one.
+  if (!event.bot_id && !event.app_id && event.subtype !== "bot_message") {
+    return { ok: false, why: "posted by a person, not an app" };
+  }
+  if (!allowedNames.length) return { ok: true };
+
+  const name = senderName(event).toLowerCase();
+  const matched = allowedNames.some((allowed) => name === allowed || name.includes(allowed));
+  return matched
+    ? { ok: true }
+    : { ok: false, why: `"${senderName(event) || "unnamed app"}" is not on the list of lead apps` };
+}
+
+// Every post the router considered, and what it concluded. In watch-and-record
+// mode this is the only output; in live mode it is how a wrong route is
+// understood afterwards. Written before anything is sent, so a crash mid-send
+// still leaves a record of the decision.
+async function recordObservation(fields) {
+  const observation = await one(
+    `insert into lead_observations (
+       slack_channel_id, slack_ts, sender_name, sender_app_id, post_text, mode,
+       phone_e164, email, is_lead, sequence_slug, sequence_name, language,
+       first_name, last_name, case_type, lead_source, confidence, reasoning,
+       classifier_error, preview_body, preview_segments, outcome, outcome_detail, enrollment_id
+     ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
+     on conflict (slack_channel_id, slack_ts) where slack_ts is not null do nothing
+     returning *`,
+    [
+      fields.channel ?? null, fields.ts ?? null, fields.senderName ?? null, fields.appId ?? null,
+      truncateChars(fields.text ?? "", 8000), fields.mode,
+      fields.phone ?? null, fields.email ?? null, fields.isLead ?? null,
+      fields.sequenceSlug ?? null, fields.sequenceName ?? null, fields.language ?? null,
+      fields.firstName ?? null, fields.lastName ?? null, fields.caseType ?? null,
+      fields.leadSource ?? null, fields.confidence ?? null, fields.reasoning ?? null,
+      fields.classifierError ?? null, fields.previewBody ?? null, fields.previewSegments ?? null,
+      fields.outcome, fields.outcomeDetail ?? null, fields.enrollmentId ?? null,
+    ],
+  ).catch((error) => {
+    console.error("could not record the lead observation", error);
+    return null;
+  });
+  return observation;
+}
+
+// What this lead would actually receive, merge fields filled in. Computed even
+// in watch-and-record mode, because "which sequence" is a much weaker answer
+// than "here is the text they would have got".
+async function previewFirstText(slug, { firstName, lastName, caseType, language }) {
+  const step = await one(
+    `select s.body_en, s.body_es, s.body_en_night, s.body_es_night, q.append_opt_out_notice
+     from followup_sequences q
+     join followup_steps s on s.sequence_id = q.id and s.is_active
+     where q.slug = coalesce($1, (select slug from followup_sequences where is_default limit 1))
+     order by s.position limit 1`,
+    [slug],
+  );
+  if (!step) return null;
+
+  const settings = await loadSettings();
+  const lang = language === "es" ? "es" : "en";
+  const body = renderBody(lang === "es" ? step.body_es : step.body_en, {
+    first_name: firstName,
+    last_name: lastName,
+    case_type: caseType,
+    firm_name: settings.firm_name,
+  }, lang);
+
+  const withNotice = step.append_opt_out_notice ? appendOptOutNotice(body, lang) : body;
+  return { body: withNotice, segments: countSegments(withNotice).segments };
+}
+
 export async function handleLeadPost(event) {
   const settings = await loadSettings();
   const channel = String(settings.lead_channel_id ?? "").trim();
+  const mode = String(settings.lead_mode ?? "off");
 
-  // The first and cheapest gate. The app is in other channels for its own
-  // reasons and must not read leads out of them, so this comes before anything
-  // touches the message body.
+  // The cheapest gates first, and the channel before anything reads the body.
+  // The app is in other channels for its own reasons and must not read leads
+  // out of them.
+  if (mode === "off") return { ignored: "mode_off" };
   if (!channel || event.channel !== channel) return { ignored: "other_channel" };
-  if (!settings.lead_autostart_enabled) return { ignored: "autostart_off" };
 
   // Our own posts, edits, deletions and thread replies are not new leads.
   if (event.subtype && event.subtype !== "bot_message") return { ignored: event.subtype };
   if (event.thread_ts && event.thread_ts !== event.ts) return { ignored: "thread_reply" };
   if (event.app_id && event.app_id === process.env.SLACK_APP_ID) return { ignored: "self" };
 
-  const owner = String(settings.lead_default_owner_slack_id ?? "").trim();
-  if (!owner) {
-    console.warn("A lead arrived but no default owner is set, so nothing was started.");
-    return { ignored: "no_owner" };
+  const allowed = String(settings.lead_senders ?? "")
+    .split(",").map((name) => name.trim().toLowerCase()).filter(Boolean);
+  const sender = isFormFill(event, allowed);
+
+  const base = {
+    channel: event.channel,
+    ts: event.ts,
+    senderName: senderName(event) || null,
+    appId: event.app_id ?? null,
+    mode,
+  };
+
+  if (!sender.ok) {
+    // Recorded rather than dropped silently, so "why did it skip that one?" has
+    // an answer on the Leads page.
+    await recordObservation({
+      ...base,
+      text: flattenSlackMessage(event),
+      outcome: "ignored_sender",
+      outcomeDetail: sender.why,
+    });
+    return { ignored: "sender", detail: sender.why };
   }
 
   const assessment = await assessLeadPost(event);
-  if (!assessment.act) return { ignored: assessment.reason };
+
+  if (!assessment.act) {
+    await recordObservation({
+      ...base,
+      text: assessment.text ?? flattenSlackMessage(event),
+      phone: assessment.phone ?? null,
+      outcome: assessment.reason === "no_phone" ? "no_phone" : "not_a_lead",
+      outcomeDetail: assessment.reason,
+    });
+    return { ignored: assessment.reason };
+  }
+
+  const sequence = assessment.sequenceSlug
+    ? (await rows("select name from followup_sequences where slug = $1", [assessment.sequenceSlug]))[0]
+    : (await rows("select name from followup_sequences where is_default limit 1"))[0];
+
+  const preview = await previewFirstText(assessment.sequenceSlug, {
+    firstName: assessment.firstName,
+    lastName: assessment.lastName,
+    caseType: assessment.caseType,
+    language: assessment.language,
+  });
+
+  const observed = {
+    ...base,
+    text: assessment.text,
+    phone: assessment.phone,
+    email: assessment.email,
+    isLead: true,
+    sequenceSlug: assessment.sequenceSlug,
+    sequenceName: sequence?.name ?? null,
+    language: assessment.language,
+    firstName: assessment.firstName,
+    lastName: assessment.lastName,
+    caseType: assessment.caseType,
+    leadSource: assessment.leadSource,
+    confidence: assessment.confidence,
+    reasoning: assessment.reasoning,
+    classifierError: assessment.classifierFailed ?? null,
+    previewBody: preview?.body ?? null,
+    previewSegments: preview?.segments ?? null,
+  };
+
+  // Watch and record: decide, write it down, text nobody, post nothing.
+  if (mode !== "live") {
+    await recordObservation({ ...observed, outcome: "preview_only" });
+    return { previewed: true };
+  }
+
+  const owner = String(settings.lead_default_owner_slack_id ?? "").trim();
+  if (!owner) {
+    await recordObservation({
+      ...observed,
+      outcome: "no_owner",
+      outcomeDetail: "No default owner is set under Settings, so nothing was started.",
+    });
+    console.warn("A lead arrived but no default owner is set, so nothing was started.");
+    return { ignored: "no_owner" };
+  }
 
   const threadTs = event.thread_ts ?? event.ts;
   const result = await startSeries({
@@ -452,6 +617,7 @@ export async function handleLeadPost(event) {
     language: assessment.language,
     first_name: assessment.firstName,
     last_name: assessment.lastName,
+    case_type: assessment.caseType,
     sequence_slug: assessment.sequenceSlug,
     assigned_slack_user_id: owner,
     assigned_slack_user_name: await lookupSlackName(owner),
@@ -466,11 +632,15 @@ export async function handleLeadPost(event) {
       case_type: assessment.caseType ?? null,
       email: assessment.email ?? null,
       classifier_failed: assessment.classifierFailed ?? null,
-      post: assessment.text.slice(0, 4000),
     },
   });
 
   if (!result?.ok) {
+    await recordObservation({
+      ...observed,
+      outcome: "enroll_failed",
+      outcomeDetail: result?.reason ?? "unknown",
+    });
     // Worth saying out loud in the thread: silence here looks like the
     // automation working, when in fact this lead is getting no texts.
     await slackApi("chat.postMessage", {
@@ -481,10 +651,11 @@ export async function handleLeadPost(event) {
     return { ignored: result?.reason ?? "enroll_failed" };
   }
 
+  await recordObservation({ ...observed, outcome: "started", enrollmentId: result.enrollment_id });
   await announceEnrollment(result);
 
-  // The routing decision, in the thread, next to the lead it was made about.
-  // A wrong track is then something anybody can see and correct rather than
+  // The routing decision, in the thread, next to the lead it was made about. A
+  // wrong track is then something anybody can see and correct rather than
   // something they discover from the texts a client received.
   const icon = CONFIDENCE_ICON[assessment.confidence] ?? ":white_circle:";
   await slackApi("chat.postMessage", {
@@ -502,8 +673,6 @@ export async function handleLeadPost(event) {
             + `\n_${assessment.reasoning}_`,
         }],
       },
-      // A select rather than a button: correcting the track is one click from
-      // here, and the whole point is that it happens before text two.
       {
         type: "actions",
         elements: [{
@@ -521,6 +690,7 @@ export async function handleLeadPost(event) {
 
   return { started: true, enrollment_id: result.enrollment_id };
 }
+
 
 /* ------------------------------------------------------------- events API */
 

@@ -281,6 +281,7 @@ export default function SequenceEditorPage() {
         send_days: sequence.send_days,
         append_opt_out_notice: sequence.append_opt_out_notice,
         respond_immediately: Boolean(sequence.respond_immediately),
+        auto_routable: Boolean(sequence.auto_routable),
       });
 
       setSteps(updated.steps ?? []);
@@ -469,6 +470,24 @@ export default function SequenceEditorPage() {
               <span>
                 <strong>Add the opt-out line to the first text</strong>
                 <small>Appends “Reply STOP to opt out.” (or the Spanish version) to the first text only.</small>
+              </span>
+            </label>
+
+            <label className="checkbox wide">
+              <input
+                type="checkbox"
+                checked={Boolean(sequence.auto_routable)}
+                onChange={(event) => updateSequence({ auto_routable: event.target.checked })}
+              />
+              <span>
+                <strong>Offer this sequence to the lead router</strong>
+                <small>
+                  Makes this a track the router can choose for an incoming form fill. The
+                  name and description above are what it reads to decide, so write them for a
+                  stranger — “Another lawyer or firm referring a case, not an injured person”
+                  is what separates a referral track from a client one. Leave it off for
+                  sequences a person should start by hand.
+                </small>
               </span>
             </label>
 

@@ -1,0 +1,235 @@
+import { CircleAlert, Eye, Inbox, RefreshCw } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
+import AppNav from "../components/AppNav";
+import { api, formatWhen } from "../lib/api";
+import { formatPhone } from "../../shared/messaging";
+
+const FILTERS = [
+  { value: "actionable", label: "Would text" },
+  { value: "all", label: "Everything read" },
+  { value: "ignored_sender", label: "Skipped senders" },
+  { value: "not_a_lead", label: "Not a lead" },
+];
+
+const MODES = {
+  off: { label: "Off", note: "The lead channel is not being read at all." },
+  preview: {
+    label: "Watch and record",
+    note: "Every post is read and its decision recorded here. Nothing is texted and nothing "
+      + "is posted to Slack.",
+  },
+  live: { label: "Live", note: "Follow-ups start automatically from these posts." },
+};
+
+const OUTCOMES = {
+  started: { label: "Started", tone: "on" },
+  preview_only: { label: "Would have started", tone: "active" },
+  ignored_sender: { label: "Skipped — not a lead app", tone: "off" },
+  not_a_lead: { label: "Read, not a lead", tone: "off" },
+  no_phone: { label: "No usable number", tone: "off" },
+  enroll_failed: { label: "Could not start", tone: "stopped_manual" },
+  no_owner: { label: "No owner set", tone: "stopped_manual" },
+  classifier_failed: { label: "Routing failed", tone: "stopped_manual" },
+};
+
+function Observation({ item }) {
+  const [open, setOpen] = useState(false);
+  const outcome = OUTCOMES[item.outcome] ?? { label: item.outcome, tone: "off" };
+  const acted = item.outcome === "started" || item.outcome === "preview_only";
+
+  return (
+    <article className={acted ? "live" : ""}>
+      <header>
+        <div>
+          <h2>
+            {item.first_name || item.sender_name || "Unnamed"}{" "}
+            {item.phone_e164 && <span className="phone">{formatPhone(item.phone_e164)}</span>}
+          </h2>
+          <p>
+            {item.sender_name && <>via {item.sender_name} · </>}
+            {formatWhen(item.created_at)}
+            {item.case_type && <> · {item.case_type}</>}
+          </p>
+        </div>
+        <div className="card-status">
+          <span className={`status-dot ${outcome.tone}`}>{outcome.label}</span>
+          {item.confidence && <small>{item.confidence} confidence</small>}
+        </div>
+      </header>
+
+      {acted && (
+        <div className="next-send">
+          <Inbox size={15} />
+          <div>
+            <strong>
+              {item.sequence_name ?? "Default sequence"}
+              {item.language && <span className="next-step"> · {item.language === "es" ? "Spanish" : "English"}</span>}
+            </strong>
+            <small>{item.reasoning}</small>
+          </div>
+        </div>
+      )}
+
+      {/* The whole point of watch-and-record: not "which sequence" but the exact
+          words this person would have received. */}
+      {item.preview_body && (
+        <div className="preview">
+          <p className="preview-label">The first text they would get</p>
+          <p className="preview-body">{item.preview_body}</p>
+          <p className="preview-meta">
+            {item.preview_segments} segment{item.preview_segments === 1 ? "" : "s"}
+            {item.first_name ? "" : " · no first name was found, so the greeting falls back"}
+          </p>
+        </div>
+      )}
+
+      {item.classifier_error && (
+        <p className="form-error">
+          Routing fell back to the default sequence: {item.classifier_error}.
+        </p>
+      )}
+      {item.outcome_detail && !item.classifier_error && (
+        <p className="inline-note">{item.outcome_detail}</p>
+      )}
+
+      <footer>
+        <small>
+          {item.email && <>{item.email} · </>}
+          {item.lead_source && <>source {item.lead_source} · </>}
+          mode {item.mode}
+        </small>
+        <div className="card-actions">
+          <button type="button" onClick={() => setOpen(!open)}>
+            <Eye size={14} /> {open ? "Hide the post" : "The post it read"}
+          </button>
+        </div>
+      </footer>
+
+      {open && <pre className="lead-post">{item.post_text}</pre>}
+    </article>
+  );
+}
+
+export default function LeadsPage() {
+  const [filter, setFilter] = useState("actionable");
+  const [data, setData] = useState(null);
+  const [status, setStatus] = useState("loading");
+  const [error, setError] = useState("");
+
+  const refresh = useCallback(async (next = filter) => {
+    setStatus("loading");
+    try {
+      const query = next === "actionable"
+        ? "?actionable=true"
+        : `?outcome=${encodeURIComponent(next)}`;
+      setData(await api.get(`/leads${query}`));
+      setStatus("ready");
+    } catch (loadError) {
+      setError(loadError.message);
+      setStatus("error");
+    }
+  }, [filter]);
+
+  useEffect(() => { refresh(filter); /* eslint-disable-next-line */ }, [filter]);
+
+  const mode = MODES[data?.mode ?? "off"] ?? MODES.off;
+  const counts = data?.counts ?? {};
+
+  return (
+    <main className="page">
+      <div className="shell">
+        <AppNav />
+
+        <header className="page-heading">
+          <div>
+            <p className="eyebrow">Leads</p>
+            <h1>What the lead channel is being read as</h1>
+            <p>
+              Every post the router has looked at, what it concluded, and the exact text the
+              person would receive — so this can be watched before it is trusted to text
+              anybody.
+            </p>
+          </div>
+          <div className="heading-actions">
+            <button type="button" className="button ghost" onClick={() => refresh()}>
+              <RefreshCw size={15} className={status === "loading" ? "spin" : ""} /> Refresh
+            </button>
+          </div>
+        </header>
+
+        <div className={`warning-panel ${data?.mode === "live" ? "" : "quiet"}`}>
+          <h2>
+            {data?.mode === "live" ? <CircleAlert size={15} /> : <Eye size={15} />}
+            {" "}Currently: {mode.label}
+          </h2>
+          <p>
+            {mode.note}
+            {data?.channel
+              ? <> Reading <code>{data.channel}</code>.</>
+              : <> No channel is set, so nothing is read at all.</>}
+            {" "}Change this under <Link to="/settings">Settings</Link>.
+          </p>
+          {data && !data.routable?.length && (
+            <p>
+              <strong>No sequence is available to the router yet.</strong> A sequence only
+              becomes a track once “Offer this sequence to the lead router” is ticked in its
+              editor — which is why the manually-triggered New lead follow-up is not one.
+            </p>
+          )}
+          {data?.routable?.length > 0 && (
+            <p>
+              Tracks it may choose from: {data.routable.map((item) => item.name).join(", ")}.
+            </p>
+          )}
+        </div>
+
+        <div className="stat-grid">
+          <div className="stat-tile"><p className="stat-label">Would text</p>
+            <p className="stat-value">{Number(counts.started ?? 0) + Number(counts.would_start ?? 0)}</p>
+            <p className="stat-detail">last 30 days</p></div>
+          <div className="stat-tile"><p className="stat-label">Skipped, wrong sender</p>
+            <p className="stat-value">{Number(counts.ignored_sender ?? 0)}</p>
+            <p className="stat-detail">not one of your lead apps</p></div>
+          <div className="stat-tile"><p className="stat-label">Read, not a lead</p>
+            <p className="stat-value">{Number(counts.not_a_lead ?? 0) + Number(counts.no_phone ?? 0)}</p>
+            <p className="stat-detail">no number, or not a new client</p></div>
+          <div className={`stat-tile ${Number(counts.problems ?? 0) > 0 ? "tone-warn" : ""}`}>
+            <p className="stat-label">Problems</p>
+            <p className="stat-value">{Number(counts.problems ?? 0)}</p>
+            <p className="stat-detail">worth looking at</p></div>
+        </div>
+
+        <div className="tabs">
+          {FILTERS.map((item) => (
+            <button
+              key={item.value}
+              type="button"
+              className={filter === item.value ? "active" : ""}
+              onClick={() => setFilter(item.value)}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+
+        {error && <p className="form-error">{error}</p>}
+        {status === "loading" && <div className="page-state">Loading…</div>}
+
+        {status === "ready" && !data?.observations?.length && (
+          <div className="empty-state">
+            <h2>Nothing read yet</h2>
+            <p>
+              Posts appear here once the mode is set to Watch and record or Live, the lead
+              channel is set, and the bot has been invited to it.
+            </p>
+          </div>
+        )}
+
+        <div className="card-list">
+          {(data?.observations ?? []).map((item) => <Observation key={item.id} item={item} />)}
+        </div>
+      </div>
+    </main>
+  );
+}

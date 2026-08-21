@@ -96,13 +96,13 @@ function anthropic() {
 // ones. Adding a track in the dashboard therefore extends the router with no
 // code change here — the name and description a person wrote for their own
 // benefit are also what the model reads.
-async function routableSequences() {
+export async function routableSequences() {
   return rows(
     `select slug, name, coalesce(description, '') as description
      from followup_sequences q
-     where q.is_active
+     where q.is_active and q.auto_routable
        and exists (select 1 from followup_steps s where s.sequence_id = q.id and s.is_active)
-     order by q.is_default desc, q.name`,
+     order by q.name`,
   );
 }
 

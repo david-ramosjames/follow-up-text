@@ -28,6 +28,7 @@ export function buildBody(row, settings) {
     first_name: row.first_name,
     last_name: row.last_name,
     case_reference: row.case_reference,
+    case_type: row.case_type,
     assigned_user: row.assigned_slack_user_name,
     firm_name: settings.firm_name,
   }, row.language);

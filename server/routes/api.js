@@ -554,6 +554,60 @@ apiRouter.delete("/operators/:id", ok(async (req, res) => {
   res.json({ ok: true });
 }));
 
+/* ------------------------------------------------------------------ leads */
+
+// Everything the lead router has looked at, newest first. This is the whole
+// point of watch-and-record mode: what was read, what was decided, and the exact
+// text the person would have received.
+apiRouter.get("/leads", ok(async (req, res) => {
+  const conditions = [];
+  const values = [];
+
+  if (req.query.outcome && req.query.outcome !== "all") {
+    values.push(String(req.query.outcome));
+    conditions.push(`outcome = $${values.length}`);
+  }
+  // "Only what it would act on" — the view that matters when deciding whether
+  // to go live.
+  if (req.query.actionable === "true") {
+    conditions.push("outcome in ('started', 'preview_only')");
+  }
+
+  const list = await rows(`
+    select * from lead_observations
+    ${conditions.length ? `where ${conditions.join(" and ")}` : ""}
+    order by created_at desc limit 100
+  `, values);
+
+  const counts = await one(`
+    select
+      count(*) filter (where outcome = 'started') as started,
+      count(*) filter (where outcome = 'preview_only') as would_start,
+      count(*) filter (where outcome = 'ignored_sender') as ignored_sender,
+      count(*) filter (where outcome = 'not_a_lead') as not_a_lead,
+      count(*) filter (where outcome = 'no_phone') as no_phone,
+      count(*) filter (where outcome in ('enroll_failed', 'no_owner', 'classifier_failed')) as problems,
+      count(*) as total
+    from lead_observations
+    where created_at >= now() - interval '30 days'
+  `);
+
+  const settings = await loadSettings();
+  res.json({
+    observations: list,
+    counts,
+    mode: settings.lead_mode ?? "off",
+    channel: settings.lead_channel_id ?? "",
+    routable: await rows(
+      `select slug, name, coalesce(description, '') as description
+       from followup_sequences q
+       where q.is_active and q.auto_routable
+         and exists (select 1 from followup_steps s where s.sequence_id = q.id and s.is_active)
+       order by q.name`,
+    ),
+  });
+}));
+
 /* ---------------------------------------------------------------- settings */
 
 apiRouter.get("/settings", ok(async (req, res) => {

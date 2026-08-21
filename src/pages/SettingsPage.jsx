@@ -95,6 +95,18 @@ export default function SettingsPage() {
             {definition.help && <small className="field-note">{definition.help}</small>}
           </label>
         );
+      case "select":
+        return (
+          <label key={definition.key} className="wide">
+            <span>{definition.label}</span>
+            <select value={value ?? ""} onChange={(event) => set(definition.key, event.target.value)}>
+              {(definition.options ?? []).map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+            {definition.help && <small className="field-note">{definition.help}</small>}
+          </label>
+        );
       case "timezone":
         return (
           <label key={definition.key}>
