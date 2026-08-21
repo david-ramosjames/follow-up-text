@@ -168,6 +168,9 @@ export default function LeadsPage() {
             {data?.channel
               ? <> Reading <code>{data.channel}</code>.</>
               : <> No channel is set, so nothing is read at all.</>}
+            {data?.llm
+              ? <> Routing with <strong>{data.llm.provider === "openai" ? "OpenAI" : "Anthropic"}</strong> (<code>{data.llm.model}</code>).</>
+              : <> No routing key is set, so leads fall back to the default sequence.</>}
             {" "}Change this under <Link to="/settings">Settings</Link>.
           </p>
           {data && !data.routable?.length && (

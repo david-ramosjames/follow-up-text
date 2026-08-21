@@ -26,7 +26,7 @@ const FAQ = [
       "The app then reads that one channel — and only that one — and for each new post: flattens it (the sources put their fields in blocks, attachments and plain text, differently each), finds the phone number and email in code, asks Claude which of your sequences fits and in which language, starts the series, and posts the decision in the thread.",
       "The phone number is never left to the model. It is read by the same parser the Slack shorthand uses, and a post without a usable one is not acted on — being wrong about a number means texting a stranger. Being wrong about a track is visible in the thread, with a “Wrong track” menu next to it, and one click moves them before the second text goes out.",
       "The tracks are simply your active sequences. Claude chooses among them by short name and reads the name and description you wrote, so adding a track is something you do on the Sequences page — there is no list in the code to keep in step. A short name it invents is discarded rather than used.",
-      "ANTHROPIC_API_KEY is what pays for the routing. Without it leads still start, on the default sequence, and the thread says why — a missing key degrades the service rather than silencing it.",
+      "A routing key is what pays for the classification — OPENAI_API_KEY or ANTHROPIC_API_KEY, whichever you set. Without one, leads still start on the default sequence and the Leads page and the thread say why, so a missing key degrades the service rather than silencing it. The Leads page shows which provider and model is doing the routing.",
     ],
   },
   {
@@ -244,6 +244,16 @@ const ENV = [
       ["SLACK_BOT_TOKEN", "Slack app → OAuth & Permissions, starts xoxb-. Needed for the start form, thread replies and notifications."],
       ["QUO_WEBHOOK_SECRET", "Given to you when you create the webhook in Quo. Verifies that inbound replies really came from Quo."],
       ["PUBLIC_URL", "Your Railway URL, e.g. https://followups.up.railway.app. Used to build the Slack sign-in redirect."],
+    ],
+  },
+  {
+    group: "Lead routing",
+    vars: [
+      ["OPENAI_API_KEY", "platform.openai.com → API keys. Routes lead posts to a track. Set this OR the Anthropic key — whichever is present is used."],
+      ["ANTHROPIC_API_KEY", "console.anthropic.com → API keys. The alternative router. Only needed if you are not using OpenAI."],
+      ["LEAD_LLM_PROVIDER", "Optional: openai or anthropic. Only consulted when both keys are set; otherwise the one present key wins."],
+      ["OPENAI_MODEL", "Optional. Defaults to gpt-4o-mini."],
+      ["ANTHROPIC_MODEL", "Optional. Defaults to claude-opus-5."],
     ],
   },
   {

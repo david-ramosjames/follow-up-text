@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
 import { flattenSlackMessage, readLead } from "../../shared/leads.js";
 import { rows } from "../db.js";
 
@@ -16,8 +17,35 @@ export { flattenSlackMessage, readLead };
 // model is for. Being wrong there is visible in Slack and fixable before the
 // second text goes out.
 
+// Either provider can do the routing. Which one is chosen by LEAD_LLM_PROVIDER
+// if it is set, otherwise by which key is present — so dropping an
+// OPENAI_API_KEY into the environment is enough to switch, with nothing else to
+// change. Both keys live in the environment, never in the database, because
+// they are secrets.
+export function llmProvider() {
+  const explicit = String(process.env.LEAD_LLM_PROVIDER ?? "").trim().toLowerCase();
+  if (explicit === "openai" || explicit === "anthropic") return explicit;
+  if (process.env.OPENAI_API_KEY) return "openai";
+  if (process.env.ANTHROPIC_API_KEY) return "anthropic";
+  return null;
+}
+
 export function llmConfigured() {
-  return Boolean(process.env.ANTHROPIC_API_KEY);
+  const provider = llmProvider();
+  if (provider === "openai") return Boolean(process.env.OPENAI_API_KEY);
+  if (provider === "anthropic") return Boolean(process.env.ANTHROPIC_API_KEY);
+  return false;
+}
+
+// A one-line "who is doing the routing", shown on the Leads page so the answer
+// to "how is this being classified?" includes which model made the call.
+export function llmDescription() {
+  const provider = llmProvider();
+  if (!provider || !llmConfigured()) return null;
+  const model = provider === "openai"
+    ? (process.env.OPENAI_MODEL || "gpt-4o-mini")
+    : (process.env.ANTHROPIC_MODEL || "claude-opus-5");
+  return { provider, model };
 }
 
 /* --------------------------------------------------------- classification */
@@ -86,10 +114,69 @@ Rules:
 - confidence describes sequence_slug only. Use "low" when the post says nothing
   about what happened to them.`;
 
-let client = null;
+let anthropicClient = null;
 function anthropic() {
-  if (!client) client = new Anthropic();
-  return client;
+  if (!anthropicClient) anthropicClient = new Anthropic();
+  return anthropicClient;
+}
+
+let openaiClient = null;
+function openai() {
+  if (!openaiClient) openaiClient = new OpenAI();
+  return openaiClient;
+}
+
+// The one prompt both providers share. Kept identical so switching provider
+// changes only the model, not what it is asked to do.
+function buildPrompt(sequences, text) {
+  const menu = sequences
+    .map((s) => `- ${s.slug}: ${s.name}${s.description ? ` — ${s.description}` : ""}`)
+    .join("\n");
+  return `Sequences you may choose from:\n${menu}\n\nThe Slack post:\n"""\n${text}\n"""`;
+}
+
+async function classifyWithAnthropic(sequences, text) {
+  const response = await anthropic().messages.create({
+    model: process.env.ANTHROPIC_MODEL || "claude-opus-5",
+    max_tokens: 2048,
+    system: SYSTEM,
+    output_config: {
+      effort: "low",
+      format: { type: "json_schema", schema: CLASSIFICATION_SCHEMA },
+    },
+    messages: [{ role: "user", content: buildPrompt(sequences, text) }],
+  });
+
+  if (response.stop_reason === "refusal") {
+    return { ok: false, reason: "refused", detail: response.stop_details?.category ?? null };
+  }
+  const block = response.content.find((item) => item.type === "text");
+  if (!block) return { ok: false, reason: "no_content" };
+  return { ok: true, parsed: JSON.parse(block.text) };
+}
+
+async function classifyWithOpenAI(sequences, text) {
+  const response = await openai().chat.completions.create({
+    model: process.env.OPENAI_MODEL || "gpt-4o-mini",
+    messages: [
+      { role: "system", content: SYSTEM },
+      { role: "user", content: buildPrompt(sequences, text) },
+    ],
+    // Structured outputs: the model is constrained to the same schema, so both
+    // providers return the identical shape.
+    response_format: {
+      type: "json_schema",
+      json_schema: { name: "lead_routing", strict: true, schema: CLASSIFICATION_SCHEMA },
+    },
+  });
+
+  const choice = response.choices?.[0];
+  if (choice?.finish_reason === "content_filter") {
+    return { ok: false, reason: "refused", detail: "content_filter" };
+  }
+  const content = choice?.message?.content;
+  if (!content) return { ok: false, reason: "no_content" };
+  return { ok: true, parsed: JSON.parse(content) };
 }
 
 // The sequences the classifier is allowed to choose from are simply the active
@@ -109,36 +196,17 @@ export async function routableSequences() {
 export async function classifyLead(text) {
   const sequences = await routableSequences();
   if (!sequences.length) return { ok: false, reason: "no_active_sequences" };
-  if (!llmConfigured()) return { ok: false, reason: "llm_not_configured" };
 
-  const menu = sequences
-    .map((s) => `- ${s.slug}: ${s.name}${s.description ? ` — ${s.description}` : ""}`)
-    .join("\n");
+  const provider = llmProvider();
+  if (!provider || !llmConfigured()) return { ok: false, reason: "llm_not_configured" };
 
   try {
-    const response = await anthropic().messages.create({
-      model: "claude-opus-5",
-      max_tokens: 2048,
-      system: SYSTEM,
-      output_config: {
-        effort: "low",
-        format: { type: "json_schema", schema: CLASSIFICATION_SCHEMA },
-      },
-      messages: [{
-        role: "user",
-        content: `Sequences you may choose from:\n${menu}\n\n`
-          + `The Slack post:\n"""\n${text}\n"""`,
-      }],
-    });
+    const result = provider === "openai"
+      ? await classifyWithOpenAI(sequences, text)
+      : await classifyWithAnthropic(sequences, text);
+    if (!result.ok) return { ...result, provider };
 
-    if (response.stop_reason === "refusal") {
-      return { ok: false, reason: "refused", detail: response.stop_details?.category ?? null };
-    }
-
-    const block = response.content.find((item) => item.type === "text");
-    if (!block) return { ok: false, reason: "no_content" };
-
-    const parsed = JSON.parse(block.text);
+    const parsed = result.parsed;
     const allowed = new Set(sequences.map((s) => s.slug));
 
     // A slug outside the menu is treated as no choice at all rather than
@@ -149,12 +217,15 @@ export async function classifyLead(text) {
       parsed.confidence = "low";
     }
 
-    return { ok: true, ...parsed };
+    return { ok: true, provider, ...parsed };
   } catch (error) {
-    console.error("lead classification failed", error);
-    if (error instanceof Anthropic.RateLimitError) return { ok: false, reason: "rate_limited" };
-    if (error instanceof Anthropic.AuthenticationError) return { ok: false, reason: "bad_api_key" };
-    return { ok: false, reason: "error", detail: error.message };
+    console.error(`lead classification failed (${provider})`, error);
+    // Both SDKs expose the same typed-error names, so one set of checks covers
+    // whichever provider is in use.
+    const name = error?.constructor?.name ?? "";
+    if (error?.status === 429 || name === "RateLimitError") return { ok: false, reason: "rate_limited", provider };
+    if (error?.status === 401 || name === "AuthenticationError") return { ok: false, reason: "bad_api_key", provider };
+    return { ok: false, reason: "error", detail: error.message, provider };
   }
 }
 

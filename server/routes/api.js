@@ -4,6 +4,7 @@ import { googleConfigured, requireSession, slackSignInConfigured } from "../auth
 import { listQuoNumbers, quoConfigured, syncQuoNumbers } from "../lib/quo.js";
 import { loadSettings, SETTING_DEFINITIONS, saveSettings } from "../lib/settings.js";
 import { announceStop, stopSeries } from "../lib/followups.js";
+import { llmDescription } from "../lib/leads.js";
 import { runDispatch } from "../lib/dispatch.js";
 import { slackConfigured } from "../lib/slack.js";
 
@@ -598,6 +599,7 @@ apiRouter.get("/leads", ok(async (req, res) => {
     counts,
     mode: settings.lead_mode ?? "off",
     channel: settings.lead_channel_id ?? "",
+    llm: llmDescription(),
     routable: await rows(
       `select slug, name, coalesce(description, '') as description
        from followup_sequences q

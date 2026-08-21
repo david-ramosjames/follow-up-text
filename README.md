@@ -64,7 +64,7 @@ How a post becomes a series:
 | --- | --- |
 | Flatten the post — blocks, attachments, link markup | Code |
 | Find the phone number and email | Code |
-| Decide the track, the language and the first name | Claude |
+| Decide the track, the language and the first name | The model (OpenAI or Claude) |
 | Start the series and post the decision in the thread | Code |
 
 **The phone number is never left to the model.** It is read by the same parser
@@ -81,9 +81,12 @@ wrote, so a referral track is built by writing "Another lawyer or firm referring
 a case, not an injured person" in the description — there is no separate concept
 to learn and no list in the code. A slug it invents is discarded.
 
-Set `ANTHROPIC_API_KEY` for the routing. Without it leads still start, on the
-default sequence, and the thread says why — so a missing key is a degraded
-service rather than a silent one.
+Set a routing key — `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`. Whichever you set is
+used; set both and `LEAD_LLM_PROVIDER` decides. The model is overridable
+(`OPENAI_MODEL`, `ANTHROPIC_MODEL`). Without any key, leads still start on the
+default sequence and the Leads page and the thread say why — a missing key
+degrades the routing rather than silencing it, and the Leads page shows which
+provider and model is in use.
 
 ## Answering at once, and at 3am
 
