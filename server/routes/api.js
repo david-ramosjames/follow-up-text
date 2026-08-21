@@ -625,6 +625,7 @@ apiRouter.get("/settings", ok(async (req, res) => {
       slackSignInConfigured: slackSignInConfigured(),
       googleSignInConfigured: googleConfigured(),
       publicUrl: process.env.PUBLIC_URL || null,
+      leadRouting: llmDescription(),
     },
   });
 }));

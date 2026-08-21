@@ -4,6 +4,7 @@ import ActivityPage from "./pages/ActivityPage";
 import ContactsPage from "./pages/ContactsPage";
 import DashboardPage from "./pages/DashboardPage";
 import HelpPage from "./pages/HelpPage";
+import LeadsPage from "./pages/LeadsPage";
 import LoginPage from "./pages/LoginPage";
 import OperatorsPage from "./pages/OperatorsPage";
 import SequenceEditorPage from "./pages/SequenceEditorPage";
@@ -19,6 +20,7 @@ export default function App() {
       <Route path="/" element={guarded(<DashboardPage />)} />
       <Route path="/sequences" element={guarded(<SequencesPage />)} />
       <Route path="/sequences/:slug" element={guarded(<SequenceEditorPage />)} />
+      <Route path="/leads" element={guarded(<LeadsPage />)} />
       <Route path="/activity" element={guarded(<ActivityPage />)} />
       <Route path="/contacts" element={guarded(<ContactsPage />)} />
       <Route path="/operators" element={guarded(<OperatorsPage />)} />

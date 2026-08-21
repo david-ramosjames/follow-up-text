@@ -239,13 +239,41 @@ export default function SettingsPage() {
 
         <section className="editor-section">
           <div>
+            <h2>Lead intake</h2>
+            <p>
+              Reading a Slack channel of form fills and starting the matching series.
+              Start on <em>Watch and record</em> and review the <Link to="/leads">Leads</Link>{" "}
+              page before going Live. The routing key itself is an environment secret — see
+              the panel below.
+            </p>
+          </div>
+          <div className="editor-fields">
+            {group([
+              "lead_mode", "lead_channel_id", "lead_senders", "lead_default_owner_slack_id",
+            ])}
+          </div>
+        </section>
+
+        <section className="editor-section">
+          <div>
+            <h2>Answering at night</h2>
+            <p>
+              When a step's night wording is used instead of its usual copy, judged on the
+              client's clock. Only matters for sequences that answer immediately.
+            </p>
+          </div>
+          <div className="editor-fields">{group(["night_starts_hour", "night_ends_hour"])}</div>
+        </section>
+
+        <section className="editor-section">
+          <div>
             <h2>Sending</h2>
             <p>How often texts go out and how hard the system tries.</p>
           </div>
           <div className="editor-fields">
             {group([
               "send_stop_confirmation", "dispatch_interval_seconds", "dispatch_batch_size",
-              "max_send_attempts", "retry_delay_minutes",
+              "max_send_attempts", "retry_delay_minutes", "min_gap_minutes",
             ])}
           </div>
         </section>
@@ -265,6 +293,13 @@ export default function SettingsPage() {
                 ["Sign in with Google", environment.googleSignInConfigured, "GOOGLE_CLIENT_ID / SECRET"],
                 ["Sign in with Slack", environment.slackSignInConfigured, "SLACK_CLIENT_ID / SECRET"],
                 ["Public URL", Boolean(environment.publicUrl), "PUBLIC_URL"],
+                [
+                  environment.leadRouting
+                    ? `Lead routing — ${environment.leadRouting.provider === "openai" ? "OpenAI" : "Anthropic"} (${environment.leadRouting.model})`
+                    : "Lead routing",
+                  Boolean(environment.leadRouting),
+                  "OPENAI_API_KEY / ANTHROPIC_API_KEY",
+                ],
               ].map(([label, present, variable]) => (
                 <li key={variable} className={present ? "ok" : "bad"}>
                   {present ? <CheckCircle2 size={14} /> : <XCircle size={14} />}
