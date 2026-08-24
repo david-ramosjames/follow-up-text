@@ -84,5 +84,13 @@ export function readLead(text) {
     phone: phones[0] ?? null,
     email: body.match(EMAIL)?.[0] ?? null,
     text: body,
+    referral: isOutboundReferral(body),
   };
+}
+
+// Forms that this firm will send to another lawyer are marked Referral on the
+// Slack post (the forms also misspell it Referal). That is a field to parse,
+// not a judgement for the model: "referred by a friend" is not the same thing.
+export function isOutboundReferral(text) {
+  return /\breferr?als?\b/i.test(String(text ?? ""));
 }

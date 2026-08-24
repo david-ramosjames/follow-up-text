@@ -33,6 +33,37 @@ const OUTCOMES = {
   classifier_failed: { label: "Routing failed", tone: "stopped_manual" },
 };
 
+function Classification({ item }) {
+  const language = item.language === "es" ? "Spanish" : item.language === "en" ? "English" : null;
+  const facts = [
+    ["Track", item.sequence_name || (item.sequence_slug ? item.sequence_slug : null)],
+    ["Language", language],
+    ["First name", item.first_name],
+    ["Case type", item.case_type],
+    ["Source", item.lead_source],
+    ["Confidence", item.confidence],
+  ].filter(([, value]) => value);
+
+  if (!facts.length && !item.reasoning) return null;
+
+  return (
+    <dl className="lead-facts">
+      {facts.map(([label, value]) => (
+        <div key={label}>
+          <dt>{label}</dt>
+          <dd>{value}</dd>
+        </div>
+      ))}
+      {item.reasoning && (
+        <div className="wide">
+          <dt>Why</dt>
+          <dd>{item.reasoning}</dd>
+        </div>
+      )}
+    </dl>
+  );
+}
+
 function Observation({ item }) {
   const [open, setOpen] = useState(false);
   const outcome = OUTCOMES[item.outcome] ?? { label: item.outcome, tone: "off" };
@@ -58,15 +89,23 @@ function Observation({ item }) {
         </div>
       </header>
 
-      {acted && (
+      <Classification item={item} />
+
+      {acted && item.sequence_name && (
         <div className="next-send">
           <Inbox size={15} />
           <div>
             <strong>
-              {item.sequence_name ?? "Default sequence"}
+              {item.sequence_name}
               {item.language && <span className="next-step"> · {item.language === "es" ? "Spanish" : "English"}</span>}
             </strong>
-            <small>{item.reasoning}</small>
+            {item.preview_next_at && (
+              <small>
+                {item.preview_is_night
+                  ? `Night first text. Next one waits for the sending window — ${formatWhen(item.preview_next_at)}. A 4-hour gap does not send overnight.`
+                  : `Next text ${formatWhen(item.preview_next_at)}.`}
+              </small>
+            )}
           </div>
         </div>
       )}
@@ -79,6 +118,7 @@ function Observation({ item }) {
           <p className="preview-body">{item.preview_body}</p>
           <p className="preview-meta">
             {item.preview_segments} segment{item.preview_segments === 1 ? "" : "s"}
+            {item.preview_is_night ? " · night wording" : ""}
             {item.first_name ? "" : " · no first name was found, so the greeting falls back"}
           </p>
         </div>

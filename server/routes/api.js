@@ -194,7 +194,7 @@ apiRouter.post("/sequences", ok(async (req, res) => {
 const SEQUENCE_FIELDS = [
   "name", "description", "is_active", "quo_number_id", "timezone",
   "quiet_hours_start", "quiet_hours_end", "send_days", "append_opt_out_notice",
-  "respond_immediately",
+  "respond_immediately", "auto_routable",
 ];
 
 apiRouter.patch("/sequences/:id", ok(async (req, res) => {

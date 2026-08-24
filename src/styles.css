@@ -585,6 +585,27 @@ label.checkbox small { display: block; margin-top: 2px; color: var(--muted); fon
 
 .preview-note { margin: 6px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
 
+.lead-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 10px 16px;
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  background: var(--raised);
+  border-radius: 5px;
+}
+.lead-facts div { min-width: 0; }
+.lead-facts .wide { grid-column: 1 / -1; }
+.lead-facts dt {
+  margin: 0;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.lead-facts dd { margin: 2px 0 0; font-size: 13px; line-height: 1.45; }
+
 .next-send {
   display: flex; align-items: flex-start; gap: 9px;
   margin-top: 13px; padding: 10px 12px;

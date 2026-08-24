@@ -1,9 +1,9 @@
 import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
-import { flattenSlackMessage, readLead } from "../../shared/leads.js";
+import { flattenSlackMessage, isOutboundReferral, readLead } from "../../shared/leads.js";
 import { rows } from "../db.js";
 
-export { flattenSlackMessage, readLead };
+export { flattenSlackMessage, readLead, isOutboundReferral };
 
 // Reading a lead out of a Slack post happens in two halves, and the split is
 // deliberate.
@@ -13,9 +13,8 @@ export { flattenSlackMessage, readLead };
 // stranger, so it is never left to a model.
 //
 // Which track the lead belongs on is a judgement about prose — "was hit by a
-// truck" against "Resbalón y Caída" against a referral — and that is what the
-// model is for. Being wrong there is visible in Slack and fixable before the
-// second text goes out.
+// truck" against "Resbalón y Caída" — and that is what the model is for.
+// Forms marked Referral are parsed in code: this firm will send them out.
 
 // Either provider can do the routing. Which one is chosen by LEAD_LLM_PROVIDER
 // if it is set, otherwise by which key is present — so dropping an
@@ -55,7 +54,8 @@ const CLASSIFICATION_SCHEMA = {
   properties: {
     is_lead: {
       type: "boolean",
-      description: "True only if this is a new prospective client's contact details. "
+      description: "True if this is a new prospective client's contact details, including "
+        + "a form marked Referral (this firm will send them to another lawyer). "
         + "Status updates, internal chatter and bot noise are not leads.",
     },
     sequence_slug: {
@@ -107,10 +107,12 @@ Rules:
 - first_name is a first name only — "Amber", not "Amber Hill". Leave it null
   rather than guessing at an unclear one, because it goes into the text they
   receive.
-- Someone asking to refer a case, or who says they are another attorney or a
-  firm, belongs on a referral track rather than a client one.
+- If the post is marked Referral or Referal, this firm will send the person to
+  another lawyer. That is the referral track. It is not another attorney sending
+  us a case, and it is not a qualified lead we will represent ourselves.
 - is_lead is false for anything that is not a new prospective client: test posts,
-  status updates, staff conversation, an existing client's message.
+  status updates, staff conversation, an existing client's message. A form marked
+  Referral is still a lead.
 - confidence describes sequence_slug only. Use "low" when the post says nothing
   about what happened to them.`;
 
@@ -248,37 +250,69 @@ export async function assessLeadPost(event) {
   if (!read.phone) return { act: false, reason: "no_phone", text };
 
   const classified = await classifyLead(text);
+  const referral = isOutboundReferral(text);
+  let sequenceSlug = classified.ok ? classified.sequence_slug : null;
+  let reasoning = classified.ok
+    ? classified.reasoning
+    : `Routed to the default sequence: ${classified.reason}.`;
+
+  // The form itself says Referral. Honour that even when the model missed it
+  // or the classifier is down, so those posts cannot land on the qualified track.
+  if (referral) {
+    const tracks = await routableSequences();
+    if (tracks.some((track) => track.slug === "referral")) {
+      sequenceSlug = "referral";
+      reasoning = classified.ok
+        ? `The form is marked referral, so it was parsed onto that track. ${classified.reasoning ?? ""}`.trim()
+        : "The form is marked referral.";
+    }
+  }
+
   if (!classified.ok) {
-    // The number is good even when the model is not, so this still becomes a
-    // lead — on the default sequence, which is what a human would reach for.
     return {
       act: true,
       phone: read.phone,
       email: read.email,
-      sequenceSlug: null,
+      sequenceSlug,
       language: null,
       firstName: null,
       confidence: "low",
-      reasoning: `Routed to the default sequence: ${classified.reason}.`,
+      reasoning,
       classifierFailed: classified.reason,
       text,
     };
   }
 
-  if (!classified.is_lead) return { act: false, reason: "not_a_lead", text };
+  if (!classified.is_lead && !referral) {
+    return {
+      act: false,
+      reason: "not_a_lead",
+      text,
+      phone: read.phone,
+      email: read.email,
+      firstName: classified.first_name,
+      lastName: classified.last_name,
+      language: classified.language,
+      caseType: classified.case_type,
+      leadSource: classified.lead_source,
+      sequenceSlug: classified.sequence_slug,
+      confidence: classified.confidence,
+      reasoning: classified.reasoning,
+    };
+  }
 
   return {
     act: true,
     phone: read.phone,
     email: read.email,
-    sequenceSlug: classified.sequence_slug,
+    sequenceSlug,
     language: classified.language,
     firstName: classified.first_name,
     lastName: classified.last_name,
     caseType: classified.case_type,
     leadSource: classified.lead_source,
     confidence: classified.confidence,
-    reasoning: classified.reasoning,
+    reasoning,
     text,
   };
 }

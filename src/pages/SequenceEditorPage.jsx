@@ -10,6 +10,7 @@ const SAMPLE = {
   first_name: "Maria",
   last_name: "Alvarez",
   case_reference: "MVA-2026-118",
+  case_type: "slip and fall",
   assigned_user: "Sam",
   firm_name: "the firm",
 };
@@ -483,10 +484,10 @@ export default function SequenceEditorPage() {
                 <strong>Offer this sequence to the lead router</strong>
                 <small>
                   Makes this a track the router can choose for an incoming form fill. The
-                  name and description above are what it reads to decide, so write them for a
-                  stranger — “Another lawyer or firm referring a case, not an injured person”
-                  is what separates a referral track from a client one. Leave it off for
-                  sequences a person should start by hand.
+                  name and description above are what it reads to decide. A form marked
+                  Referral or Referal is parsed in code onto a referral track — that means
+                  this firm will send the person to another lawyer, not represent them.
+                  Leave it off for sequences a person should start by hand.
                 </small>
               </span>
             </label>
@@ -502,7 +503,8 @@ export default function SequenceEditorPage() {
                 <small>
                   For sequences that reply to a form the person filled in seconds ago, where
                   waiting until 9am is the wrong answer. The <em>first</em> text ignores the
-                  window above; every later text still respects it. Give text 1 night wording
+                  window above; every later text still respects it, so a 4-hour gap after an
+                  11pm first text becomes the next morning, not 3am. Give text 1 night wording
                   so a 3am reply reads properly.
                 </small>
               </span>

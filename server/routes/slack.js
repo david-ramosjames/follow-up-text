@@ -462,8 +462,9 @@ async function recordObservation(fields) {
        slack_channel_id, slack_ts, sender_name, sender_app_id, post_text, mode,
        phone_e164, email, is_lead, sequence_slug, sequence_name, language,
        first_name, last_name, case_type, lead_source, confidence, reasoning,
-       classifier_error, preview_body, preview_segments, outcome, outcome_detail, enrollment_id
-     ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
+       classifier_error, preview_body, preview_segments, preview_is_night, preview_next_at,
+       outcome, outcome_detail, enrollment_id
+     ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)
      on conflict (slack_channel_id, slack_ts) where slack_ts is not null do nothing
      returning *`,
     [
@@ -474,6 +475,7 @@ async function recordObservation(fields) {
       fields.firstName ?? null, fields.lastName ?? null, fields.caseType ?? null,
       fields.leadSource ?? null, fields.confidence ?? null, fields.reasoning ?? null,
       fields.classifierError ?? null, fields.previewBody ?? null, fields.previewSegments ?? null,
+      fields.previewIsNight ?? null, fields.previewNextAt ?? null,
       fields.outcome, fields.outcomeDetail ?? null, fields.enrollmentId ?? null,
     ],
   ).catch((error) => {
@@ -488,7 +490,8 @@ async function recordObservation(fields) {
 // than "here is the text they would have got".
 async function previewFirstText(slug, { firstName, lastName, caseType, language }) {
   const step = await one(
-    `select s.body_en, s.body_es, s.body_en_night, s.body_es_night, q.append_opt_out_notice
+    `select s.body_en, s.body_es, s.body_en_night, s.body_es_night, q.append_opt_out_notice,
+            q.slug, q.timezone, q.quiet_hours_start, q.quiet_hours_end, q.send_days
      from followup_sequences q
      join followup_steps s on s.sequence_id = q.id and s.is_active
      where q.slug = coalesce($1, (select slug from followup_sequences where is_default limit 1))
@@ -498,8 +501,21 @@ async function previewFirstText(slug, { firstName, lastName, caseType, language 
   if (!step) return null;
 
   const settings = await loadSettings();
+  const tz = step.timezone || "America/Chicago";
+  const hourRow = await one(
+    "select extract(hour from (now() at time zone $1))::int as hour",
+    [tz],
+  );
+  const hour = Number(hourRow?.hour ?? 0);
+  const nightStart = Number(settings.night_starts_hour ?? 21);
+  const nightEnd = Number(settings.night_ends_hour ?? 8);
+  const isNight = hour >= nightStart || hour < nightEnd;
+
   const lang = language === "es" ? "es" : "en";
-  const body = renderBody(lang === "es" ? step.body_es : step.body_en, {
+  const nightBody = lang === "es" ? step.body_es_night : step.body_en_night;
+  const dayBody = lang === "es" ? step.body_es : step.body_en;
+  const template = isNight && nightBody?.trim() ? nightBody : dayBody;
+  const body = renderBody(template, {
     first_name: firstName,
     last_name: lastName,
     case_type: caseType,
@@ -507,7 +523,27 @@ async function previewFirstText(slug, { firstName, lastName, caseType, language 
   }, lang);
 
   const withNotice = step.append_opt_out_notice ? appendOptOutNotice(body, lang) : body;
-  return { body: withNotice, segments: countSegments(withNotice).segments };
+
+  // Later texts never ignore the window, so a 4-hour gap after a night first
+  // text becomes the next opening (usually 9am), not 3am.
+  const next = await one(
+    `select followup_shift_into_window(
+       now() + make_interval(mins => s.delay_minutes),
+       q.timezone, q.quiet_hours_start, q.quiet_hours_end, q.send_days
+     ) as at
+     from followup_sequences q
+     join followup_steps s on s.sequence_id = q.id and s.is_active
+     where q.slug = $1
+     order by s.position offset 1 limit 1`,
+    [step.slug],
+  );
+
+  return {
+    body: withNotice,
+    segments: countSegments(withNotice).segments,
+    isNight,
+    nextAt: next?.at ?? null,
+  };
 }
 
 export async function handleLeadPost(event) {
@@ -581,6 +617,15 @@ export async function handleLeadPost(event) {
       ...base,
       text: assessment.text ?? flattenSlackMessage(event),
       phone: assessment.phone ?? null,
+      email: assessment.email ?? null,
+      firstName: assessment.firstName ?? null,
+      lastName: assessment.lastName ?? null,
+      language: assessment.language ?? null,
+      caseType: assessment.caseType ?? null,
+      leadSource: assessment.leadSource ?? null,
+      sequenceSlug: assessment.sequenceSlug ?? null,
+      confidence: assessment.confidence ?? null,
+      reasoning: assessment.reasoning ?? null,
       outcome: assessment.reason === "no_phone" ? "no_phone" : "not_a_lead",
       outcomeDetail: assessment.reason,
     });
@@ -619,6 +664,8 @@ export async function handleLeadPost(event) {
     classifierError: assessment.classifierFailed ?? null,
     previewBody: preview?.body ?? null,
     previewSegments: preview?.segments ?? null,
+    previewIsNight: preview?.isNight ?? null,
+    previewNextAt: preview?.nextAt ?? null,
   };
 
   // Watch and record: decide, write it down, text nobody, post nothing.

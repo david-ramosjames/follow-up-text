@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { flattenSlackMessage, readLead, historyMessageToEvent, describeSlackHistoryError } from "../shared/leads.js";
+import { flattenSlackMessage, readLead, historyMessageToEvent, describeSlackHistoryError, isOutboundReferral } from "../shared/leads.js";
 
 // The four shapes actually posting into the lead channel. Kept verbatim rather
 // than tidied, because the point of these tests is that real posts parse — a
@@ -137,4 +137,18 @@ test("the Slack errors that actually happen are spelled out", () => {
   assert.match(describeSlackHistoryError("missing_scope", "C026G89PPSS"), /manifest/);
   assert.match(describeSlackHistoryError("channel_not_found", "C026G89PPSS"), /private/);
   assert.match(describeSlackHistoryError("mystery", "C026G89PPSS"), /mystery/);
+});
+
+test("a form marked Referral is parsed as an outbound referral", () => {
+  const marked = "WEBSITE LEAD TO CONTACT\nName: Jo\nPhone: 512-555-0123\nReferral: Yes";
+  assert.equal(isOutboundReferral(marked), true);
+  assert.equal(readLead(marked).referral, true);
+  // The forms misspell it.
+  assert.equal(isOutboundReferral("Type: Referal\nPhone: 512-555-0123"), true);
+});
+
+test("an ordinary injury form is not a referral", () => {
+  assert.equal(isOutboundReferral(flattenSlackMessage(META_FORM)), false);
+  assert.equal(isOutboundReferral(flattenSlackMessage(WEB_CHAT)), false);
+  assert.equal(isOutboundReferral("Name: Jo\nPhone: 512-555-0123\nreferred by a friend"), false);
 });
