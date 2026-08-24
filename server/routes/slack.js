@@ -515,16 +515,27 @@ export async function handleLeadPost(event) {
   const channel = String(settings.lead_channel_id ?? "").trim();
   const mode = String(settings.lead_mode ?? "off");
 
+  // If intake is off, say nothing — the app is in the channel for other reasons
+  // and this would be noise on every message. Once it is on, though, every
+  // message the bot can see is logged with the decision, so "is it even seeing
+  // leads?" is answered by the deploy log and not only by the Leads page.
+  const log = (outcome, extra = "") => {
+    if (mode === "off") return;
+    const where = event.channel === channel ? "" : ` in ${event.channel} (configured ${channel || "none"})`;
+    console.log(`lead intake [${mode}]: ${outcome}${where} from ${senderName(event) || "a person"}${extra}`);
+  };
+
   // The cheapest gates first, and the channel before anything reads the body.
   // The app is in other channels for its own reasons and must not read leads
   // out of them.
   if (mode === "off") return { ignored: "mode_off" };
-  if (!channel || event.channel !== channel) return { ignored: "other_channel" };
+  if (!channel) { log("skipped — no lead channel is set under Settings"); return { ignored: "no_channel" }; }
+  if (event.channel !== channel) { log("skipped — different channel"); return { ignored: "other_channel" }; }
 
   // Our own posts, edits, deletions and thread replies are not new leads.
-  if (event.subtype && event.subtype !== "bot_message") return { ignored: event.subtype };
-  if (event.thread_ts && event.thread_ts !== event.ts) return { ignored: "thread_reply" };
-  if (event.app_id && event.app_id === process.env.SLACK_APP_ID) return { ignored: "self" };
+  if (event.subtype && event.subtype !== "bot_message") { log(`skipped — message subtype ${event.subtype}`); return { ignored: event.subtype }; }
+  if (event.thread_ts && event.thread_ts !== event.ts) { log("skipped — a thread reply, not a new post"); return { ignored: "thread_reply" }; }
+  if (event.app_id && event.app_id === process.env.SLACK_APP_ID) { log("skipped — our own post"); return { ignored: "self" }; }
 
   const allowed = String(settings.lead_senders ?? "")
     .split(",").map((name) => name.trim().toLowerCase()).filter(Boolean);
@@ -541,6 +552,7 @@ export async function handleLeadPost(event) {
   if (!sender.ok) {
     // Recorded rather than dropped silently, so "why did it skip that one?" has
     // an answer on the Leads page.
+    log(`skipped — ${sender.why}`);
     await recordObservation({
       ...base,
       text: flattenSlackMessage(event),
@@ -553,6 +565,7 @@ export async function handleLeadPost(event) {
   const assessment = await assessLeadPost(event);
 
   if (!assessment.act) {
+    log(`read, not acted on — ${assessment.reason}`);
     await recordObservation({
       ...base,
       text: assessment.text ?? flattenSlackMessage(event),
@@ -562,6 +575,9 @@ export async function handleLeadPost(event) {
     });
     return { ignored: assessment.reason };
   }
+
+  log(`recorded a lead${assessment.classifierFailed ? ` (routing fell back: ${assessment.classifierFailed})` : ""}`,
+    ` → ${assessment.sequenceSlug ?? "default"} · ${assessment.confidence ?? "?"} confidence`);
 
   const sequence = assessment.sequenceSlug
     ? (await rows("select name from followup_sequences where slug = $1", [assessment.sequenceSlug]))[0]

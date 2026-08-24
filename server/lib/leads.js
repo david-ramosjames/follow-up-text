@@ -129,9 +129,9 @@ function openai() {
 // The one prompt both providers share. Kept identical so switching provider
 // changes only the model, not what it is asked to do.
 function buildPrompt(sequences, text) {
-  const menu = sequences
-    .map((s) => `- ${s.slug}: ${s.name}${s.description ? ` — ${s.description}` : ""}`)
-    .join("\n");
+  const menu = sequences.length
+    ? sequences.map((s) => `- ${s.slug}: ${s.name}${s.description ? ` — ${s.description}` : ""}`).join("\n")
+    : "(none are set up yet — return sequence_slug: null, but still fill in everything else)";
   return `Sequences you may choose from:\n${menu}\n\nThe Slack post:\n"""\n${text}\n"""`;
 }
 
@@ -195,10 +195,16 @@ export async function routableSequences() {
 
 export async function classifyLead(text) {
   const sequences = await routableSequences();
-  if (!sequences.length) return { ok: false, reason: "no_active_sequences" };
 
   const provider = llmProvider();
   if (!provider || !llmConfigured()) return { ok: false, reason: "llm_not_configured" };
+
+  // No sequences yet is not a reason to skip the model. Watch-and-record exists
+  // precisely so somebody can see how leads are read *before* building any
+  // sequence, so the model still runs and still extracts the name, case type,
+  // language and whether it is a lead — it just has nothing to route to, so
+  // sequence_slug comes back null. This is the chicken-and-egg the preview mode
+  // is meant to break.
 
   try {
     const result = provider === "openai"
