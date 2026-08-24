@@ -5,11 +5,14 @@ import {
   appendOptOutNotice,
   classifyInbound,
   countSegments,
+  DELAY_PRESETS,
   describeDelay,
   extractPhones,
   formatPhone,
   hasEmoji,
   maskPhone,
+  missingMergeTokens,
+  mergeTokens,
   normalizeInbound,
   normalizePhone,
   previewStep,
@@ -160,6 +163,27 @@ test("delays read the way a person would say them", () => {
   assert.equal(describeDelay(60), "after 1 hour");
   assert.equal(describeDelay(1440), "after 1 day");
   assert.equal(describeDelay(4320), "after 3 days");
+  assert.equal(describeDelay(5760), "after 4 days");
+  assert.equal(describeDelay(17280), "after 12 days");
+});
+
+test("delay presets include the multi-day cadence", () => {
+  const minutes = DELAY_PRESETS.map((preset) => preset.minutes);
+  for (const value of [0, 1440, 2880, 5760, 8640, 11520, 17280]) {
+    assert.equal(minutes.includes(value), true, `missing preset ${value}`);
+  }
+});
+
+test("merge tokens are compared without caring about case or spacing", () => {
+  assert.deepEqual(mergeTokens("Hi {{first_name}} from {{ firm_name }}."), ["{{first_name}}", "{{firm_name}}"]);
+  assert.deepEqual(
+    missingMergeTokens("Hi {{First_Name}}, {{case_type}}.", "Hola {{first_name}}, {{case_type}}."),
+    [],
+  );
+  assert.deepEqual(
+    missingMergeTokens("Hi {{first_name}} about {{case_type}}.", "Hola {{first_name}}."),
+    ["{{case_type}}"],
+  );
 });
 
 /* ------------------------------------------------------------ phone numbers */

@@ -4,7 +4,7 @@ import { googleConfigured, requireSession, slackSignInConfigured } from "../auth
 import { listQuoNumbers, quoConfigured, syncQuoNumbers } from "../lib/quo.js";
 import { loadSettings, SETTING_DEFINITIONS, saveSettings } from "../lib/settings.js";
 import { announceStop, stopSeries } from "../lib/followups.js";
-import { llmDescription } from "../lib/leads.js";
+import { llmDescription, translateToSpanish } from "../lib/leads.js";
 import { catchUpLeadChannel, lastLeadCatchUp } from "../lib/leadChannel.js";
 import { runDispatch } from "../lib/dispatch.js";
 import { slackConfigured } from "../lib/slack.js";
@@ -621,6 +621,27 @@ apiRouter.get("/leads", ok(async (req, res) => {
 }));
 
 /* ---------------------------------------------------------------- settings */
+
+const TRANSLATE_ERRORS = {
+  empty: "Type the English first.",
+  llm_not_configured: "Set OPENAI_API_KEY or ANTHROPIC_API_KEY to translate.",
+  lost_merge_fields: "The translation dropped a merge field. Try again, or paste the Spanish yourself.",
+  refused: "The translator declined that copy. Edit it by hand.",
+  no_content: "The translator returned nothing. Try again.",
+  rate_limited: "The translator is busy. Wait a moment and try again.",
+  bad_api_key: "The routing API key was rejected. Check it in Railway.",
+};
+
+apiRouter.post("/translate", ok(async (req, res) => {
+  const result = await translateToSpanish(req.body?.text);
+  if (!result.ok) {
+    const extra = result.missing?.length ? ` Missing: ${result.missing.join(", ")}.` : "";
+    return res.status(400).json({
+      error: (TRANSLATE_ERRORS[result.reason] || "Translation failed.") + extra,
+    });
+  }
+  res.json({ spanish: result.spanish });
+}));
 
 apiRouter.get("/settings", ok(async (req, res) => {
   res.json({

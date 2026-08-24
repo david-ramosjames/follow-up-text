@@ -259,7 +259,9 @@ export default function SettingsPage() {
             <h2>Answering at night</h2>
             <p>
               When a step's night wording is used instead of its usual copy, judged on the
-              client's clock. Only matters for sequences that answer immediately.
+              client's clock. This is not Earliest/Latest on a sequence — those are the
+              sending window for later texts. Night hours only matter on sequences that
+              answer immediately, because only then can a first text actually leave at 2am.
             </p>
           </div>
           <div className="editor-fields">{group(["night_starts_hour", "night_ends_hour"])}</div>

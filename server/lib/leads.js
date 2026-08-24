@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
 import { flattenSlackMessage, isOutboundReferral, readLead } from "../../shared/leads.js";
+import { missingMergeTokens } from "../../shared/messaging.js";
 import { rows } from "../db.js";
 
 export { flattenSlackMessage, readLead, isOutboundReferral };
@@ -315,4 +316,84 @@ export async function assessLeadPost(event) {
     reasoning,
     text,
   };
+}
+
+/* -------------------------------------------------------------- translation */
+
+const TRANSLATE_SYSTEM = `You translate SMS copy for a Texas personal injury law firm from English into Spanish.
+
+Reply with the Spanish text only — no quotes, no preamble, no explanation.
+
+Keep every {{merge_field}} token exactly as written, including the braces and the English name inside. Do not translate first_name, firm_name, case_type, assigned_user, or any other token name.
+
+Do not add a greeting, opt-out line, or signature the English did not have.
+
+Prefer GSM-7 SMS characters so the text stays one segment: é and ñ are fine; do not use á, í, ó, or ú. Write "esta" not "está", "si" not "sí", "aqui" not "aquí", "numero" not "número". Do not use inverted ¿ or ¡. This is a text message — keep a similar length.`;
+
+function cleanTranslation(text) {
+  return String(text ?? "")
+    .replace(/^```(?:\w+)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+}
+
+async function translateWithAnthropic(text) {
+  const response = await anthropic().messages.create({
+    model: process.env.ANTHROPIC_MODEL || "claude-opus-5",
+    max_tokens: 1024,
+    system: TRANSLATE_SYSTEM,
+    messages: [{ role: "user", content: text }],
+  });
+  if (response.stop_reason === "refusal") {
+    return { ok: false, reason: "refused", detail: response.stop_details?.category ?? null };
+  }
+  const block = response.content.find((item) => item.type === "text");
+  if (!block?.text) return { ok: false, reason: "no_content" };
+  return { ok: true, spanish: cleanTranslation(block.text) };
+}
+
+async function translateWithOpenAI(text) {
+  const response = await openai().chat.completions.create({
+    model: process.env.OPENAI_MODEL || "gpt-4o-mini",
+    messages: [
+      { role: "system", content: TRANSLATE_SYSTEM },
+      { role: "user", content: text },
+    ],
+  });
+  const choice = response.choices?.[0];
+  if (choice?.finish_reason === "content_filter") {
+    return { ok: false, reason: "refused", detail: "content_filter" };
+  }
+  const content = choice?.message?.content;
+  if (!content) return { ok: false, reason: "no_content" };
+  return { ok: true, spanish: cleanTranslation(content) };
+}
+
+// English to Spanish for a single SMS body. Merge tokens are checked in code
+// because a dropped {{first_name}} would go out as the literal braces.
+export async function translateToSpanish(text) {
+  const english = String(text ?? "").trim();
+  if (!english) return { ok: false, reason: "empty" };
+
+  const provider = llmProvider();
+  if (!provider || !llmConfigured()) return { ok: false, reason: "llm_not_configured" };
+
+  try {
+    const result = provider === "openai"
+      ? await translateWithOpenAI(english)
+      : await translateWithAnthropic(english);
+    if (!result.ok) return { ...result, provider };
+
+    const missing = missingMergeTokens(english, result.spanish);
+    if (missing.length) {
+      return { ok: false, reason: "lost_merge_fields", missing, provider, spanish: result.spanish };
+    }
+    return { ok: true, provider, spanish: result.spanish };
+  } catch (error) {
+    console.error(`translation failed (${provider})`, error);
+    const name = error?.constructor?.name ?? "";
+    if (error?.status === 429 || name === "RateLimitError") return { ok: false, reason: "rate_limited", provider };
+    if (error?.status === 401 || name === "AuthenticationError") return { ok: false, reason: "bad_api_key", provider };
+    return { ok: false, reason: "error", detail: error.message, provider };
+  }
 }

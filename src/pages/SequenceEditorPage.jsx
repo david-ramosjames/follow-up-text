@@ -1,4 +1,4 @@
-import { ArrowLeft, ChevronDown, ChevronUp, Moon, Plus, Save, Trash2 } from "lucide-react";
+import { ArrowLeft, ChevronDown, ChevronUp, Languages, Moon, Plus, Save, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import AppNav from "../components/AppNav";
@@ -24,7 +24,25 @@ function hourLabel(hour) {
   return `${hour % 12 === 0 ? 12 : hour % 12}:00 ${hour < 12 ? "AM" : "PM"}`;
 }
 
-function StepCard({ step, index, total, sequence, onChange, onMove, onRemove, language }) {
+function TranslateFromEnglish({ disabled, busy, title, onClick }) {
+  return (
+    <button
+      type="button"
+      className="translate-btn"
+      disabled={disabled || busy}
+      title={title}
+      onClick={onClick}
+    >
+      <Languages size={13} />
+      {busy ? "Translating…" : "Translate from English"}
+    </button>
+  );
+}
+
+function StepCard({
+  step, index, total, sequence, onChange, onMove, onRemove, language,
+  nightHours = { start: 21, end: 8 }, canTranslate, translating, onTranslate,
+}) {
   const preview = previewStep(step, {
     language,
     isFirst: index === 0,
@@ -32,6 +50,9 @@ function StepCard({ step, index, total, sequence, onChange, onMove, onRemove, la
     vars: SAMPLE,
   });
   const empty = !(language === "es" ? step.body_es : step.body_en)?.trim();
+  const translateTitle = canTranslate
+    ? "Replace the Spanish with a translation of the English. You can edit it before saving."
+    : "Set OPENAI_API_KEY or ANTHROPIC_API_KEY to translate.";
 
   return (
     <article className="step-card">
@@ -39,6 +60,7 @@ function StepCard({ step, index, total, sequence, onChange, onMove, onRemove, la
         <div>
           <span className="step-number">Text {index + 1}</span>
           <strong>{describeDelay(step.delay_minutes)}</strong>
+          {step.label && <span className="step-label">{step.label}</span>}
           {!step.is_active && <span className="tag muted">skipped</span>}
         </div>
         <div className="step-controls">
@@ -110,7 +132,15 @@ function StepCard({ step, index, total, sequence, onChange, onMove, onRemove, la
           />
         </label>
         <label>
-          <span>Spanish</span>
+          <span className="field-head">
+            Spanish
+            <TranslateFromEnglish
+              disabled={!canTranslate || !String(step.body_en ?? "").trim()}
+              busy={translating === `${step.id}:body_es`}
+              title={translateTitle}
+              onClick={() => onTranslate(step, "body_en", "body_es")}
+            />
+          </span>
           <EmojiField
             value={step.body_es}
             onChange={(body_es) => onChange(step, { body_es })}
@@ -128,10 +158,13 @@ function StepCard({ step, index, total, sequence, onChange, onMove, onRemove, la
             {!step.body_en_night && !step.body_es_night && <span> — optional</span>}
           </summary>
           <p>
-            Used instead of the copy above when the text goes out during the night hours set
-            under Settings, judged by the client's clock. Leave either box empty to use the
-            usual wording at any hour. “We just received your message” is the sort of line
-            that needs this.
+            Used instead of the copy above from {hourLabel(nightHours.start)} to{" "}
+            {hourLabel(nightHours.end)} on the client's clock — that range lives under{" "}
+            <Link to="/settings">Settings → Answering at night</Link>, not Latest on this
+            page. Leave either box empty to use the usual wording at any hour.
+            {!sequence.respond_immediately && (
+              <> Night copy only goes out if Answer immediately is on, because only then can a text actually leave at night.</>
+            )}
           </p>
           <div className="body-grid">
             <label>
@@ -144,7 +177,15 @@ function StepCard({ step, index, total, sequence, onChange, onMove, onRemove, la
               />
             </label>
             <label>
-              <span>Spanish at night</span>
+              <span className="field-head">
+                Spanish at night
+                <TranslateFromEnglish
+                  disabled={!canTranslate || !String(step.body_en_night ?? "").trim()}
+                  busy={translating === `${step.id}:body_es_night`}
+                  title={translateTitle}
+                  onClick={() => onTranslate(step, "body_en_night", "body_es_night")}
+                />
+              </span>
               <EmojiField
                 value={step.body_es_night || ""}
                 onChange={(body_es_night) => onChange(step, { body_es_night })}
@@ -195,13 +236,26 @@ export default function SequenceEditorPage() {
   const [error, setError] = useState("");
   const [saved, setSaved] = useState("");
   const [language, setLanguage] = useState("en");
+  const [nightHours, setNightHours] = useState({ start: 21, end: 8 });
+  const [canTranslate, setCanTranslate] = useState(false);
+  const [translating, setTranslating] = useState("");
 
   useEffect(() => {
-    Promise.all([api.get(`/sequences/${slug}`), api.get("/quo-numbers")])
-      .then(([data, numberData]) => {
+    Promise.all([
+      api.get(`/sequences/${slug}`),
+      api.get("/quo-numbers"),
+      api.get("/settings").catch(() => null),
+    ])
+      .then(([data, numberData, settings]) => {
         setSequence(data);
         setSteps(data.steps ?? []);
         setNumbers(numberData);
+        const values = settings?.values ?? {};
+        setNightHours({
+          start: Number(values.night_starts_hour ?? 21),
+          end: Number(values.night_ends_hour ?? 8),
+        });
+        setCanTranslate(Boolean(settings?.environment?.leadRouting));
         setStatus("ready");
       })
       .catch((loadError) => {
@@ -258,6 +312,21 @@ export default function SequenceEditorPage() {
       setDirty(true);
     } catch (deleteError) {
       setError(deleteError.message);
+    }
+  };
+
+  const translateStep = async (step, source, target) => {
+    const english = String(step[source] ?? "").trim();
+    if (!english) return;
+    setTranslating(`${step.id}:${target}`);
+    setError("");
+    try {
+      const result = await api.post("/translate", { text: english });
+      updateStep(step, { [target]: result.spanish });
+    } catch (translateError) {
+      setError(translateError.message);
+    } finally {
+      setTranslating("");
     }
   };
 
@@ -356,7 +425,10 @@ export default function SequenceEditorPage() {
         <section className="editor-section">
           <div>
             <h2>Settings</h2>
-            <p>Which Quo number the texts come from, and when they may go out.</p>
+            <p>
+              Which Quo number the texts come from, the sending window for later texts,
+              and whether the first one may go out at night.
+            </p>
           </div>
           <div className="editor-fields">
             <label className="checkbox wide">
@@ -418,7 +490,7 @@ export default function SequenceEditorPage() {
                 not a mistake you can make and then have rejected on save. */}
             <div className="hours">
               <label>
-                <span>Earliest</span>
+                <span>Earliest send</span>
                 <select
                   value={sequence.quiet_hours_start}
                   onChange={(event) => updateSequence({ quiet_hours_start: Number(event.target.value) })}
@@ -429,7 +501,7 @@ export default function SequenceEditorPage() {
                 </select>
               </label>
               <label>
-                <span>Latest</span>
+                <span>Latest send</span>
                 <select
                   value={sequence.quiet_hours_end}
                   onChange={(event) => updateSequence({ quiet_hours_end: Number(event.target.value) })}
@@ -456,10 +528,40 @@ export default function SequenceEditorPage() {
                 ))}
               </div>
               <p className="field-note">
-                A text that comes due outside this window waits for the next opening rather than
-                being skipped. Federal and Texas rules both measure this against the client's local
+                Federal and Texas rules both measure this window against the client's local
                 time, which is why the timezone matters.
               </p>
+            </div>
+
+            <div className="clock-explainer wide">
+              <p>
+                <strong>
+                  Sending window — {hourLabel(sequence.quiet_hours_start)} to{" "}
+                  {hourLabel(sequence.quiet_hours_end)}
+                </strong>
+                {" "}on the days above. A text due at 11:00 PM waits until{" "}
+                {hourLabel(sequence.quiet_hours_start)} the next allowed day rather than
+                being skipped. Latest is not a switch into night wording.
+              </p>
+              {sequence.respond_immediately ? (
+                <p>
+                  <strong>Night wording is a different clock.</strong>
+                  {" "}Because Answer immediately is on, the first text can go out at 2:00 AM.
+                  From {hourLabel(nightHours.start)} to {hourLabel(nightHours.end)} that first
+                  text uses the night copy on text 1, set under{" "}
+                  <Link to="/settings">Settings → Answering at night</Link>.
+                  Later texts still wait for the sending window — a 4-hour gap after 11:00 PM
+                  becomes {hourLabel(sequence.quiet_hours_start)}, not 3:00 AM.
+                </p>
+              ) : (
+                <p>
+                  <strong>Night wording does not apply while Answer immediately is off</strong>,
+                  because no text can actually leave at night — everything waits for this
+                  window. Night hours ({hourLabel(nightHours.start)}–{hourLabel(nightHours.end)})
+                  live under <Link to="/settings">Settings</Link> and only matter once Answer
+                  immediately is on.
+                </p>
+              )}
             </div>
 
             <label className="checkbox wide">
@@ -555,6 +657,10 @@ export default function SequenceEditorPage() {
                 onMove={moveStep}
                 onRemove={removeStep}
                 language={language}
+                nightHours={nightHours}
+                canTranslate={canTranslate}
+                translating={translating}
+                onTranslate={translateStep}
               />
             ))}
 

@@ -451,6 +451,17 @@ label.checkbox small { display: block; margin-top: 2px; color: var(--muted); fon
 .hours { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .hours label > span { display: block; margin-bottom: 5px; color: var(--muted); font-size: 11px; font-weight: 700; text-transform: uppercase; }
 
+.clock-explainer {
+  padding: 12px 14px;
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--primary);
+  border-radius: 5px;
+}
+.clock-explainer p { margin: 0 0 8px; color: var(--ink-soft); font-size: 13px; line-height: 1.55; }
+.clock-explainer p:last-child { margin-bottom: 0; }
+.clock-explainer a { font-weight: 700; }
+
 .day-picker { display: flex; gap: 5px; flex-wrap: wrap; }
 .day-picker button {
   min-width: 48px; padding: 7px 10px;
@@ -479,6 +490,7 @@ label.checkbox small { display: block; margin-top: 2px; color: var(--muted); fon
 .step-card { padding: 18px; background: var(--card); border: 1px solid var(--line); border-radius: 6px; }
 .step-card > header { display: flex; justify-content: space-between; align-items: center; gap: 14px; margin-bottom: 14px; }
 .step-number { margin-right: 9px; color: var(--muted); font-size: 11px; font-weight: 700; text-transform: uppercase; }
+.step-label { margin-left: 9px; color: var(--muted); font-size: 12px; font-weight: 600; }
 .step-controls { display: flex; gap: 5px; }
 .step-controls button {
   display: grid; place-items: center; width: 29px; height: 29px;
@@ -499,6 +511,17 @@ label.checkbox small { display: block; margin-top: 2px; color: var(--muted); fon
   display: block; margin-bottom: 5px;
   color: var(--muted); font-size: 11px; font-weight: 700; text-transform: uppercase;
 }
+.body-grid label > .field-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 5px;
+}
+.translate-btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 8px; border: 1px solid var(--line); border-radius: 4px;
+  background: var(--card); color: var(--primary-dark);
+  font-size: 11px; font-weight: 700; text-transform: none; letter-spacing: 0; white-space: nowrap;
+}
+.translate-btn:hover:not(:disabled) { border-color: var(--primary); color: var(--primary); }
+.translate-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 
 .preview { margin-top: 14px; padding: 13px 15px; background: var(--raised); border-radius: 6px; }
 .preview.warn { border: 1px solid var(--amber); }

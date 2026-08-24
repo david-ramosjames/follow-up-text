@@ -129,7 +129,8 @@ export const SETTING_DEFINITIONS = [
     min: 12,
     max: 23,
     help: "From this hour, in the client's local time, a step's night copy is used instead "
-      + "of its usual copy.",
+      + "of its usual copy. This is not the sending window — Earliest and Latest on each "
+      + "sequence still decide when later texts may go out.",
   },
   {
     key: "night_ends_hour",
@@ -138,6 +139,8 @@ export const SETTING_DEFINITIONS = [
     default: 8,
     min: 1,
     max: 11,
+    help: "Night wording stops at this hour on the client's clock. A first text at 2am uses "
+      + "night copy; a first text at 9am uses the usual copy.",
   },
   {
     key: "min_gap_minutes",

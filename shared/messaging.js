@@ -190,9 +190,25 @@ export const DELAY_PRESETS = [
   { label: "1 day", minutes: 1440 },
   { label: "2 days", minutes: 2880 },
   { label: "3 days", minutes: 4320 },
+  { label: "4 days", minutes: 5760 },
+  { label: "6 days", minutes: 8640 },
   { label: "1 week", minutes: 10080 },
+  { label: "8 days", minutes: 11520 },
+  { label: "12 days", minutes: 17280 },
   { label: "2 weeks", minutes: 20160 },
 ];
+
+// Tokens the translator must keep byte-for-byte, compared case-insensitively so
+// "{{First_Name}}" in English still matches "{{first_name}}" in Spanish.
+export function mergeTokens(text) {
+  return [...String(text ?? "").matchAll(/\{\{\s*([a-z_]+)\s*\}\}/gi)]
+    .map((match) => `{{${match[1].toLowerCase()}}}`);
+}
+
+export function missingMergeTokens(english, spanish) {
+  const have = new Set(mergeTokens(spanish));
+  return [...new Set(mergeTokens(english))].filter((token) => !have.has(token));
+}
 
 /* ------------------------------------------------------------ phone numbers */
 
