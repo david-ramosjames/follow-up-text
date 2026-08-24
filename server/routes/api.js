@@ -20,6 +20,9 @@ const CONSTRAINT_MESSAGES = {
   followup_sequences_quiet_hours_range:
     "The latest hour has to be after the earliest one. Set the sending window so it "
     + "opens and closes on the same day — 9:00 AM to 7:00 PM, for instance.",
+  followup_sequences_night_hours_range:
+    "Night wording wraps midnight, so it starts in the evening (noon or later) and ends "
+    + "in the morning (11:00 AM or earlier).",
   followup_sequences_slug_format:
     "A sequence's short name can only use lowercase letters, numbers and hyphens.",
   followup_sequences_slug_key: "There is already a sequence with that short name.",
@@ -184,9 +187,13 @@ apiRouter.post("/sequences", ok(async (req, res) => {
   const isFirst = !(await one("select 1 as found from followup_sequences limit 1"));
 
   const created = await one(
-    `insert into followup_sequences (slug, name, is_active, is_default, timezone)
-     values ($1, $2, false, $3, $4) returning *`,
-    [slug, name.trim(), isFirst, settings.default_timezone],
+    `insert into followup_sequences (slug, name, is_active, is_default, timezone,
+                                    night_starts_hour, night_ends_hour)
+     values ($1, $2, false, $3, $4, $5, $6) returning *`,
+    [
+      slug, name.trim(), isFirst, settings.default_timezone,
+      Number(settings.night_starts_hour ?? 21), Number(settings.night_ends_hour ?? 8),
+    ],
   );
   res.status(201).json(created);
 }));
@@ -194,7 +201,7 @@ apiRouter.post("/sequences", ok(async (req, res) => {
 const SEQUENCE_FIELDS = [
   "name", "description", "is_active", "quo_number_id", "timezone",
   "quiet_hours_start", "quiet_hours_end", "send_days", "append_opt_out_notice",
-  "respond_immediately", "auto_routable",
+  "respond_immediately", "auto_routable", "night_starts_hour", "night_ends_hour",
 ];
 
 apiRouter.patch("/sequences/:id", ok(async (req, res) => {

@@ -162,11 +162,19 @@ export function truncateChars(body, limit) {
 }
 
 // What one step will look like on the client's phone.
-export function previewStep(step, { language = "en", isFirst = false, appendNotice = true, vars = {} } = {}) {
-  const template = language === "es" ? step.body_es : step.body_en;
+export function previewStep(step, { language = "en", isFirst = false, appendNotice = true, isNight = false, vars = {} } = {}) {
+  const night = language === "es" ? step.body_es_night : step.body_en_night;
+  const day = language === "es" ? step.body_es : step.body_en;
+  const template = isNight && night?.trim() ? night : day;
   const rendered = renderBody(template || "", vars, language);
   const body = isFirst && appendNotice ? appendOptOutNotice(rendered, language) : rendered;
-  return { body, ...countSegments(body) };
+  return { body, usedNight: Boolean(isNight && night?.trim()), ...countSegments(body) };
+}
+
+// Night wording wraps midnight: from 9pm to 8am is hour >= 21 or hour < 8.
+export function isNightHour(hour, start = 21, end = 8) {
+  const value = Number(hour);
+  return value >= Number(start) || value < Number(end);
 }
 
 export function describeDelay(minutes) {

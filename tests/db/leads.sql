@@ -106,16 +106,19 @@ begin
   perform pg_temp.check('and says whether it is night for this client',
     (claimed -> 'is_night') is not null and jsonb_typeof(claimed -> 'is_night') = 'boolean');
 
-  -- Force the answer both ways by moving the boundary rather than the clock.
-  insert into app_settings (key, value) values ('night_starts_hour', '0'::jsonb)
-    on conflict (key) do update set value = excluded.value;
-  insert into app_settings (key, value) values ('night_ends_hour', '11'::jsonb)
-    on conflict (key) do update set value = excluded.value;
+  -- Force the answer both ways by moving the sequence's own night hours rather
+  -- than a global setting. 12:00 through 11:00 wraps every hour except 11am.
+  update followup_sequences
+     set night_starts_hour = 12, night_ends_hour = 11
+   where id = immediate_seq.id;
   update followup_enrollments set locked_until = null where id = e.id;
   select value into claimed from followup_claim_due(5) as value
   where (value ->> 'enrollment_id')::uuid = e.id;
-  perform pg_temp.check('a window covering every hour reads as night',
-    (claimed ->> 'is_night')::boolean, claimed ->> 'is_night');
+  perform pg_temp.check('night hours come from the sequence',
+    (claimed ->> 'is_night')::boolean =
+    (extract(hour from (now() at time zone 'America/Chicago'))::int >= 12
+      or extract(hour from (now() at time zone 'America/Chicago'))::int < 11),
+    claimed ->> 'is_night');
 end $$;
 
 rollback;

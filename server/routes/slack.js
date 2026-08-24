@@ -6,6 +6,7 @@ import {
   formatPhone,
   maskPhone,
   normalizePhone,
+  isNightHour,
   renderBody,
   truncateChars,
 } from "../../shared/messaging.js";
@@ -491,7 +492,8 @@ async function recordObservation(fields) {
 async function previewFirstText(slug, { firstName, lastName, caseType, language }) {
   const step = await one(
     `select s.body_en, s.body_es, s.body_en_night, s.body_es_night, q.append_opt_out_notice,
-            q.slug, q.timezone, q.quiet_hours_start, q.quiet_hours_end, q.send_days
+            q.slug, q.timezone, q.quiet_hours_start, q.quiet_hours_end, q.send_days,
+            q.night_starts_hour, q.night_ends_hour
      from followup_sequences q
      join followup_steps s on s.sequence_id = q.id and s.is_active
      where q.slug = coalesce($1, (select slug from followup_sequences where is_default limit 1))
@@ -507,9 +509,9 @@ async function previewFirstText(slug, { firstName, lastName, caseType, language 
     [tz],
   );
   const hour = Number(hourRow?.hour ?? 0);
-  const nightStart = Number(settings.night_starts_hour ?? 21);
-  const nightEnd = Number(settings.night_ends_hour ?? 8);
-  const isNight = hour >= nightStart || hour < nightEnd;
+  const nightStart = Number(step.night_starts_hour ?? settings.night_starts_hour ?? 21);
+  const nightEnd = Number(step.night_ends_hour ?? settings.night_ends_hour ?? 8);
+  const isNight = isNightHour(hour, nightStart, nightEnd);
 
   const lang = language === "es" ? "es" : "en";
   const nightBody = lang === "es" ? step.body_es_night : step.body_en_night;

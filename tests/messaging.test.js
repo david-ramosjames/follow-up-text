@@ -10,6 +10,7 @@ import {
   extractPhones,
   formatPhone,
   hasEmoji,
+  isNightHour,
   maskPhone,
   missingMergeTokens,
   mergeTokens,
@@ -153,6 +154,26 @@ test("the preview honours the sequence's opt-out setting", () => {
 
 test("the preview picks the Spanish body for Spanish clients", () => {
   assert.equal(previewStep({ body_en: "Hello", body_es: "Hola" }, { language: "es" }).body, "Hola");
+});
+
+test("the preview uses night wording when asked", () => {
+  const step = {
+    body_en: "Hi, we got your message.",
+    body_es: "Hola.",
+    body_en_night: "Hi, we got your message tonight.",
+    body_es_night: "Hola, esta noche.",
+  };
+  assert.equal(previewStep(step).body, "Hi, we got your message.");
+  assert.equal(previewStep(step, { isNight: true }).body, "Hi, we got your message tonight.");
+  assert.equal(previewStep(step, { isNight: true }).usedNight, true);
+  assert.equal(previewStep({ body_en: "Hi.", body_es: "Hola." }, { isNight: true }).usedNight, false);
+});
+
+test("night hours wrap midnight", () => {
+  assert.equal(isNightHour(21, 21, 8), true);
+  assert.equal(isNightHour(2, 21, 8), true);
+  assert.equal(isNightHour(8, 21, 8), false);
+  assert.equal(isNightHour(14, 21, 8), false);
 });
 
 /* ------------------------------------------------------------------ delays */

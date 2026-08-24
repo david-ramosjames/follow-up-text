@@ -256,12 +256,12 @@ export default function SettingsPage() {
 
         <section className="editor-section">
           <div>
-            <h2>Answering at night</h2>
+            <h2>Default night hours</h2>
             <p>
-              When a step's night wording is used instead of its usual copy, judged on the
-              client's clock. This is not Earliest/Latest on a sequence — those are the
-              sending window for later texts. Night hours only matter on sequences that
-              answer immediately, because only then can a first text actually leave at 2am.
+              Copied onto a sequence when you create it. After that, the split between usual
+              copy and night copy is edited on the sequence itself — that is what the first
+              text uses. Earliest/Latest on a sequence are still the sending window for later
+              texts, not this wording switch.
             </p>
           </div>
           <div className="editor-fields">{group(["night_starts_hour", "night_ends_hour"])}</div>

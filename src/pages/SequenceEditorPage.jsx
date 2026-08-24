@@ -6,14 +6,16 @@ import EmojiField from "../components/EmojiField";
 import { api, DAY_NAMES, TIMEZONES } from "../lib/api";
 import { DELAY_PRESETS, describeDelay, hasEmoji, MERGE_FIELDS, previewStep } from "../../shared/messaging";
 
-const SAMPLE = {
-  first_name: "Maria",
-  last_name: "Alvarez",
-  case_reference: "MVA-2026-118",
-  case_type: "slip and fall",
-  assigned_user: "Sam",
-  firm_name: "the firm",
-};
+function sampleVars(firmName) {
+  return {
+    first_name: "Maria",
+    last_name: "Alvarez",
+    case_reference: "MVA-2026-118",
+    case_type: "slip and fall",
+    assigned_user: "Sam",
+    firm_name: String(firmName ?? "").trim(),
+  };
+}
 
 // 24-hour labels were a trap: picking "05:00" for five in the afternoon saves an
 // end hour of 5, which is before the 9am start, and the database rightly refuses
@@ -41,13 +43,17 @@ function TranslateFromEnglish({ disabled, busy, title, onClick }) {
 
 function StepCard({
   step, index, total, sequence, onChange, onMove, onRemove, language,
-  nightHours = { start: 21, end: 8 }, canTranslate, translating, onTranslate,
+  firmName, canTranslate, translating, onTranslate,
 }) {
+  const [previewNight, setPreviewNight] = useState(false);
+  const nightStart = Number(sequence.night_starts_hour ?? 21);
+  const nightEnd = Number(sequence.night_ends_hour ?? 8);
   const preview = previewStep(step, {
     language,
     isFirst: index === 0,
     appendNotice: sequence.append_opt_out_notice,
-    vars: SAMPLE,
+    isNight: previewNight,
+    vars: sampleVars(firmName),
   });
   const empty = !(language === "es" ? step.body_es : step.body_en)?.trim();
   const translateTitle = canTranslate
@@ -158,10 +164,10 @@ function StepCard({
             {!step.body_en_night && !step.body_es_night && <span> — optional</span>}
           </summary>
           <p>
-            Used instead of the copy above from {hourLabel(nightHours.start)} to{" "}
-            {hourLabel(nightHours.end)} on the client's clock — that range lives under{" "}
-            <Link to="/settings">Settings → Answering at night</Link>, not Latest on this
-            page. Leave either box empty to use the usual wording at any hour.
+            Used instead of the copy above from {hourLabel(nightStart)} to{" "}
+            {hourLabel(nightEnd)} on the client's clock — that range is{" "}
+            <strong>First-text night wording</strong> on this page, not Latest send.
+            Leave either box empty to use the usual wording at any hour.
             {!sequence.respond_immediately && (
               <> Night copy only goes out if Answer immediately is on, because only then can a text actually leave at night.</>
             )}
@@ -202,9 +208,29 @@ function StepCard({
           On the client's phone
           {index === 0 && sequence.append_opt_out_notice && " — the opt-out line is added automatically"}
         </p>
+        {(index === 0 || step.body_en_night || step.body_es_night) && (
+          <div className="preview-toggle tight">
+            <span>Show</span>
+            <button type="button" className={!previewNight ? "on" : ""} onClick={() => setPreviewNight(false)}>
+              Day wording
+            </button>
+            <button type="button" className={previewNight ? "on" : ""} onClick={() => setPreviewNight(true)}>
+              Night wording
+            </button>
+          </div>
+        )}
         {empty
           ? <p className="preview-empty">No {language === "es" ? "Spanish" : "English"} copy yet.</p>
           : <p className="preview-body">{preview.body}</p>}
+        {previewNight && !preview.usedNight && (
+          <p className="preview-note">No night wording yet — showing the usual copy.</p>
+        )}
+        {!String(firmName ?? "").trim() && (
+          <p className="preview-note">
+            Firm name is not set, so this preview falls back to “our office”. Set it under{" "}
+            <Link to="/settings">Settings</Link>.
+          </p>
+        )}
         <p className="preview-meta">
           {preview.characters} of {preview.encoding === "UCS-2" ? 70 : 160} characters ·
           {" "}{preview.encoding} · {preview.segments} segment{preview.segments === 1 ? "" : "s"}
@@ -236,7 +262,7 @@ export default function SequenceEditorPage() {
   const [error, setError] = useState("");
   const [saved, setSaved] = useState("");
   const [language, setLanguage] = useState("en");
-  const [nightHours, setNightHours] = useState({ start: 21, end: 8 });
+  const [firmName, setFirmName] = useState("");
   const [canTranslate, setCanTranslate] = useState(false);
   const [translating, setTranslating] = useState("");
 
@@ -250,11 +276,7 @@ export default function SequenceEditorPage() {
         setSequence(data);
         setSteps(data.steps ?? []);
         setNumbers(numberData);
-        const values = settings?.values ?? {};
-        setNightHours({
-          start: Number(values.night_starts_hour ?? 21),
-          end: Number(values.night_ends_hour ?? 8),
-        });
+        setFirmName(String(settings?.values?.firm_name ?? "").trim());
         setCanTranslate(Boolean(settings?.environment?.leadRouting));
         setStatus("ready");
       })
@@ -352,6 +374,8 @@ export default function SequenceEditorPage() {
         append_opt_out_notice: sequence.append_opt_out_notice,
         respond_immediately: Boolean(sequence.respond_immediately),
         auto_routable: Boolean(sequence.auto_routable),
+        night_starts_hour: Number(sequence.night_starts_hour ?? 21),
+        night_ends_hour: Number(sequence.night_ends_hour ?? 8),
       });
 
       setSteps(updated.steps ?? []);
@@ -545,11 +569,11 @@ export default function SequenceEditorPage() {
               </p>
               {sequence.respond_immediately ? (
                 <p>
-                  <strong>Night wording is a different clock.</strong>
-                  {" "}Because Answer immediately is on, the first text can go out at 2:00 AM.
-                  From {hourLabel(nightHours.start)} to {hourLabel(nightHours.end)} that first
-                  text uses the night copy on text 1, set under{" "}
-                  <Link to="/settings">Settings → Answering at night</Link>.
+                  <strong>The first text covers the 24-hour clock.</strong>
+                  {" "}Because Answer immediately is on, it can go out at 2:00 AM.
+                  From {hourLabel(Number(sequence.night_starts_hour ?? 21))} to{" "}
+                  {hourLabel(Number(sequence.night_ends_hour ?? 8))} it uses the night copy
+                  on text 1; the rest of the day uses the usual copy. Set that split below.
                   Later texts still wait for the sending window — a 4-hour gap after 11:00 PM
                   becomes {hourLabel(sequence.quiet_hours_start)}, not 3:00 AM.
                 </p>
@@ -557,9 +581,8 @@ export default function SequenceEditorPage() {
                 <p>
                   <strong>Night wording does not apply while Answer immediately is off</strong>,
                   because no text can actually leave at night — everything waits for this
-                  window. Night hours ({hourLabel(nightHours.start)}–{hourLabel(nightHours.end)})
-                  live under <Link to="/settings">Settings</Link> and only matter once Answer
-                  immediately is on.
+                  window. Turn it on, then set night wording hours below, if the first text
+                  should go out at 2:00 AM.
                 </p>
               )}
             </div>
@@ -611,6 +634,41 @@ export default function SequenceEditorPage() {
                 </small>
               </span>
             </label>
+
+            <div className="wide">
+              <span className="field-label">First-text night wording</span>
+              <div className="hours">
+                <label>
+                  <span>From</span>
+                  <select
+                    value={Number(sequence.night_starts_hour ?? 21)}
+                    onChange={(event) => updateSequence({ night_starts_hour: Number(event.target.value) })}
+                  >
+                    {Array.from({ length: 12 }, (_, i) => i + 12).map((hour) => (
+                      <option key={hour} value={hour}>{hourLabel(hour)}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  <span>Until</span>
+                  <select
+                    value={Number(sequence.night_ends_hour ?? 8)}
+                    onChange={(event) => updateSequence({ night_ends_hour: Number(event.target.value) })}
+                  >
+                    {Array.from({ length: 11 }, (_, i) => i + 1).map((hour) => (
+                      <option key={hour} value={hour}>{hourLabel(hour)}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <p className="field-note">
+                On this sequence, in the client's timezone. From{" "}
+                {hourLabel(Number(sequence.night_starts_hour ?? 21))} to{" "}
+                {hourLabel(Number(sequence.night_ends_hour ?? 8))} the first text uses night
+                copy; the rest of the day uses the usual copy. Together they cover the 24-hour
+                clock. Later texts still wait for Earliest–Latest above.
+              </p>
+            </div>
           </div>
         </section>
 
@@ -657,7 +715,7 @@ export default function SequenceEditorPage() {
                 onMove={moveStep}
                 onRemove={removeStep}
                 language={language}
-                nightHours={nightHours}
+                firmName={firmName}
                 canTranslate={canTranslate}
                 translating={translating}
                 onTranslate={translateStep}
