@@ -5,6 +5,7 @@ import { listQuoNumbers, quoConfigured, syncQuoNumbers } from "../lib/quo.js";
 import { loadSettings, SETTING_DEFINITIONS, saveSettings } from "../lib/settings.js";
 import { announceStop, stopSeries } from "../lib/followups.js";
 import { llmDescription } from "../lib/leads.js";
+import { catchUpLeadChannel, lastLeadCatchUp } from "../lib/leadChannel.js";
 import { runDispatch } from "../lib/dispatch.js";
 import { slackConfigured } from "../lib/slack.js";
 
@@ -557,6 +558,14 @@ apiRouter.delete("/operators/:id", ok(async (req, res) => {
 
 /* ------------------------------------------------------------------ leads */
 
+// Pulls the last two days of posts from the configured Slack channel and runs
+// each one through the same path as a live event. Events are still the
+// real-time path; this is how this morning's leads appear when Slack never
+// delivered them, and how a missed event is recovered without waiting.
+apiRouter.post("/leads/catch-up", ok(async (req, res) => {
+  res.json(await catchUpLeadChannel());
+}));
+
 // Everything the lead router has looked at, newest first. This is the whole
 // point of watch-and-record mode: what was read, what was decided, and the exact
 // text the person would have received.
@@ -600,6 +609,7 @@ apiRouter.get("/leads", ok(async (req, res) => {
     mode: settings.lead_mode ?? "off",
     channel: settings.lead_channel_id ?? "",
     llm: llmDescription(),
+    catchUp: lastLeadCatchUp(),
     routable: await rows(
       `select slug, name, coalesce(description, '') as description
        from followup_sequences q

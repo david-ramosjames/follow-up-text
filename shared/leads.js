@@ -47,6 +47,32 @@ export function flattenSlackMessage(event) {
     .trim();
 }
 
+// conversations.history omits `channel` on each message. The event handler keys
+// off event.channel, so a history row has to be given one before it is treated
+// as a post.
+export function historyMessageToEvent(channel, message) {
+  return { ...message, channel, type: message?.type || "message" };
+}
+
+const SLACK_HISTORY_ERRORS = {
+  not_in_channel:
+    "The bot is not in this channel. Open it in Slack and /invite the follow-up bot.",
+  channel_not_found:
+    "Slack does not recognise that channel ID. Check it under Settings. If the channel is private, re-apply the app manifest and reinstall so the bot has groups:history.",
+  missing_scope:
+    "The Slack bot is missing permission to read this channel. Re-apply the app manifest, then reinstall the app to the workspace.",
+  invalid_auth: "SLACK_BOT_TOKEN was rejected by Slack.",
+  token_revoked: "SLACK_BOT_TOKEN was revoked. Install the Slack app again and put the new token in Railway.",
+  account_inactive: "The Slack workspace this token belongs to is no longer active.",
+};
+
+export function describeSlackHistoryError(code, channel) {
+  const known = SLACK_HISTORY_ERRORS[code];
+  if (known) return `${known} (${channel})`;
+  if (!code) return `Could not read ${channel} from Slack.`;
+  return `Slack refused to read ${channel}: ${code}.`;
+}
+
 const EMAIL = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/;
 
 // Everything readable without a model. No usable number means this is not a

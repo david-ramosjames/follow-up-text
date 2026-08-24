@@ -166,6 +166,14 @@ const FAQ = [
     ],
   },
   {
+    q: "Nothing is appearing on the Leads page even though form fills posted in Slack.",
+    a: [
+      "Watch and record only records a post once this app has actually read it. Slack is supposed to push each message to /slack/events, but if that subscription is missing — especially message.groups on a private intake channel — the page stays empty and the deploy log stays silent. Hitting Refresh now reads the channel itself, so this morning's posts should appear without waiting for events.",
+      "If Refresh comes back with “the bot is not in this channel”, /invite the follow-up bot in that Slack channel. If it says the bot is missing permission, re-apply the app manifest (it now includes groups:history and message.groups) and reinstall the app so the new scopes take effect.",
+      "The warning that no sequence is offered to the router is separate: posts are still read and still show here; they just have no track to pick until you tick “Offer this sequence to the lead router” on one.",
+    ],
+  },
+  {
     q: "Could we poll the API for replies instead of using the webhook?",
     a: [
       "Only partly, and it is not recommended as a replacement. Quo's list-messages endpoint returns one conversation at a time, so polling costs one API call per active client per cycle — the busier intake gets, the closer you sit to the rate limit.",

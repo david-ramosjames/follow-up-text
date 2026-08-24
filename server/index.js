@@ -6,6 +6,7 @@ import express from "express";
 import { authRouter, cookieParser, ensureBootstrapAdmins, purgeExpiredSessions } from "./auth.js";
 import { migrate } from "./migrate.js";
 import { startScheduler } from "./lib/dispatch.js";
+import { startLeadCatchUp } from "./lib/leadChannel.js";
 import { apiRouter } from "./routes/api.js";
 import { slackRouter } from "./routes/slack.js";
 import { webhookRouter } from "./routes/webhooks.js";
@@ -114,6 +115,7 @@ async function main() {
   setInterval(() => purgeExpiredSessions().catch(() => {}), 60 * 60 * 1000).unref();
 
   const stopScheduler = startScheduler();
+  const stopLeadCatchUp = startLeadCatchUp();
 
   const server = app.listen(port, () => {
     console.log(`Follow-up texts listening on ${port}`);
@@ -123,6 +125,7 @@ async function main() {
   const shutdown = () => {
     console.log("Shutting down...");
     stopScheduler();
+    stopLeadCatchUp();
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 8000).unref();
   };

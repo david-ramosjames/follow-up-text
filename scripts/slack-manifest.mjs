@@ -68,16 +68,20 @@ oauth_config:
       - chat:write.public
       - app_mentions:read
       - channels:history
+      - groups:history
       - users:read
 settings:
   event_subscriptions:
     request_url: ${PUBLIC_URL}/slack/events
     bot_events:
       - app_mention
-      # Only needed for automatic lead intake. The app reads messages in the one
-      # channel set under Settings and discards everything else before looking
-      # at it. Remove this line if you are not using that.
+      # Lead intake. The app reads messages in the one channel set under
+      # Settings and discards everything else before looking at it. Both
+      # public (message.channels) and private (message.groups) are required
+      # — intake channels are often private, and without message.groups
+      # Slack simply never delivers those posts.
       - message.channels
+      - message.groups
   interactivity:
     is_enabled: true
     request_url: ${PUBLIC_URL}/slack/interactivity

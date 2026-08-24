@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { flattenSlackMessage, readLead } from "../shared/leads.js";
+import { flattenSlackMessage, readLead, historyMessageToEvent, describeSlackHistoryError } from "../shared/leads.js";
 
 // The four shapes actually posting into the lead channel. Kept verbatim rather
 // than tidied, because the point of these tests is that real posts parse — a
@@ -113,4 +113,28 @@ test("the email comes through from each source", () => {
 
 test("a post with no email is not a failure", () => {
   assert.equal(readLead("Name: Jo\nPhone: 512-555-0123").email, null);
+});
+
+test("a history row is turned into the same event the webhook would have sent", () => {
+  // conversations.history omits `channel` on each message. Without it the
+  // router would treat the post as belonging to some other channel and skip it.
+  const event = historyMessageToEvent("C026G89PPSS", {
+    type: "message",
+    subtype: "bot_message",
+    ts: "1777068000.000100",
+    text: META_FORM.text,
+    bot_profile: { name: "RJL" },
+    app_id: "A123",
+  });
+  assert.equal(event.channel, "C026G89PPSS");
+  assert.equal(event.subtype, "bot_message");
+  assert.equal(event.bot_profile.name, "RJL");
+  assert.equal(readLead(flattenSlackMessage(event)).phone, "+12147723859");
+});
+
+test("the Slack errors that actually happen are spelled out", () => {
+  assert.match(describeSlackHistoryError("not_in_channel", "C026G89PPSS"), /invite/);
+  assert.match(describeSlackHistoryError("missing_scope", "C026G89PPSS"), /manifest/);
+  assert.match(describeSlackHistoryError("channel_not_found", "C026G89PPSS"), /private/);
+  assert.match(describeSlackHistoryError("mystery", "C026G89PPSS"), /mystery/);
 });

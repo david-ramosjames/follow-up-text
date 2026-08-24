@@ -537,6 +537,17 @@ export async function handleLeadPost(event) {
   if (event.thread_ts && event.thread_ts !== event.ts) { log("skipped — a thread reply, not a new post"); return { ignored: "thread_reply" }; }
   if (event.app_id && event.app_id === process.env.SLACK_APP_ID) { log("skipped — our own post"); return { ignored: "self" }; }
 
+  // Catch-up and Slack retries both redeliver the same ts. Skip before the
+  // model runs, otherwise a reread costs a classification for a row that the
+  // unique index would have dropped anyway.
+  if (event.ts) {
+    const seen = await one(
+      "select id from lead_observations where slack_channel_id = $1 and slack_ts = $2",
+      [event.channel, event.ts],
+    );
+    if (seen) return { ignored: "already_recorded" };
+  }
+
   const allowed = String(settings.lead_senders ?? "")
     .split(",").map((name) => name.trim().toLowerCase()).filter(Boolean);
   const sender = isFormFill(event, allowed);
@@ -714,7 +725,10 @@ export async function handleLeadPost(event) {
 // thread, which is where intake conversations actually happen.
 slackRouter.post("/events", async (req, res) => {
   const verified = verifySlackRequest(req, req.rawBody);
-  if (!verified.ok) return res.status(401).send("Unauthorized");
+  if (!verified.ok) {
+    console.warn("Rejected a Slack event:", verified.reason);
+    return res.status(401).send("Unauthorized");
+  }
 
   const body = req.body;
   if (body.type === "url_verification") return res.json({ challenge: body.challenge });

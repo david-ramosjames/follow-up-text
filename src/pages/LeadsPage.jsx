@@ -1,5 +1,5 @@
 import { CircleAlert, Eye, Inbox, RefreshCw } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import AppNav from "../components/AppNav";
 import { api, formatWhen } from "../lib/api";
@@ -116,14 +116,28 @@ export default function LeadsPage() {
   const [data, setData] = useState(null);
   const [status, setStatus] = useState("loading");
   const [error, setError] = useState("");
+  const didReadChannel = useRef(false);
 
-  const refresh = useCallback(async (next = filter) => {
+  const load = useCallback(async ({ next = filter, fromSlack = false } = {}) => {
     setStatus("loading");
+    setError("");
     try {
+      let catchUp = null;
+      if (fromSlack) {
+        // Read the Slack channel, not just the database. Events are supposed
+        // to fill this page on their own, but when they do not, this is how
+        // this morning's posts actually get looked at. A cycle is capped so
+        // the request cannot hang; keep going until the channel is current.
+        for (let i = 0; i < 8; i += 1) {
+          catchUp = await api.post("/leads/catch-up");
+          if (catchUp?.error || catchUp?.skipped || !catchUp?.remaining) break;
+        }
+      }
       const query = next === "actionable"
         ? "?actionable=true"
         : `?outcome=${encodeURIComponent(next)}`;
-      setData(await api.get(`/leads${query}`));
+      const payload = await api.get(`/leads${query}`);
+      setData({ ...payload, catchUp: payload.catchUp ?? catchUp });
       setStatus("ready");
     } catch (loadError) {
       setError(loadError.message);
@@ -131,7 +145,12 @@ export default function LeadsPage() {
     }
   }, [filter]);
 
-  useEffect(() => { refresh(filter); /* eslint-disable-next-line */ }, [filter]);
+  useEffect(() => {
+    const fromSlack = !didReadChannel.current;
+    didReadChannel.current = true;
+    load({ next: filter, fromSlack });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filter]);
 
   const mode = MODES[data?.mode ?? "off"] ?? MODES.off;
   const counts = data?.counts ?? {};
@@ -152,7 +171,7 @@ export default function LeadsPage() {
             </p>
           </div>
           <div className="heading-actions">
-            <button type="button" className="button ghost" onClick={() => refresh()}>
+            <button type="button" className="button ghost" onClick={() => load({ fromSlack: true })}>
               <RefreshCw size={15} className={status === "loading" ? "spin" : ""} /> Refresh
             </button>
           </div>
@@ -217,15 +236,26 @@ export default function LeadsPage() {
         </div>
 
         {error && <p className="form-error">{error}</p>}
-        {status === "loading" && <div className="page-state">Loading…</div>}
+        {data?.catchUp?.error && <p className="form-error">{data.catchUp.error}</p>}
+        {status === "loading" && <div className="page-state">Reading the lead channel…</div>}
 
         {status === "ready" && !data?.observations?.length && (
           <div className="empty-state">
             <h2>Nothing read yet</h2>
             <p>
               Posts appear here once the mode is set to Watch and record or Live, the lead
-              channel is set, and the bot has been invited to it.
+              channel is set, and the bot has been invited to it. Refresh reads the channel
+              from Slack — it does not wait for events that may never have arrived.
             </p>
+            {data?.catchUp?.remaining > 0 && (
+              <p>Still catching up — hit Refresh again for the rest of this morning.</p>
+            )}
+            {data?.catchUp?.ok && data.catchUp.posted === 0 && (
+              <p>
+                Slack returned no posts in <code>{data.channel}</code> for the last two days.
+                Confirm the ID under Settings and that the bot is in that channel.
+              </p>
+            )}
           </div>
         )}
 
