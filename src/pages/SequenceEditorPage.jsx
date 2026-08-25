@@ -464,8 +464,10 @@ export default function SequenceEditorPage() {
               <span>
                 <strong>Sequence is on</strong>
                 <small>
-                  Paralegals can only start a series on a sequence that is switched on. Switching it
-                  off also holds any series already running on it.
+                  Paralegals can only start a series on a sequence that is switched on, and Live
+                  will not send on one that is off. Switching it off also holds any series already
+                  running. It does not take this sequence off the lead router — that is the box
+                  below.
                 </small>
               </span>
             </label>
@@ -608,11 +610,13 @@ export default function SequenceEditorPage() {
               <span>
                 <strong>Offer this sequence to the lead router</strong>
                 <small>
-                  Makes this a track the router can choose for an incoming form fill. The
-                  name and description above are what it reads to decide. A form marked
-                  Referral or Referal is parsed in code onto a referral track — that means
-                  this firm will send the person to another lawyer, not represent them.
-                  Leave it off for sequences a person should start by hand.
+                  This is the switch that makes Qualified vs Referral a track. The router
+                  still assigns forms here even when the sequence is switched off — Sequence
+                  is on (above) only holds sending. The name and description above are what
+                  the classifier reads. A form marked Referral or Referal is parsed in code
+                  onto a referral track — that means this firm will send the person to
+                  another lawyer, not represent them. Leave this off for sequences a person
+                  should start by hand.
                 </small>
               </span>
             </label>

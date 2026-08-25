@@ -95,15 +95,24 @@ export function isOutboundReferral(text) {
   return /\breferr?als?\b/i.test(String(text ?? ""));
 }
 
-// When the model returns no slug, or a slug that is not a live track, pick
-// something the router is actually allowed to start. New lead follow-up is the
-// default sequence for hand starts — it is not a track — so an injury form
-// with no slug lands on qualified-lead rather than a sequence that still says
-// "accident".
+// When the model returns no slug, or a slug that is not a router track, pick
+// something the router is allowed to assign. New lead follow-up is the default
+// sequence for hand starts — it is not a track — so an injury form with no slug
+// lands on qualified-lead rather than a sequence that still says "accident".
+// Tracks here may be switched off (not sending); assignment still uses them.
 export function pickTrackSlug({ preferred, referral = false, tracks = [] } = {}) {
   const has = (slug) => tracks.some((track) => track.slug === slug);
   if (referral && has("referral")) return "referral";
   if (preferred && has(preferred)) return preferred;
   if (has("qualified-lead")) return "qualified-lead";
   return tracks[0]?.slug ?? null;
+}
+
+// The two kinds the Leads page shows in the gray facts, before a track is
+// assigned. Other slugs are left to the caller so a custom track can still
+// display its own name.
+export function describeTrackKind(slug) {
+  if (slug === "qualified-lead") return "Qualified lead";
+  if (slug === "referral") return "Referral";
+  return null;
 }

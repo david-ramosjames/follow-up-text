@@ -4,7 +4,7 @@ import { googleConfigured, requireSession, slackSignInConfigured } from "../auth
 import { listQuoNumbers, quoConfigured, syncQuoNumbers } from "../lib/quo.js";
 import { loadSettings, SETTING_DEFINITIONS, saveSettings } from "../lib/settings.js";
 import { announceStop, stopSeries } from "../lib/followups.js";
-import { llmDescription, translateToSpanish } from "../lib/leads.js";
+import { llmDescription, routableSequences, translateToSpanish } from "../lib/leads.js";
 import { previewFirstText } from "../lib/previewText.js";
 import { catchUpLeadChannel, lastLeadCatchUp } from "../lib/leadChannel.js";
 import { runDispatch } from "../lib/dispatch.js";
@@ -624,13 +624,7 @@ apiRouter.get("/leads", ok(async (req, res) => {
        where exists (select 1 from followup_steps s where s.sequence_id = q.id and s.is_active)
        order by q.auto_routable desc, q.name`,
     ),
-    routable: await rows(
-      `select slug, name, coalesce(description, '') as description
-       from followup_sequences q
-       where q.is_active and q.auto_routable
-         and exists (select 1 from followup_steps s where s.sequence_id = q.id and s.is_active)
-       order by q.name`,
-    ),
+    routable: await routableSequences(),
   });
 }));
 

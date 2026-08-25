@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import AppNav from "../components/AppNav";
 import { api, formatWhen } from "../lib/api";
 import { formatPhone } from "../../shared/messaging";
+import { describeTrackKind } from "../../shared/leads";
 
 const FILTERS = [
   { value: "actionable", label: "Would text" },
@@ -33,12 +34,29 @@ const OUTCOMES = {
   classifier_failed: { label: "Routing failed", tone: "stopped_manual" },
 };
 
+function classifierKind(item, tracks) {
+  const slug = item.classifier_slug;
+  if (slug) {
+    return describeTrackKind(slug)
+      || tracks.find((track) => track.slug === slug)?.name
+      || slug;
+  }
+  if (item.classifier_error) return "Could not decide";
+  // Cards recorded before classifier_slug existed.
+  return describeTrackKind(item.sequence_slug)
+    || tracks.find((track) => track.slug === item.sequence_slug)?.name
+    || null;
+}
+
 function Classification({ item, tracks, onTrackChange, saving }) {
   const language = item.language === "es" ? "Spanish" : item.language === "en" ? "English" : null;
   const currentSlug = item.sequence_slug
     || tracks.find((track) => track.name === item.sequence_name)?.slug
     || "";
+  const assigned = tracks.find((track) => track.slug === currentSlug);
+  const kind = classifierKind(item, tracks);
   const facts = [
+    ["Read as", kind],
     ["Language", language],
     ["First name", item.first_name],
     ["Case type", item.case_type],
@@ -50,9 +68,15 @@ function Classification({ item, tracks, onTrackChange, saving }) {
 
   return (
     <dl className="lead-facts">
+      {facts.map(([label, value]) => (
+        <div key={label}>
+          <dt>{label}</dt>
+          <dd>{value}</dd>
+        </div>
+      ))}
       {tracks.length > 0 && (
         <div className="wide">
-          <dt>Track</dt>
+          <dt>Assigned track</dt>
           <dd>
             <select
               value={currentSlug}
@@ -64,22 +88,23 @@ function Classification({ item, tracks, onTrackChange, saving }) {
                 <option key={track.slug} value={track.slug}>
                   {track.name}
                   {track.auto_routable ? "" : " — manual"}
-                  {track.is_active ? "" : " — off"}
+                  {track.is_active ? "" : " — not sending"}
                 </option>
               ))}
             </select>
             <small className="field-note">
-              Redraws the first text with this person’s name and case type. Does not send anything.
+              The sequence that would actually run. Change it only to preview a
+              different first text. Does not send anything.
             </small>
+            {assigned && !assigned.is_active && (
+              <small className="field-note">
+                This track is switched off, so Live will not send. Assignment still
+                happened. Turn Sequence is on in the sequence editor when you are ready.
+              </small>
+            )}
           </dd>
         </div>
       )}
-      {facts.map(([label, value]) => (
-        <div key={label}>
-          <dt>{label}</dt>
-          <dd>{value}</dd>
-        </div>
-      ))}
       {item.reasoning && (
         <div className="wide">
           <dt>Why</dt>
@@ -236,6 +261,7 @@ export default function LeadsPage() {
 
   const mode = MODES[data?.mode ?? "off"] ?? MODES.off;
   const counts = data?.counts ?? {};
+  const heldTracks = (data?.routable ?? []).filter((track) => !track.is_active);
 
   return (
     <main className="page">
@@ -276,14 +302,26 @@ export default function LeadsPage() {
           </p>
           {data && !data.routable?.length && (
             <p>
-              <strong>No sequence is available to the router yet.</strong> A sequence only
-              becomes a track once “Offer this sequence to the lead router” is ticked in its
-              editor — which is why the manually-triggered New lead follow-up is not one.
+              <strong>No sequence is offered to the router yet.</strong> Tick “Offer this
+              sequence to the lead router” on Qualified lead and Referral. Sequence is on
+              only controls whether texts go out — it does not make a track.
             </p>
           )}
           {data?.routable?.length > 0 && (
             <p>
-              Tracks it may choose from: {data.routable.map((item) => item.name).join(", ")}.
+              Each form is assigned to one track: Referral if the Slack post is marked
+              Referral or Referal, otherwise Qualified lead. Tracks:{" "}
+              {data.routable.map((item) => item.name).join(", ")}.
+            </p>
+          )}
+          {heldTracks.length > 0 && (
+            <p>
+              <strong>
+                {heldTracks.map((track) => track.name).join(" and ")}{" "}
+                {heldTracks.length === 1 ? "is" : "are"} switched off.
+              </strong>{" "}
+              The router will still assign forms to {heldTracks.length === 1 ? "it" : "them"},
+              but Live will not send until you switch Sequence is on in the editor.
             </p>
           )}
         </div>

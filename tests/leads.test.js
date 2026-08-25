@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { flattenSlackMessage, readLead, historyMessageToEvent, describeSlackHistoryError, isOutboundReferral, pickTrackSlug } from "../shared/leads.js";
+import { flattenSlackMessage, readLead, historyMessageToEvent, describeSlackHistoryError, isOutboundReferral, pickTrackSlug, describeTrackKind } from "../shared/leads.js";
 
 // The four shapes actually posting into the lead channel. Kept verbatim rather
 // than tidied, because the point of these tests is that real posts parse — a
@@ -155,12 +155,19 @@ test("an ordinary injury form is not a referral", () => {
 
 test("an injury lead with no slug lands on qualified-lead, not the hand-start default", () => {
   const tracks = [
-    { slug: "qualified-lead" },
-    { slug: "referral" },
+    { slug: "qualified-lead", is_active: false },
+    { slug: "referral", is_active: false },
   ];
   assert.equal(pickTrackSlug({ tracks }), "qualified-lead");
   assert.equal(pickTrackSlug({ preferred: "qualified-lead", tracks }), "qualified-lead");
   assert.equal(pickTrackSlug({ preferred: "new-lead", tracks }), "qualified-lead");
   assert.equal(pickTrackSlug({ referral: true, tracks }), "referral");
   assert.equal(pickTrackSlug({ preferred: "qualified-lead", referral: true, tracks }), "referral");
+});
+
+test("the gray facts label qualified vs referral from the classifier slug", () => {
+  assert.equal(describeTrackKind("qualified-lead"), "Qualified lead");
+  assert.equal(describeTrackKind("referral"), "Referral");
+  assert.equal(describeTrackKind("new-lead"), null);
+  assert.equal(describeTrackKind(null), null);
 });

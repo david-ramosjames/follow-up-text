@@ -458,18 +458,19 @@ async function recordObservation(fields) {
   const observation = await one(
     `insert into lead_observations (
        slack_channel_id, slack_ts, sender_name, sender_app_id, post_text, mode,
-       phone_e164, email, is_lead, sequence_slug, sequence_name, language,
+       phone_e164, email, is_lead, sequence_slug, sequence_name, classifier_slug, language,
        first_name, last_name, case_type, lead_source, confidence, reasoning,
        classifier_error, preview_body, preview_segments, preview_is_night, preview_next_at,
        outcome, outcome_detail, enrollment_id
-     ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)
+     ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27)
      on conflict (slack_channel_id, slack_ts) where slack_ts is not null do nothing
      returning *`,
     [
       fields.channel ?? null, fields.ts ?? null, fields.senderName ?? null, fields.appId ?? null,
       truncateChars(fields.text ?? "", 8000), fields.mode,
       fields.phone ?? null, fields.email ?? null, fields.isLead ?? null,
-      fields.sequenceSlug ?? null, fields.sequenceName ?? null, fields.language ?? null,
+      fields.sequenceSlug ?? null, fields.sequenceName ?? null, fields.classifierSlug ?? null,
+      fields.language ?? null,
       fields.firstName ?? null, fields.lastName ?? null, fields.caseType ?? null,
       fields.leadSource ?? null, fields.confidence ?? null, fields.reasoning ?? null,
       fields.classifierError ?? null, fields.previewBody ?? null, fields.previewSegments ?? null,
@@ -561,6 +562,7 @@ export async function handleLeadPost(event) {
       caseType: assessment.caseType ?? null,
       leadSource: assessment.leadSource ?? null,
       sequenceSlug: assessment.sequenceSlug ?? null,
+      classifierSlug: assessment.classifierSlug ?? null,
       confidence: assessment.confidence ?? null,
       reasoning: assessment.reasoning ?? null,
       outcome: assessment.reason === "no_phone" ? "no_phone" : "not_a_lead",
@@ -591,6 +593,7 @@ export async function handleLeadPost(event) {
     isLead: true,
     sequenceSlug: assessment.sequenceSlug,
     sequenceName: sequence?.name ?? null,
+    classifierSlug: assessment.classifierSlug ?? null,
     language: assessment.language,
     firstName: assessment.firstName,
     lastName: assessment.lastName,

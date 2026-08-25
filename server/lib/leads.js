@@ -185,15 +185,14 @@ async function classifyWithOpenAI(sequences, text) {
   return { ok: true, parsed: JSON.parse(content) };
 }
 
-// The sequences the classifier is allowed to choose from are simply the active
-// ones. Adding a track in the dashboard therefore extends the router with no
-// code change here — the name and description a person wrote for their own
-// benefit are also what the model reads.
+// Tracks the classifier may assign. Sequence is on (is_active) is whether texts
+// actually go out — not whether a form can be assigned here. Switching Qualified
+// lead off used to hide it from this list, so injury posts fell through.
 export async function routableSequences() {
   return rows(
-    `select slug, name, coalesce(description, '') as description
+    `select slug, name, coalesce(description, '') as description, is_active
      from followup_sequences q
-     where q.is_active and q.auto_routable
+     where q.auto_routable
        and exists (select 1 from followup_steps s where s.sequence_id = q.id and s.is_active)
      order by q.name`,
   );
@@ -280,6 +279,7 @@ export async function assessLeadPost(event) {
       phone: read.phone,
       email: read.email,
       sequenceSlug,
+      classifierSlug: null,
       language: null,
       firstName: null,
       confidence: "low",
@@ -302,6 +302,7 @@ export async function assessLeadPost(event) {
       caseType: classified.case_type,
       leadSource: classified.lead_source,
       sequenceSlug: classified.sequence_slug,
+      classifierSlug: classified.sequence_slug,
       confidence: classified.confidence,
       reasoning: classified.reasoning,
     };
@@ -312,6 +313,7 @@ export async function assessLeadPost(event) {
     phone: read.phone,
     email: read.email,
     sequenceSlug,
+    classifierSlug: classified.sequence_slug,
     language: classified.language,
     firstName: classified.first_name,
     lastName: classified.last_name,
