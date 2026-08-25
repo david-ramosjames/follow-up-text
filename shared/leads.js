@@ -94,3 +94,16 @@ export function readLead(text) {
 export function isOutboundReferral(text) {
   return /\breferr?als?\b/i.test(String(text ?? ""));
 }
+
+// When the model returns no slug, or a slug that is not a live track, pick
+// something the router is actually allowed to start. New lead follow-up is the
+// default sequence for hand starts — it is not a track — so an injury form
+// with no slug lands on qualified-lead rather than a sequence that still says
+// "accident".
+export function pickTrackSlug({ preferred, referral = false, tracks = [] } = {}) {
+  const has = (slug) => tracks.some((track) => track.slug === slug);
+  if (referral && has("referral")) return "referral";
+  if (preferred && has(preferred)) return preferred;
+  if (has("qualified-lead")) return "qualified-lead";
+  return tracks[0]?.slug ?? null;
+}

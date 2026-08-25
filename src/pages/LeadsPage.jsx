@@ -33,10 +33,12 @@ const OUTCOMES = {
   classifier_failed: { label: "Routing failed", tone: "stopped_manual" },
 };
 
-function Classification({ item }) {
+function Classification({ item, tracks, onTrackChange, saving }) {
   const language = item.language === "es" ? "Spanish" : item.language === "en" ? "English" : null;
+  const currentSlug = item.sequence_slug
+    || tracks.find((track) => track.name === item.sequence_name)?.slug
+    || "";
   const facts = [
-    ["Track", item.sequence_name || (item.sequence_slug ? item.sequence_slug : null)],
     ["Language", language],
     ["First name", item.first_name],
     ["Case type", item.case_type],
@@ -44,10 +46,34 @@ function Classification({ item }) {
     ["Confidence", item.confidence],
   ].filter(([, value]) => value);
 
-  if (!facts.length && !item.reasoning) return null;
+  if (!facts.length && !item.reasoning && !tracks.length) return null;
 
   return (
     <dl className="lead-facts">
+      {tracks.length > 0 && (
+        <div className="wide">
+          <dt>Track</dt>
+          <dd>
+            <select
+              value={currentSlug}
+              disabled={saving}
+              onChange={(event) => onTrackChange(event.target.value)}
+            >
+              {!currentSlug && <option value="">Choose a track…</option>}
+              {tracks.map((track) => (
+                <option key={track.slug} value={track.slug}>
+                  {track.name}
+                  {track.auto_routable ? "" : " — manual"}
+                  {track.is_active ? "" : " — off"}
+                </option>
+              ))}
+            </select>
+            <small className="field-note">
+              Redraws the first text with this person’s name and case type. Does not send anything.
+            </small>
+          </dd>
+        </div>
+      )}
       {facts.map(([label, value]) => (
         <div key={label}>
           <dt>{label}</dt>
@@ -64,10 +90,25 @@ function Classification({ item }) {
   );
 }
 
-function Observation({ item }) {
+function Observation({ item, tracks, onUpdate }) {
   const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
   const outcome = OUTCOMES[item.outcome] ?? { label: item.outcome, tone: "off" };
   const acted = item.outcome === "started" || item.outcome === "preview_only";
+
+  const changeTrack = async (slug) => {
+    if (!slug) return;
+    setSaving(true);
+    setError("");
+    try {
+      onUpdate(await api.patch(`/leads/${item.id}`, { sequence_slug: slug }));
+    } catch (changeError) {
+      setError(changeError.message);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <article className={acted ? "live" : ""}>
@@ -89,7 +130,8 @@ function Observation({ item }) {
         </div>
       </header>
 
-      <Classification item={item} />
+      <Classification item={item} tracks={tracks} onTrackChange={changeTrack} saving={saving} />
+      {error && <p className="form-error">{error}</p>}
 
       {acted && item.sequence_name && (
         <div className="next-send">
@@ -300,7 +342,21 @@ export default function LeadsPage() {
         )}
 
         <div className="card-list">
-          {(data?.observations ?? []).map((item) => <Observation key={item.id} item={item} />)}
+          {(data?.observations ?? []).map((item) => (
+            <Observation
+              key={item.id}
+              item={item}
+              tracks={data?.tracks ?? []}
+              onUpdate={(updated) => {
+                setData((current) => ({
+                  ...current,
+                  observations: current.observations.map((row) => (
+                    row.id === updated.id ? updated : row
+                  )),
+                }));
+              }}
+            />
+          ))}
         </div>
       </div>
     </main>

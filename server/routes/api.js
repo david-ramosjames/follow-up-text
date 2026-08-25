@@ -5,6 +5,7 @@ import { listQuoNumbers, quoConfigured, syncQuoNumbers } from "../lib/quo.js";
 import { loadSettings, SETTING_DEFINITIONS, saveSettings } from "../lib/settings.js";
 import { announceStop, stopSeries } from "../lib/followups.js";
 import { llmDescription, translateToSpanish } from "../lib/leads.js";
+import { previewFirstText } from "../lib/previewText.js";
 import { catchUpLeadChannel, lastLeadCatchUp } from "../lib/leadChannel.js";
 import { runDispatch } from "../lib/dispatch.js";
 import { slackConfigured } from "../lib/slack.js";
@@ -617,6 +618,12 @@ apiRouter.get("/leads", ok(async (req, res) => {
     channel: settings.lead_channel_id ?? "",
     llm: llmDescription(),
     catchUp: lastLeadCatchUp(),
+    tracks: await rows(
+      `select slug, name, is_active, auto_routable
+       from followup_sequences q
+       where exists (select 1 from followup_steps s where s.sequence_id = q.id and s.is_active)
+       order by q.auto_routable desc, q.name`,
+    ),
     routable: await rows(
       `select slug, name, coalesce(description, '') as description
        from followup_sequences q
@@ -625,6 +632,54 @@ apiRouter.get("/leads", ok(async (req, res) => {
        order by q.name`,
     ),
   });
+}));
+
+// Switch the track a recorded lead is previewed on, using the name and case
+// type already extracted. Does not re-run the classifier and does not text
+// anyone — it only refreshes "the first text they would get".
+apiRouter.patch("/leads/:id", ok(async (req, res) => {
+  const observation = await one("select * from lead_observations where id = $1", [req.params.id]);
+  if (!observation) return res.status(404).json({ error: "No such lead." });
+
+  const slug = String(req.body?.sequence_slug ?? "").trim();
+  if (!slug) return res.status(400).json({ error: "Pick a sequence." });
+
+  const sequence = await one(
+    `select slug, name from followup_sequences q
+     where q.slug = $1
+       and exists (select 1 from followup_steps s where s.sequence_id = q.id and s.is_active)`,
+    [slug],
+  );
+  if (!sequence) return res.status(400).json({ error: "That sequence has no texts to preview." });
+
+  const preview = await previewFirstText(sequence.slug, {
+    firstName: observation.first_name,
+    lastName: observation.last_name,
+    caseType: observation.case_type,
+    language: observation.language,
+  });
+
+  const updated = await one(
+    `update lead_observations
+        set sequence_slug = $2,
+            sequence_name = $3,
+            preview_body = $4,
+            preview_segments = $5,
+            preview_is_night = $6,
+            preview_next_at = $7
+      where id = $1
+      returning *`,
+    [
+      req.params.id,
+      sequence.slug,
+      sequence.name,
+      preview?.body ?? null,
+      preview?.segments ?? null,
+      preview?.isNight ?? null,
+      preview?.nextAt ?? null,
+    ],
+  );
+  res.json(updated);
 }));
 
 /* ---------------------------------------------------------------- settings */

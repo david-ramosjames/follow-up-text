@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { flattenSlackMessage, readLead, historyMessageToEvent, describeSlackHistoryError, isOutboundReferral } from "../shared/leads.js";
+import { flattenSlackMessage, readLead, historyMessageToEvent, describeSlackHistoryError, isOutboundReferral, pickTrackSlug } from "../shared/leads.js";
 
 // The four shapes actually posting into the lead channel. Kept verbatim rather
 // than tidied, because the point of these tests is that real posts parse — a
@@ -151,4 +151,16 @@ test("an ordinary injury form is not a referral", () => {
   assert.equal(isOutboundReferral(flattenSlackMessage(META_FORM)), false);
   assert.equal(isOutboundReferral(flattenSlackMessage(WEB_CHAT)), false);
   assert.equal(isOutboundReferral("Name: Jo\nPhone: 512-555-0123\nreferred by a friend"), false);
+});
+
+test("an injury lead with no slug lands on qualified-lead, not the hand-start default", () => {
+  const tracks = [
+    { slug: "qualified-lead" },
+    { slug: "referral" },
+  ];
+  assert.equal(pickTrackSlug({ tracks }), "qualified-lead");
+  assert.equal(pickTrackSlug({ preferred: "qualified-lead", tracks }), "qualified-lead");
+  assert.equal(pickTrackSlug({ preferred: "new-lead", tracks }), "qualified-lead");
+  assert.equal(pickTrackSlug({ referral: true, tracks }), "referral");
+  assert.equal(pickTrackSlug({ preferred: "qualified-lead", referral: true, tracks }), "referral");
 });

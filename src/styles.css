@@ -629,6 +629,10 @@ label.checkbox small { display: block; margin-top: 2px; color: var(--muted); fon
   text-transform: uppercase;
 }
 .lead-facts dd { margin: 2px 0 0; font-size: 13px; line-height: 1.45; }
+.lead-facts select {
+  width: 100%; max-width: 28rem; margin-top: 2px; padding: 5px 8px;
+  font-size: 13px;
+}
 
 .next-send {
   display: flex; align-items: flex-start; gap: 9px;

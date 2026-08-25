@@ -1,18 +1,15 @@
 import express from "express";
 import {
-  appendOptOutNotice,
-  countSegments,
   extractPhones,
   formatPhone,
   maskPhone,
   normalizePhone,
-  isNightHour,
-  renderBody,
   truncateChars,
 } from "../../shared/messaging.js";
 import { flattenSlackMessage } from "../../shared/leads.js";
 import { one, rows, rpc } from "../db.js";
 import { assessLeadPost } from "../lib/leads.js";
+import { previewFirstText } from "../lib/previewText.js";
 import { loadSettings } from "../lib/settings.js";
 import {
   activeSequences,
@@ -484,68 +481,6 @@ async function recordObservation(fields) {
     return null;
   });
   return observation;
-}
-
-// What this lead would actually receive, merge fields filled in. Computed even
-// in watch-and-record mode, because "which sequence" is a much weaker answer
-// than "here is the text they would have got".
-async function previewFirstText(slug, { firstName, lastName, caseType, language }) {
-  const step = await one(
-    `select s.body_en, s.body_es, s.body_en_night, s.body_es_night, q.append_opt_out_notice,
-            q.slug, q.timezone, q.quiet_hours_start, q.quiet_hours_end, q.send_days,
-            q.night_starts_hour, q.night_ends_hour
-     from followup_sequences q
-     join followup_steps s on s.sequence_id = q.id and s.is_active
-     where q.slug = coalesce($1, (select slug from followup_sequences where is_default limit 1))
-     order by s.position limit 1`,
-    [slug],
-  );
-  if (!step) return null;
-
-  const settings = await loadSettings();
-  const tz = step.timezone || "America/Chicago";
-  const hourRow = await one(
-    "select extract(hour from (now() at time zone $1))::int as hour",
-    [tz],
-  );
-  const hour = Number(hourRow?.hour ?? 0);
-  const nightStart = Number(step.night_starts_hour ?? settings.night_starts_hour ?? 21);
-  const nightEnd = Number(step.night_ends_hour ?? settings.night_ends_hour ?? 8);
-  const isNight = isNightHour(hour, nightStart, nightEnd);
-
-  const lang = language === "es" ? "es" : "en";
-  const nightBody = lang === "es" ? step.body_es_night : step.body_en_night;
-  const dayBody = lang === "es" ? step.body_es : step.body_en;
-  const template = isNight && nightBody?.trim() ? nightBody : dayBody;
-  const body = renderBody(template, {
-    first_name: firstName,
-    last_name: lastName,
-    case_type: caseType,
-    firm_name: settings.firm_name,
-  }, lang);
-
-  const withNotice = step.append_opt_out_notice ? appendOptOutNotice(body, lang) : body;
-
-  // Later texts never ignore the window, so a 4-hour gap after a night first
-  // text becomes the next opening (usually 9am), not 3am.
-  const next = await one(
-    `select followup_shift_into_window(
-       now() + make_interval(mins => s.delay_minutes),
-       q.timezone, q.quiet_hours_start, q.quiet_hours_end, q.send_days
-     ) as at
-     from followup_sequences q
-     join followup_steps s on s.sequence_id = q.id and s.is_active
-     where q.slug = $1
-     order by s.position offset 1 limit 1`,
-    [step.slug],
-  );
-
-  return {
-    body: withNotice,
-    segments: countSegments(withNotice).segments,
-    isNight,
-    nextAt: next?.at ?? null,
-  };
 }
 
 export async function handleLeadPost(event) {

@@ -1,10 +1,10 @@
 import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
-import { flattenSlackMessage, isOutboundReferral, readLead } from "../../shared/leads.js";
+import { flattenSlackMessage, isOutboundReferral, pickTrackSlug, readLead } from "../../shared/leads.js";
 import { missingMergeTokens } from "../../shared/messaging.js";
 import { rows } from "../db.js";
 
-export { flattenSlackMessage, readLead, isOutboundReferral };
+export { flattenSlackMessage, readLead, isOutboundReferral, pickTrackSlug };
 
 // Reading a lead out of a Slack post happens in two halves, and the split is
 // deliberate.
@@ -97,8 +97,11 @@ which follow-up text sequence the person should go into.
 Rules:
 
 - Choose sequence_slug from the list of sequences you are given, and nothing
-  else. Never invent a slug. If none is a good fit, return null and the firm
-  will use its default.
+  else. Never invent a slug.
+- An injured person this firm may represent is the qualified-lead track. A form
+  marked Referral or Referal is the referral track.
+- If none is a good fit, return null. Do not pick a sequence that is not on the
+  list.
 - Judge the case type from what the person actually wrote about their situation,
   not from the ad or campaign name. A campaign called "Slip ES" that produced a
   lead describing a car crash is a car crash.
@@ -252,21 +255,23 @@ export async function assessLeadPost(event) {
 
   const classified = await classifyLead(text);
   const referral = isOutboundReferral(text);
-  let sequenceSlug = classified.ok ? classified.sequence_slug : null;
+  const tracks = await routableSequences();
+  let sequenceSlug = pickTrackSlug({
+    preferred: classified.ok ? classified.sequence_slug : null,
+    referral,
+    tracks,
+  });
   let reasoning = classified.ok
     ? classified.reasoning
-    : `Routed to the default sequence: ${classified.reason}.`;
+    : `Routed to ${sequenceSlug ?? "the default sequence"}: ${classified.reason}.`;
 
   // The form itself says Referral. Honour that even when the model missed it
   // or the classifier is down, so those posts cannot land on the qualified track.
-  if (referral) {
-    const tracks = await routableSequences();
-    if (tracks.some((track) => track.slug === "referral")) {
-      sequenceSlug = "referral";
-      reasoning = classified.ok
-        ? `The form is marked referral, so it was parsed onto that track. ${classified.reasoning ?? ""}`.trim()
-        : "The form is marked referral.";
-    }
+  if (referral && tracks.some((track) => track.slug === "referral")) {
+    sequenceSlug = "referral";
+    reasoning = classified.ok
+      ? `The form is marked referral, so it was parsed onto that track. ${classified.reasoning ?? ""}`.trim()
+      : "The form is marked referral.";
   }
 
   if (!classified.ok) {
