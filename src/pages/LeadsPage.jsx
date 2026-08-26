@@ -4,7 +4,7 @@ import { Link } from "react-router-dom";
 import AppNav from "../components/AppNav";
 import { api, formatWhen } from "../lib/api";
 import { formatPhone } from "../../shared/messaging";
-import { describeTrackKind } from "../../shared/leads";
+import { describeTrackKind, isOutboundReferral } from "../../shared/leads";
 
 const FILTERS = [
   { value: "actionable", label: "Would text" },
@@ -34,18 +34,14 @@ const OUTCOMES = {
   classifier_failed: { label: "Routing failed", tone: "stopped_manual" },
 };
 
-function classifierKind(item, tracks) {
-  const slug = item.classifier_slug;
-  if (slug) {
-    return describeTrackKind(slug)
-      || tracks.find((track) => track.slug === slug)?.name
-      || slug;
-  }
+function classifierKind(item) {
+  if (isOutboundReferral(item.post_text)) return "Referral";
+  const label = describeTrackKind(item.classifier_slug)
+    || describeTrackKind(item.sequence_slug);
+  if (label) return label;
   if (item.classifier_error) return "Could not decide";
-  // Cards recorded before classifier_slug existed.
-  return describeTrackKind(item.sequence_slug)
-    || tracks.find((track) => track.slug === item.sequence_slug)?.name
-    || null;
+  if (item.is_lead) return "Qualified lead";
+  return null;
 }
 
 function Classification({ item, tracks, onTrackChange, saving }) {
@@ -54,7 +50,7 @@ function Classification({ item, tracks, onTrackChange, saving }) {
     || tracks.find((track) => track.name === item.sequence_name)?.slug
     || "";
   const assigned = tracks.find((track) => track.slug === currentSlug);
-  const kind = classifierKind(item, tracks);
+  const kind = classifierKind(item);
   const facts = [
     ["Read as", kind],
     ["Language", language],

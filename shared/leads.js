@@ -103,16 +103,25 @@ export function isOutboundReferral(text) {
 export function pickTrackSlug({ preferred, referral = false, tracks = [] } = {}) {
   const has = (slug) => tracks.some((track) => track.slug === slug);
   if (referral && has("referral")) return "referral";
-  if (preferred && has(preferred)) return preferred;
+  // New lead follow-up is not a track, even if it was left on the menu.
+  if (preferred && preferred !== "new-lead" && has(preferred)) return preferred;
   if (has("qualified-lead")) return "qualified-lead";
   return tracks[0]?.slug ?? null;
 }
 
-// The two kinds the Leads page shows in the gray facts, before a track is
-// assigned. Other slugs are left to the caller so a custom track can still
-// display its own name.
+// The classifier only has two kinds. New lead follow-up is the hand-start
+// default, not a kind — leftover slugs from when Qualified lead was off the
+// menu still count as qualified.
+export function kindSlug({ preferred, referral = false } = {}) {
+  if (referral || preferred === "referral") return "referral";
+  return "qualified-lead";
+}
+
+// The two labels the Leads page shows in the gray facts, before a track is
+// assigned. A stored new-lead slug is the old fall-through, not a third option.
 export function describeTrackKind(slug) {
-  if (slug === "qualified-lead") return "Qualified lead";
+  if (!slug) return null;
   if (slug === "referral") return "Referral";
+  if (slug === "qualified-lead" || slug === "new-lead") return "Qualified lead";
   return null;
 }

@@ -1,10 +1,10 @@
 import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
-import { flattenSlackMessage, isOutboundReferral, pickTrackSlug, readLead } from "../../shared/leads.js";
+import { flattenSlackMessage, isOutboundReferral, kindSlug, pickTrackSlug, readLead } from "../../shared/leads.js";
 import { missingMergeTokens } from "../../shared/messaging.js";
 import { rows } from "../db.js";
 
-export { flattenSlackMessage, readLead, isOutboundReferral, pickTrackSlug };
+export { flattenSlackMessage, readLead, isOutboundReferral, kindSlug, pickTrackSlug };
 
 // Reading a lead out of a Slack post happens in two halves, and the split is
 // deliberate.
@@ -279,7 +279,7 @@ export async function assessLeadPost(event) {
       phone: read.phone,
       email: read.email,
       sequenceSlug,
-      classifierSlug: null,
+      classifierSlug: referral ? "referral" : null,
       language: null,
       firstName: null,
       confidence: "low",
@@ -302,7 +302,7 @@ export async function assessLeadPost(event) {
       caseType: classified.case_type,
       leadSource: classified.lead_source,
       sequenceSlug: classified.sequence_slug,
-      classifierSlug: classified.sequence_slug,
+      classifierSlug: kindSlug({ preferred: classified.sequence_slug, referral }),
       confidence: classified.confidence,
       reasoning: classified.reasoning,
     };
@@ -313,7 +313,7 @@ export async function assessLeadPost(event) {
     phone: read.phone,
     email: read.email,
     sequenceSlug,
-    classifierSlug: classified.sequence_slug,
+    classifierSlug: kindSlug({ preferred: classified.sequence_slug, referral }),
     language: classified.language,
     firstName: classified.first_name,
     lastName: classified.last_name,
