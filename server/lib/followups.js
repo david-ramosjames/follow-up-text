@@ -1,5 +1,6 @@
 import { one, rows, rpc, query } from "../db.js";
 import { displayPhone, enrollmentBlocks, postToThread, slackApi } from "./slack.js";
+import { formatPhone } from "../../shared/messaging.js";
 
 export async function loadOperator(slackUserId) {
   const found = await rows(
@@ -37,6 +38,8 @@ export function enrollFailureText(result, phone) {
       return ":warning: That sequence has no texts in it yet.";
     case "missing_assignee":
       return ":warning: Every series needs somebody assigned to it.";
+    case "unknown_quo_number":
+      return ":warning: That sending number is not in Quo any more. Leave it blank to use the default.";
     default:
       return `:warning: The series could not be started (${result?.reason ?? "unknown error"}).`;
   }
@@ -49,6 +52,7 @@ export const ENROLL_FIELD_ERRORS = {
   no_steps: { field: "sequence", text: "That sequence has no texts in it yet." },
   sequence_inactive: { field: "sequence", text: "That sequence is switched off." },
   sequence_not_found: { field: "sequence", text: "That sequence no longer exists." },
+  unknown_quo_number: { field: "send_from", text: "That sending number is not in Quo any more." },
 };
 
 export async function startSeries(payload) {
@@ -60,6 +64,15 @@ export async function startSeries(payload) {
 // later update stay in that one conversation.
 export async function announceEnrollment(result, { fallbackResponseUrl = null } = {}) {
   const phone = await displayPhone(String(result.phone));
+  let fromNumber = null;
+  if (result.quo_number_id) {
+    const row = await one("select label, phone_e164 from quo_numbers where id = $1", [result.quo_number_id]);
+    if (row) {
+      fromNumber = row.label
+        ? `${row.label} (${formatPhone(row.phone_e164) || row.phone_e164})`
+        : (formatPhone(row.phone_e164) || row.phone_e164);
+    }
+  }
   const blocks = enrollmentBlocks({
     enrollmentId: String(result.enrollment_id),
     phone,
@@ -71,6 +84,7 @@ export async function announceEnrollment(result, { fallbackResponseUrl = null } 
     assignedUserId: String(result.assigned_slack_user_id),
     caseReference: result.case_reference ?? null,
     timezone: result.sequence?.timezone ?? "America/Chicago",
+    fromNumber,
   });
   const text = `Follow-up texts started for ${phone}`;
 

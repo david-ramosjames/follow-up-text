@@ -7,6 +7,7 @@ import {
   truncateChars,
 } from "../../shared/messaging.js";
 import { flattenSlackMessage } from "../../shared/leads.js";
+import { parseStartArgs } from "../../shared/startArgs.js";
 import { one, rows, rpc } from "../db.js";
 import { assessLeadPost } from "../lib/leads.js";
 import { previewFirstText } from "../lib/previewText.js";
@@ -23,6 +24,7 @@ import {
   startSeries,
   stopSeries,
 } from "../lib/followups.js";
+import { listQuoNumbers } from "../lib/quo.js";
 import {
   displayPhone,
   formatWhen,
@@ -53,9 +55,11 @@ const HELP = [
   "`/followup help` — this",
   "",
   "In the shorthand the order does not matter: anything shaped like a phone number is the "
-    + "number, `en`/`es` sets the language, a sequence name picks the sequence, an `@mention` "
+    + "number, `en`/`es` sets the language, a sequence name picks the sequence, `from` plus the "
+    + "Quo line's name (as labelled in Quo) sends from that number, an `@mention` "
     + "assigns it, and whatever is left is the first name. Leave the language out and it uses "
-    + "whatever you last used for that number; leave the name out and the text says \"there\".",
+    + "whatever you last used for that number; leave the name out and the text says \"there\". "
+    + "Leave `from` out and it uses the sequence's number, or the default under Settings.",
   "",
   "*Inside a thread, use the mention, not the command.* Slack tells a slash command which "
     + "channel it was run in but not which thread, so `/followup` always confirms at the top of "
@@ -67,14 +71,16 @@ const HELP = [
 
 const MENTION_SYNTAX = [
   "`@sms-follow-up start 512-555-0123 es Maria` — start a series",
+  "`@sms-follow-up start 512-555-0123 from Intake` — start from that Quo line (use the name as it appears in Quo)",
   "`@sms-follow-up stop 512-555-0123` — stop one you own",
   "`@sms-follow-up status 512-555-0123` — where a client is",
   "`@sms-follow-up list` — everything you have running",
 ].join("\n");
 
 const MENTION_ORDER_NOTE = "The order does not matter: anything shaped like a phone number is the "
-  + "number, `en`/`es` sets the language, an `@mention` assigns it to somebody else, and whatever "
-  + "is left over is the client's first name.";
+  + "client's number, `en`/`es` sets the language, `from` plus the Quo line's name (or last four "
+  + "digits) sends from that line, an `@mention` assigns it to somebody else, and whatever is left over "
+  + "is the client's first name.";
 
 /* ------------------------------------------------------------ arg parsing */
 
@@ -124,69 +130,45 @@ function nearestVerb(word) {
 }
 
 
-const LANGUAGE_WORDS = {
-  en: "en", eng: "en", english: "en", ingles: "en",
-  es: "es", spa: "es", spanish: "es", espanol: "es", "español": "es",
-};
-
-// A phone number is pulled out of the whole argument string rather than
-// token-by-token, because people paste "(512) 555-0123" — three tokens, none of
-// which is a phone number on its own.
 function takePhone(tokens) {
-  const text = tokens.join(" ");
-  const phones = extractPhones(text);
-  if (!phones.length) return { phone: null, rest: tokens };
-
-  // Slack rewrites a typed number as <tel:+15125550123|(512) 555-0123>, which
-  // contains a space and so survives tokenising as two fragments. Strip the
-  // whole markup first, then drop any bare token that is only digits and phone
-  // punctuation. Otherwise the leftovers become the client's first name, and
-  // "<tel:+1512..." ends up merged into the text they receive.
-  const rest = text
-    .replace(/<tel:[^>]*>/gi, " ")
-    .split(/\s+/)
-    .filter(Boolean)
-    .filter((token) => !(/\d/.test(token) && /^[+()\-.\d]+$/.test(token)));
-
-  return { phone: phones[0], rest };
-}
-
-function parseArgs(tokens, sequenceSlugs) {
-  const parsed = {};
-  const leftovers = [];
-
-  const taken = takePhone(tokens);
-  if (taken.phone) parsed.phone = taken.phone;
-
-  for (const token of taken.rest) {
-    // Slack sends escaped mentions as <@U123ABC|name> when link escaping is on.
-    // With it off the text is a bare @name, which carries no ID to assign to, so
-    // those fall through and are treated as part of the name.
-    const mention = token.match(/^<@([A-Z0-9]+)(\|[^>]*)?>$/);
-    if (mention) { parsed.assignee = mention[1]; continue; }
-
-    const lower = token.toLowerCase();
-    if (!parsed.language && lower in LANGUAGE_WORDS) { parsed.language = LANGUAGE_WORDS[lower]; continue; }
-    if (!parsed.sequenceSlug && sequenceSlugs.includes(lower)) { parsed.sequenceSlug = lower; continue; }
-    leftovers.push(token);
-  }
-
-  // A stray run of digits that did not parse as a phone is more likely a
-  // mistyped number than a name, so keep it out of {{first_name}}.
-  const nameParts = leftovers.filter((token) => !/^[0-9+()\-.]+$/.test(token));
-  if (nameParts.length) parsed.firstName = nameParts.join(" ");
-  return parsed;
+  return { phone: extractPhones(tokens.join(" "))[0] ?? null };
 }
 
 /* ---------------------------------------------------------------- actions */
 
+async function sendingNumbers() {
+  return (await listQuoNumbers()).filter((number) => number.is_active);
+}
+
+async function sendingAliases() {
+  const settings = await loadSettings();
+  const secondary = settings.secondary_quo_number_id;
+  return secondary ? { secondary, "2nd": secondary } : {};
+}
+
+async function sendingOptions() {
+  const [numbers, settings] = await Promise.all([sendingNumbers(), loadSettings()]);
+  return { numbers, secondaryNumberId: settings.secondary_quo_number_id || null };
+}
+
 async function doStart({ tokens, actorId, actorName, channelId, threadTs, source, responseUrl }) {
   const sequences = await activeSequences();
-  const parsed = parseArgs(tokens, sequences.map((sequence) => sequence.slug));
+  const numbers = await sendingNumbers();
+  const aliases = await sendingAliases();
+  const parsed = parseStartArgs(tokens, {
+    sequenceSlugs: sequences.map((sequence) => sequence.slug),
+    sendingNumbers: numbers,
+    aliases,
+  });
 
   if (!parsed.phone) {
     return ephemeral(":warning: I need a mobile number. Try `/followup start 512-555-0123`, "
       + "or just `/followup` for the form.");
+  }
+
+  if (parsed.fromAsked && !parsed.quoNumberId) {
+    return ephemeral(":warning: I could not match that sending number to a Quo line. Use the "
+      + "name as it is labelled in Quo — `from Intake` — or run `/followup` and pick it on the form.");
   }
 
   const assignee = parsed.assignee ?? actorId;
@@ -195,6 +177,7 @@ async function doStart({ tokens, actorId, actorName, channelId, threadTs, source
     language: parsed.language,
     first_name: parsed.firstName,
     sequence_slug: parsed.sequenceSlug,
+    quo_number_id: parsed.quoNumberId ?? null,
     assigned_slack_user_id: assignee,
     assigned_slack_user_name: parsed.assignee ? await lookupSlackName(assignee) : actorName,
     started_by_slack_user_id: actorId,
@@ -342,6 +325,7 @@ async function openStartModal({ triggerId, userId, channelId, threadTs, sourceTe
     trigger_id: triggerId,
     view: startModal({
       sequences,
+      ...(await sendingOptions()),
       context: { channel_id: channelId ?? "", thread_ts: threadTs ?? "" },
       invokingUserId: userId,
       prefill: {
@@ -898,6 +882,7 @@ async function handleMessageShortcut(payload, res) {
     trigger_id: payload.trigger_id,
     view: startModal({
       sequences,
+      ...(await sendingOptions()),
       // Anchor to the thread the message belongs to; a top-level message becomes
       // the start of its own thread.
       context: {
@@ -977,12 +962,14 @@ async function handleModalSubmit(payload, res) {
 
   const assignee = values?.assignee?.value?.selected_user ?? payload.user.id;
   const phone = text("phone");
+  const sendFrom = selected("send_from");
 
   const result = await startSeries({
     phone,
     language: selected("language") ?? "en",
     first_name: text("first_name") || null,
     sequence_slug: selected("sequence"),
+    quo_number_id: sendFrom && sendFrom !== "default" ? sendFrom : null,
     assigned_slack_user_id: assignee,
     assigned_slack_user_name: assignee === payload.user.id
       ? (operator.display_name ?? payload.user.name ?? null)

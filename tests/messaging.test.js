@@ -12,6 +12,7 @@ import {
   hasEmoji,
   isNightHour,
   maskPhone,
+  matchSendingNumber,
   missingMergeTokens,
   mergeTokens,
   normalizeInbound,
@@ -342,4 +343,26 @@ test("real numbers still normalize", () => {
   assert.equal(normalizePhone("+15125550123"), "+15125550123");
   assert.equal(normalizePhone("5125550123"), "+15125550123");
   assert.equal(normalizePhone("+44 20 7946 0958"), "+442079460958");
+});
+
+const QUO_LINES = [
+  { id: "PNINTAKE", phone_e164: "+15125557777", label: "Intake line" },
+  { id: "PNSPARE", phone_e164: "+15125558888", label: "Spare line" },
+];
+
+test("a sending number matches by label, last four, or full number", () => {
+  assert.equal(matchSendingNumber("spare", QUO_LINES)?.id, "PNSPARE");
+  assert.equal(matchSendingNumber("8888", QUO_LINES)?.id, "PNSPARE");
+  assert.equal(matchSendingNumber("512-555-8888", QUO_LINES)?.id, "PNSPARE");
+  assert.equal(matchSendingNumber("PNINTAKE", QUO_LINES)?.id, "PNINTAKE");
+  assert.equal(matchSendingNumber("nope", QUO_LINES), null);
+  assert.equal(matchSendingNumber("secondary", QUO_LINES, { aliases: { secondary: "PNSPARE" } })?.id, "PNSPARE");
+});
+
+test("an ambiguous last four does not pick a sending number", () => {
+  const clash = [
+    { id: "A", phone_e164: "+15125550123", label: "One" },
+    { id: "B", phone_e164: "+12125550123", label: "Two" },
+  ];
+  assert.equal(matchSendingNumber("0123", clash), null);
 });

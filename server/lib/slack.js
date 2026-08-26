@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { maskPhone } from "../../shared/messaging.js";
+import { formatPhone, maskPhone } from "../../shared/messaging.js";
 import { loadSettings } from "./settings.js";
 
 /* ------------------------------------------------------------- signatures */
@@ -146,6 +146,7 @@ export function enrollmentBlocks(card) {
         { type: "mrkdwn", text: `*Assigned*\n<@${card.assignedUserId}>` },
         { type: "mrkdwn", text: `*First text*\n${formatWhen(card.nextRunAt, card.timezone)}` },
         { type: "mrkdwn", text: `*Texts queued*\n${card.stepCount}` },
+        ...(card.fromNumber ? [{ type: "mrkdwn", text: `*Sending from*\n${card.fromNumber}` }] : []),
         ...(card.caseReference ? [{ type: "mrkdwn", text: `*Reference*\n${card.caseReference}` }] : []),
       ],
     },
@@ -178,7 +179,7 @@ export function enrollmentBlocks(card) {
 
 // The start form. `context` carries the channel and thread this was launched
 // from, so the confirmation and every later update go back to the same place.
-export function startModal({ sequences, context, invokingUserId, prefill = {} }) {
+export function startModal({ sequences, numbers = [], secondaryNumberId = null, context, invokingUserId, prefill = {} }) {
   const options = sequences.map((sequence) => ({
     text: { type: "plain_text", text: sequence.name.slice(0, 75) },
     value: sequence.slug,
@@ -254,6 +255,46 @@ export function startModal({ sequences, context, invokingUserId, prefill = {} })
         ],
       },
     },
+  );
+
+  const activeNumbers = numbers.filter((number) => number.is_active);
+  if (activeNumbers.length > 1) {
+    const defaultOption = {
+      text: { type: "plain_text", text: "Default number" },
+      value: "default",
+    };
+    const numberOptions = [
+      defaultOption,
+      ...activeNumbers
+        .slice()
+        .sort((a, b) => {
+          if (a.id === secondaryNumberId) return -1;
+          if (b.id === secondaryNumberId) return 1;
+          return 0;
+        })
+        .map((number) => {
+          const shown = number.label
+            ? `${number.label} — ${formatPhone(number.phone_e164) || number.phone_e164}`
+            : (formatPhone(number.phone_e164) || number.phone_e164);
+          return { text: { type: "plain_text", text: shown.slice(0, 75) }, value: number.id };
+        }),
+    ];
+    blocks.push({
+      type: "input",
+      block_id: "send_from",
+      optional: true,
+      label: { type: "plain_text", text: "Send from" },
+      hint: { type: "plain_text", text: "Leave as default unless this series should come from a different Quo line — pick it by the name shown in Quo." },
+      element: {
+        type: "static_select",
+        action_id: "value",
+        initial_option: defaultOption,
+        options: numberOptions,
+      },
+    });
+  }
+
+  blocks.push(
     {
       type: "input",
       block_id: "assignee",

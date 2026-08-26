@@ -122,7 +122,7 @@ export default function SettingsPage() {
           <label key={definition.key} className="wide">
             <span>{definition.label}</span>
             <select value={value ?? ""} onChange={(event) => set(definition.key, event.target.value || null)}>
-              <option value="">No default — every sequence must pick its own</option>
+              <option value="">{definition.emptyLabel || "No default — every sequence must pick its own"}</option>
               {numbers.map((number) => (
                 <option key={number.id} value={number.id} disabled={!number.is_active}>
                   {number.label ? `${number.label} — ${number.phone_e164}` : number.phone_e164}
@@ -178,7 +178,12 @@ export default function SettingsPage() {
         <section className="editor-section">
           <div>
             <h2>Quo numbers</h2>
-            <p>Pulled from your Quo workspace. Each sequence picks which one it sends from.</p>
+            <p>
+              Pulled from your Quo workspace. Default is the fallback for sequences that have
+              not picked their own. Secondary is the other line you sometimes start from by
+              hand. When tagging the bot, type that line’s name as it appears in Quo —
+              <code>from Intake</code>, not a nickname.
+            </p>
           </div>
           <div className="editor-fields">
             <div className="wide">
@@ -217,7 +222,7 @@ export default function SettingsPage() {
               <p className="field-note wide">No numbers yet. Refresh once your Quo key is set.</p>
             )}
 
-            {group(["default_quo_number_id"])}
+            {group(["default_quo_number_id", "secondary_quo_number_id"])}
           </div>
         </section>
 

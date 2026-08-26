@@ -26,6 +26,16 @@ export const SETTING_DEFINITIONS = [
     help: "Used by any sequence that has not picked its own number.",
   },
   {
+    key: "secondary_quo_number_id",
+    label: "Secondary Quo number",
+    type: "quo_number",
+    default: null,
+    emptyLabel: "None — pick a number on the start form when you need one",
+    help: "The other line for a rare manual start. On Slack, type from and this line's "
+      + "Quo name — from Intake if that is how it is labelled. from secondary also works. "
+      + "Leave this blank if you do not have a second line.",
+  },
+  {
     key: "slack_alert_channel",
     label: "Fallback Slack channel",
     type: "text",

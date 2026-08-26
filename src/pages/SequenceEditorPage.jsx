@@ -500,6 +500,13 @@ export default function SequenceEditorPage() {
                   No numbers yet. Sync them from Quo under <Link to="/settings">Settings</Link>.
                 </small>
               )}
+              {numbers.length > 0 && (
+                <small className="field-note">
+                  Usual number for this sequence. A Slack start can still pick a different
+                  Quo line for one series — `/followup` lists them by name, or tag the bot
+                  with `from` and the line’s Quo name.
+                </small>
+              )}
             </label>
 
             <label>

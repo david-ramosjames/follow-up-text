@@ -207,6 +207,7 @@ const FAQ = [
 const COMMANDS = [
   ["/followup", "Opens the start form. Nothing to remember, and the only one worth teaching somebody on their first day. Slack gives a slash command no thread, so inside a thread use the @-mention or the ⋯ menu instead."],
   ["/followup 512-555-0123 es Maria", "Starts straight away. With a number in it, the word “start” is optional."],
+  ["/followup start 512-555-0123 from Intake", "Same start, sending from that Quo line. Use the name as it is labelled in Quo (first word is enough). Last four digits also work. Leave from out and it uses the default."],
   ["/followup start 512-555-0123 es Maria", "The same thing spelled out."],
   ["/followup stop 512-555-0123", "Stops that client's series. Only the person it is assigned to, or a supervisor."],
   ["/followup status 512-555-0123", "Where that client is: language, what has been sent, when the next text goes, who owns them, and whether they have opted out."],
@@ -234,6 +235,11 @@ const COMMAND_PARTS = [
     "The sequence",
     "no-contact — the short name shown under each one on the Sequences page",
     "Optional. Leave it out and the default sequence is used.",
+  ],
+  [
+    "Which Quo number",
+    "from Intake — the name of the line as labelled in Quo",
+    "Optional. Leave it out and the sequence’s number is used, or the default under Settings. Type from and the Quo name, not a nickname. Last four digits of the number also work.",
   ],
   [
     "Who owns it",
@@ -358,7 +364,8 @@ export default function HelpPage() {
             <p>
               There is nothing to memorise about the order. Anything shaped like a phone
               number is the number, <code>en</code> or <code>es</code> sets the language, a
-              sequence name picks the sequence, an @-mention assigns it, and whatever is left
+              sequence name picks the sequence, <code>from Intake</code> (the line’s name in
+              Quo) sends from that number, an @-mention assigns it, and whatever is left
               over is the client's first name. So{" "}
               <code>/followup Maria es 512-555-0123</code> and{" "}
               <code>/followup 512-555-0123 es Maria</code> do exactly the same thing.
@@ -384,7 +391,8 @@ export default function HelpPage() {
             <p>
               <strong>From a message</strong> — hover it, open the <code>⋯</code> menu, choose
               “Start follow-up texts”. The number is read out of the message and the form opens
-              with it filled in. <strong>In a thread</strong> —{" "}
+              with it filled in — including Send from, if the firm has more than one Quo number.
+              <strong> In a thread</strong> —{" "}
               <code>@sms-follow-up start 512-555-0123 es Maria</code>, with the same grammar as
               above, and you can leave the number out if it is already in the message that
               started the thread. Both keep every later update in that same thread.

@@ -268,3 +268,45 @@ export function extractPhones(text) {
   }
   return found;
 }
+
+// Match a token from `/followup … from spare` to one of the firm's Quo lines.
+// Unique last four digits, a full number, the Quo id, or the label all work.
+// Ambiguous last-fours return nothing so a start does not pick the wrong line.
+export function matchSendingNumber(token, numbers = [], { aliases = {} } = {}) {
+  const raw = String(token ?? "").trim();
+  if (!raw) return null;
+
+  const lower = raw.toLowerCase();
+  const digits = raw.replace(/\D/g, "");
+
+  const aliasId = aliases[lower];
+  if (aliasId) {
+    return numbers.find((number) => number.id === aliasId) ?? { id: aliasId };
+  }
+
+  if (!numbers.length) return null;
+
+  const only = (matches) => (matches.length === 1 ? matches[0] : null);
+
+  const byId = numbers.filter((number) => number.id === raw);
+  if (byId.length) return only(byId);
+
+  const byLabel = numbers.filter((number) => {
+    const label = String(number.label ?? "").toLowerCase();
+    return label === lower || label.split(/\s+/)[0] === lower;
+  });
+  if (byLabel.length) return only(byLabel);
+
+  if (digits.length >= 10) {
+    const byFull = numbers.filter((number) => String(number.phone_e164 ?? "").replace(/\D/g, "").endsWith(digits)
+      || digits.endsWith(String(number.phone_e164 ?? "").replace(/\D/g, "")));
+    if (byFull.length) return only(byFull);
+  }
+
+  if (digits.length === 4) {
+    const byLastFour = numbers.filter((number) => String(number.phone_e164 ?? "").replace(/\D/g, "").endsWith(digits));
+    return only(byLastFour);
+  }
+
+  return null;
+}

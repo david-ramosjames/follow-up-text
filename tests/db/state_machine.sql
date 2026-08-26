@@ -533,6 +533,34 @@ begin
 end;
 $$;
 
+do $$
+declare
+  claimed jsonb;
+  v_enrollment_id uuid;
+  result jsonb;
+begin
+  -- A start that names a sending number uses that line, even when the sequence
+  -- has one of its own.
+  result := followup_enroll(jsonb_build_object(
+    'phone', '5125550132', 'assigned_slack_user_id', 'U0PARALEGAL',
+    'quo_number_id', 'PNSPARE'));
+  v_enrollment_id := (result ->> 'enrollment_id')::uuid;
+  perform pg_temp.check('a start can name a sending number', result ->> 'quo_number_id' = 'PNSPARE');
+
+  select c into claimed from followup_claim_due(10) c
+    where (c ->> 'enrollment_id')::uuid = v_enrollment_id limit 1;
+  perform pg_temp.check('that named number is what actually sends',
+    claimed ->> 'quo_number_id' = 'PNSPARE');
+
+  perform followup_stop(jsonb_build_object('enrollment_id', v_enrollment_id, 'reason', 'manual'));
+
+  result := followup_enroll(jsonb_build_object(
+    'phone', '5125550133', 'assigned_slack_user_id', 'U0PARALEGAL',
+    'quo_number_id', 'PNNOPE'));
+  perform pg_temp.check('an unknown sending number is refused', result ->> 'reason' = 'unknown_quo_number');
+end;
+$$;
+
 /* ----------------------------------------------------------------- settings */
 
 do $$
