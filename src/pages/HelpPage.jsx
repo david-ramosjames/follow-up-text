@@ -112,6 +112,13 @@ const FAQ = [
     ],
   },
   {
+    q: "How do I make a variant of a sequence without rewriting it?",
+    a: [
+      "On the Sequences page, or from the sequence editor, Duplicate. That copies the name, timings, English and Spanish, night wording, and sending window into a new sequence. People already on the original stay on it.",
+      "The copy starts switched off, and is not offered to the lead router, so you can change the few texts you wanted to change before anyone can send it. Rename it, then switch it on when it is ready.",
+    ],
+  },
+  {
     q: "Can two people start follow-ups for the same client?",
     a: [
       "No. A second start for a number that already has a running series is refused, and tells you who it is assigned to. Two people covering the same lead cannot double-text the client.",

@@ -1,6 +1,6 @@
-import { ArrowLeft, ChevronDown, ChevronUp, Languages, Moon, Plus, Save, Trash2 } from "lucide-react";
+import { ArrowLeft, ChevronDown, ChevronUp, Copy, Languages, Moon, Plus, Save, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import AppNav from "../components/AppNav";
 import EmojiField from "../components/EmojiField";
 import { api, DAY_NAMES, TIMEZONES } from "../lib/api";
@@ -253,12 +253,16 @@ function StepCard({
 
 export default function SequenceEditorPage() {
   const { slug } = useParams();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const copied = Boolean(location.state?.duplicated);
   const [sequence, setSequence] = useState(null);
   const [steps, setSteps] = useState([]);
   const [numbers, setNumbers] = useState([]);
   const [status, setStatus] = useState("loading");
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [duplicating, setDuplicating] = useState(false);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState("");
   const [language, setLanguage] = useState("en");
@@ -267,6 +271,7 @@ export default function SequenceEditorPage() {
   const [translating, setTranslating] = useState("");
 
   useEffect(() => {
+    setStatus("loading");
     Promise.all([
       api.get(`/sequences/${slug}`),
       api.get("/quo-numbers"),
@@ -278,13 +283,18 @@ export default function SequenceEditorPage() {
         setNumbers(numberData);
         setFirmName(String(settings?.values?.firm_name ?? "").trim());
         setCanTranslate(Boolean(settings?.environment?.leadRouting));
+        setDirty(false);
+        setSaved(copied
+          ? "This is a switched-off copy. Change what you need, then turn it on."
+          : "");
+        setError("");
         setStatus("ready");
       })
       .catch((loadError) => {
         setError(loadError.message);
         setStatus(loadError.message.includes("No such") ? "missing" : "error");
       });
-  }, [slug]);
+  }, [slug, copied]);
 
   const totalSpan = useMemo(() => {
     const active = steps.filter((step) => step.is_active);
@@ -349,6 +359,27 @@ export default function SequenceEditorPage() {
       setError(translateError.message);
     } finally {
       setTranslating("");
+    }
+  };
+
+  const duplicate = async () => {
+    const confirmed = window.confirm(
+      dirty
+        ? "You have unsaved changes. Duplicate copies the last saved version — not what's on this "
+          + "page — as a switched-off sequence. Duplicate anyway?"
+        : `Create a switched-off copy of “${sequence.name}”? You can change a few texts, then `
+          + "turn it on. People already on this sequence stay on it.",
+    );
+    if (!confirmed) return;
+    setDuplicating(true);
+    setError("");
+    try {
+      const created = await api.post(`/sequences/${sequence.id}/duplicate`);
+      navigate(`/sequences/${created.slug}`, { state: { duplicated: true } });
+    } catch (duplicateError) {
+      setError(duplicateError.message);
+    } finally {
+      setDuplicating(false);
     }
   };
 
@@ -422,6 +453,14 @@ export default function SequenceEditorPage() {
           <Link to="/sequences"><ArrowLeft size={15} /> All sequences</Link>
           <div>
             {dirty && <span className="unsaved">Unsaved changes</span>}
+            <button
+              type="button"
+              className="button ghost"
+              onClick={duplicate}
+              disabled={duplicating || saving}
+            >
+              <Copy size={15} /> {duplicating ? "Duplicating…" : "Duplicate"}
+            </button>
             <button type="button" className="button primary" onClick={save} disabled={saving || !dirty}>
               <Save size={15} /> {saving ? "Saving…" : "Save"}
             </button>

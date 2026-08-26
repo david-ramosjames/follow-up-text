@@ -1,4 +1,4 @@
-import { CheckCircle2, Edit3, Plus, Star, Trash2 } from "lucide-react";
+import { CheckCircle2, Copy, Edit3, Plus, Star, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import AppNav from "../components/AppNav";
@@ -12,6 +12,7 @@ export default function SequencesPage() {
   const [status, setStatus] = useState("loading");
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
+  const [duplicatingId, setDuplicatingId] = useState("");
   const [error, setError] = useState("");
 
   const refresh = async () => {
@@ -53,6 +54,24 @@ export default function SequencesPage() {
       await refresh();
     } catch (updateError) {
       setError(updateError.message);
+    }
+  };
+
+  const duplicate = async (sequence) => {
+    const confirmed = window.confirm(
+      `Create a switched-off copy of “${sequence.name}”? You can change a few texts, then `
+        + "turn it on. People already on this sequence stay on it.",
+    );
+    if (!confirmed) return;
+    setDuplicatingId(sequence.id);
+    setError("");
+    try {
+      const created = await api.post(`/sequences/${sequence.id}/duplicate`);
+      navigate(`/sequences/${created.slug}`, { state: { duplicated: true } });
+    } catch (duplicateError) {
+      setError(duplicateError.message);
+    } finally {
+      setDuplicatingId("");
     }
   };
 
@@ -107,6 +126,7 @@ export default function SequencesPage() {
         </form>
         <p className="inline-note">
           New sequences start switched off, so you can write the texts before anyone can send them.
+          Duplicate an existing one if you only need a few changes.
         </p>
 
         {error && <p className="form-error">{error}</p>}
@@ -167,6 +187,9 @@ export default function SequencesPage() {
                             </button>
                           )}
                           <Link to={`/sequences/${sequence.slug}`} title="Edit"><Edit3 size={16} /></Link>
+                          <button type="button" disabled={Boolean(duplicatingId)} onClick={() => duplicate(sequence)} title="Duplicate">
+                            <Copy size={16} />
+                          </button>
                           <button type="button" className="danger" onClick={() => remove(sequence)} title="Delete">
                             <Trash2 size={16} />
                           </button>

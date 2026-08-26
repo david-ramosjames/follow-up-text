@@ -91,13 +91,7 @@ export const TIMEZONES = [
   "Pacific/Honolulu",
 ];
 
-export function slugify(value) {
-  return String(value || "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 60);
-}
+export { slugify } from "../../shared/sequences.js";
 
 export function formatWhen(iso, timezone) {
   if (!iso) return "—";

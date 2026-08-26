@@ -1,5 +1,6 @@
 import express from "express";
-import { one, query, rows } from "../db.js";
+import { one, query, rows, withTransaction } from "../db.js";
+import { uniqueCopyIdentity } from "../../shared/sequences.js";
 import { googleConfigured, requireSession, slackSignInConfigured } from "../auth.js";
 import { listQuoNumbers, quoConfigured, syncQuoNumbers } from "../lib/quo.js";
 import { loadSettings, SETTING_DEFINITIONS, saveSettings } from "../lib/settings.js";
@@ -232,6 +233,49 @@ apiRouter.post("/sequences/:id/default", ok(async (req, res) => {
 apiRouter.delete("/sequences/:id", ok(async (req, res) => {
   await query("delete from followup_sequences where id = $1", [req.params.id]);
   res.json({ ok: true });
+}));
+
+// A copy of the schedule and wording, not of anybody already enrolled. It starts
+// switched off and off the lead router so you can tweak a few texts first.
+apiRouter.post("/sequences/:id/duplicate", ok(async (req, res) => {
+  const source = await one("select id, name from followup_sequences where id = $1", [req.params.id]);
+  if (!source) return res.status(404).json({ error: "No such sequence." });
+
+  const taken = (await rows("select slug from followup_sequences")).map((row) => row.slug);
+  const { name, slug } = uniqueCopyIdentity(source.name, taken);
+
+  const createdId = await withTransaction(async (client) => {
+    const inserted = await client.query(
+      `insert into followup_sequences (
+         slug, name, description, is_active, is_default, quo_number_id, timezone,
+         quiet_hours_start, quiet_hours_end, send_days, append_opt_out_notice,
+         respond_immediately, auto_routable, night_starts_hour, night_ends_hour
+       )
+       select $1, $2, description, false, false, quo_number_id, timezone,
+              quiet_hours_start, quiet_hours_end, send_days, append_opt_out_notice,
+              respond_immediately, false, night_starts_hour, night_ends_hour
+       from followup_sequences
+       where id = $3
+       returning id`,
+      [slug, name, source.id],
+    );
+    const id = inserted.rows[0].id;
+    await client.query(
+      `insert into followup_steps (
+         sequence_id, position, label, delay_minutes, body_en, body_es,
+         body_en_night, body_es_night, is_active
+       )
+       select $1, position, label, delay_minutes, body_en, body_es,
+              body_en_night, body_es_night, is_active
+       from followup_steps
+       where sequence_id = $2
+       order by position`,
+      [id, source.id],
+    );
+    return id;
+  });
+
+  res.status(201).json(await one(`${SEQUENCE_SELECT} where q.id = $1`, [createdId]));
 }));
 
 /* ------------------------------------------------------------------ steps */

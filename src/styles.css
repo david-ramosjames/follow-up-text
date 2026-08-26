@@ -126,6 +126,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--primary); o
 .button.primary { background: var(--primary); color: #fff; }
 .button.primary:hover { background: var(--primary-dark); text-decoration: none; }
 .button.ghost { background: var(--card); border-color: var(--line); color: var(--primary-dark); }
+.button.ghost:hover { background: var(--raised); text-decoration: none; }
 
 .spin { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
