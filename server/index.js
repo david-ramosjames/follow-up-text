@@ -102,6 +102,15 @@ function reportConfiguration() {
 }
 
 async function main() {
+  // Listen before migrating. /healthz does not need the database, and Railway
+  // will not stop the old replica until this one is healthy. An ALTER TABLE
+  // that waits on the old replica's queries would otherwise deadlock the
+  // deploy: migrate never finishes, listen never runs, healthcheck never
+  // passes, old replica never stops.
+  const server = app.listen(port, "0.0.0.0", () => {
+    console.log(`Follow-up texts listening on ${port}`);
+  });
+
   console.log("Running migrations...");
   await migrate();
 
@@ -116,11 +125,7 @@ async function main() {
 
   const stopScheduler = startScheduler();
   const stopLeadCatchUp = startLeadCatchUp();
-
-  const server = app.listen(port, () => {
-    console.log(`Follow-up texts listening on ${port}`);
-    reportConfiguration();
-  });
+  reportConfiguration();
 
   const shutdown = () => {
     console.log("Shutting down...");
