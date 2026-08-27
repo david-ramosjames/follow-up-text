@@ -8,7 +8,7 @@ import {
 } from "../../shared/messaging.js";
 import { flattenSlackMessage } from "../../shared/leads.js";
 import { parseStartArgs } from "../../shared/startArgs.js";
-import { one, query, rows, rpc } from "../db.js";
+import { one, rows, rpc } from "../db.js";
 import { assessLeadPost } from "../lib/leads.js";
 import { previewFirstText } from "../lib/previewText.js";
 import { loadSettings } from "../lib/settings.js";
@@ -539,15 +539,10 @@ export async function handleLeadPost(event) {
   // unique index would have dropped anyway.
   if (event.ts) {
     const seen = await one(
-      "select id, outcome from lead_observations where slack_channel_id = $1 and slack_ts = $2",
+      "select id from lead_observations where slack_channel_id = $1 and slack_ts = $2",
       [event.channel, event.ts],
     );
-    // A skipped sender is retried: the allowlist may have been updated since.
-    if (seen?.outcome === "ignored_sender") {
-      await query("delete from lead_observations where id = $1", [seen.id]);
-    } else if (seen) {
-      return { ignored: "already_recorded" };
-    }
+    if (seen) return { ignored: "already_recorded" };
   }
 
   const allowed = String(settings.lead_senders ?? "")

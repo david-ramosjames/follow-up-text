@@ -1,7 +1,7 @@
 import { describeSlackHistoryError, historyMessageToEvent } from "../../shared/leads.js";
-import { rows } from "../db.js";
+import { query, rows } from "../db.js";
 import { loadSettings } from "./settings.js";
-import { slackApi, slackConfigured } from "./slack.js";
+import { botLookupRateLimited, lookupBotName, slackApi, slackConfigured } from "./slack.js";
 import { currentFirm, listFirms, runWithFirm } from "./firms.js";
 
 // Slack's Events API is how new posts normally arrive, but it fails silently:
@@ -44,9 +44,63 @@ async function fetchChannelMessages(channel, oldest) {
   return { ok: true, messages };
 }
 
+function looksLikeBotId(name) {
+  return !name || /^B[A-Z0-9]+$/i.test(String(name));
+}
+
+async function prefetchBotNames(messages) {
+  const botIds = [...new Set(messages.map((message) => message.bot_id).filter(Boolean))];
+  for (const botId of botIds) {
+    await lookupBotName(botId);
+    if (botLookupRateLimited()) break;
+  }
+}
+
+// Posts skipped because Slack only gave a B0… id are retried once the display
+// name is known. CallRail and other named skips stay skipped so this cannot
+// loop every two seconds.
+async function retryUnresolvedBots(channel, messages, handleLeadPost) {
+  if (botLookupRateLimited()) return 0;
+  const skipped = await rows(
+    `select slack_ts, sender_name
+     from lead_observations
+     where slack_channel_id = $1
+       and outcome = 'ignored_sender'
+       and slack_ts is not null
+       and (sender_name is null or sender_name ~* '^b[a-z0-9]+$')
+     order by created_at desc
+     limit 8`,
+    [channel],
+  );
+  if (!skipped.length) return 0;
+
+  const want = new Set(skipped.map((row) => row.slack_ts));
+  const retry = messages.filter((message) => want.has(message.ts)).slice(0, 5);
+  if (!retry.length) return 0;
+
+  await prefetchBotNames(retry);
+
+  let processed = 0;
+  for (const message of retry) {
+    const name = message.bot_profile?.name || message.username || await lookupBotName(message.bot_id);
+    if (looksLikeBotId(name)) continue;
+    await query(
+      `delete from lead_observations
+       where slack_channel_id = $1 and slack_ts = $2 and outcome = 'ignored_sender'`,
+      [channel, message.ts],
+    );
+    await handleLeadPost(historyMessageToEvent(channel, message)).catch((error) => {
+      console.error("lead catch-up retry skipped a post", message.ts, error);
+    });
+    processed += 1;
+  }
+  return processed;
+}
+
 export async function catchUpLeadChannel({
   lookbackHours = CATCH_UP_LOOKBACK_HOURS,
   limit = CATCH_UP_BATCH,
+  retrySkipped = true,
 } = {}) {
   const started = Date.now();
   const settings = await loadSettings();
@@ -86,8 +140,7 @@ export async function catchUpLeadChannel({
   const already = timestamps.length
     ? await rows(
       `select slack_ts from lead_observations
-       where slack_channel_id = $1 and slack_ts = any($2::text[])
-         and outcome <> 'ignored_sender'`,
+       where slack_channel_id = $1 and slack_ts = any($2::text[])`,
       [channel, timestamps],
     )
     : [];
@@ -103,11 +156,16 @@ export async function catchUpLeadChannel({
   // at parse time — handleLeadPost lives next to the event handler it shares
   // behaviour with.
   const { handleLeadPost } = await import("../routes/slack.js");
+  await prefetchBotNames(batch);
   for (const message of batch) {
     await handleLeadPost(historyMessageToEvent(channel, message)).catch((error) => {
       console.error("lead catch-up skipped a post", message.ts, error);
     });
   }
+
+  const retried = retrySkipped
+    ? await retryUnresolvedBots(channel, fetched.messages, handleLeadPost)
+    : 0;
 
   return remember({
     ok: true,
@@ -115,6 +173,7 @@ export async function catchUpLeadChannel({
     posted: fetched.messages.length,
     unseen: fresh.length,
     processed: batch.length,
+    retried,
     remaining: Math.max(0, fresh.length - batch.length),
     ms: Date.now() - started,
   });
@@ -124,20 +183,25 @@ export function startLeadCatchUp() {
   let timer = null;
   let stopped = false;
   let first = true;
+  let lastRemaining = 0;
 
   const tick = async () => {
     if (stopped) return;
+    // While draining unseen posts, do not retry skipped senders — that is what
+    // turned a rate-limited bots.info lookup into a two-second loop.
+    const draining = lastRemaining > 0;
     let remaining = 0;
     try {
       const firms = await listFirms();
       for (const firm of firms) {
-        const result = await runWithFirm(firm, () => catchUpLeadChannel());
+        const result = await runWithFirm(firm, () => catchUpLeadChannel({ retrySkipped: !draining }));
         remaining += Number(result.remaining ?? 0);
         if (result.error) {
           console.warn(`lead catch-up (${firm.slug}): ${result.error}`);
-        } else if (result.processed) {
+        } else if (result.processed || result.retried) {
+          const extra = result.retried ? `, ${result.retried} retried` : "";
           console.log(`lead catch-up (${firm.slug}): ${result.processed} new of ${result.unseen} unseen `
-            + `(${result.posted} posts in ${result.channel}), ${result.ms}ms`);
+            + `(${result.posted} posts in ${result.channel})${extra}, ${result.ms}ms`);
         } else if (first && !result.skipped) {
           console.log(`lead catch-up (${firm.slug}): ${result.posted} posts in ${result.channel}, none new`);
         } else if (first && result.skipped) {
@@ -149,6 +213,7 @@ export function startLeadCatchUp() {
       console.error("lead catch-up failed", error);
     }
 
+    lastRemaining = remaining;
     // Catch-up is capped per cycle so a morning of leads cannot block the
     // process; run the next batch quickly until the channel is current.
     timer = setTimeout(tick, remaining > 0 ? 2_000 : 60_000);

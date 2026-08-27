@@ -90,6 +90,13 @@ export function slackConfigured() {
 
 const botUserIds = new Map();
 const botDisplayNames = new Map();
+const botLookupsInFlight = new Map();
+let botLookupPausedUntil = 0;
+let lastBotLookupWarning = 0;
+
+export function botLookupRateLimited() {
+  return Date.now() < botLookupPausedUntil;
+}
 
 export async function botUserId() {
   const token = slackBotToken();
@@ -102,16 +109,39 @@ export async function botUserId() {
 }
 
 // conversations.history often has bot_id (B0…) and no bot_profile.name. The
-// allowlist is written as "Web Leads", so look the display name up once.
+// allowlist is written as "Web Leads", so look the display name up once per
+// bot and stop asking Slack for a minute after a rate limit.
 export async function lookupBotName(botId) {
   if (!botId) return null;
   const token = slackBotToken();
   const key = `${token}:${botId}`;
   if (botDisplayNames.has(key)) return botDisplayNames.get(key);
-  const info = await slackApi("bots.info", { bot: botId });
-  const name = info?.bot?.name ? String(info.bot.name).trim() : null;
-  if (name) botDisplayNames.set(key, name);
-  return name;
+  if (botLookupRateLimited()) return null;
+  if (botLookupsInFlight.has(key)) return botLookupsInFlight.get(key);
+
+  const pending = (async () => {
+    const info = await slackApi("bots.info", { bot: botId }, { quiet: true });
+    if (info?.ok && info.bot?.name) {
+      const name = String(info.bot.name).trim();
+      botDisplayNames.set(key, name);
+      return name;
+    }
+    if (info?.error === "ratelimited") {
+      botLookupPausedUntil = Date.now() + 60_000;
+      if (Date.now() - lastBotLookupWarning > 60_000) {
+        console.warn("slack bots.info rate limited; pausing lookups for a minute");
+        lastBotLookupWarning = Date.now();
+      }
+    }
+    return null;
+  })();
+
+  botLookupsInFlight.set(key, pending);
+  try {
+    return await pending;
+  } finally {
+    botLookupsInFlight.delete(key);
+  }
 }
 
 export function messageMentionsBot(event, userId) {
@@ -124,7 +154,7 @@ export function messageMentionsBot(event, userId) {
 // deployment should set it.
 const SLACK_API_BASE = (process.env.SLACK_API_BASE || "https://slack.com/api").replace(/\/$/, "");
 
-export async function slackApi(method, payload) {
+export async function slackApi(method, payload, { quiet = false } = {}) {
   const token = slackBotToken(currentFirm());
   if (!token) return { ok: false, error: "no_bot_token" };
 
@@ -135,7 +165,7 @@ export async function slackApi(method, payload) {
       body: JSON.stringify(payload),
     });
     const body = await response.json();
-    if (!body.ok) console.error(`slack ${method} failed:`, body.error);
+    if (!body.ok && !quiet) console.error(`slack ${method} failed:`, body.error);
     return body;
   } catch (error) {
     console.error(`slack ${method} threw`, error);
