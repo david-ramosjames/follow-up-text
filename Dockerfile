@@ -15,6 +15,7 @@ RUN npm ci
 
 # The front end is compiled here, where the dev dependencies (Vite) exist.
 COPY vite.config.js index.html ./
+COPY public ./public
 COPY src ./src
 COPY shared ./shared
 RUN npm run build
