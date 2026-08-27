@@ -10,7 +10,8 @@ export const SETTING_DEFINITIONS = [
     label: "Firm name",
     type: "text",
     default: "",
-    help: "Fills {{firm_name}} in message copy.",
+    help: "This practice's name in the Firm menu and in {{firm_name}} in texts. "
+      + "Saving this page renames the firm you have selected, not the others.",
   },
   {
     key: "default_timezone",

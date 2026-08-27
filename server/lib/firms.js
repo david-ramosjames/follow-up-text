@@ -150,6 +150,15 @@ export async function createFirm({ name, actor = null }) {
 export async function renameFirm(id, name) {
   const trimmed = String(name ?? "").trim();
   if (!trimmed) throw new Error("A firm name is required.");
+  const taken = await one(
+    "select name from firms where is_active and id <> $1 and lower(btrim(name)) = lower($2)",
+    [id, trimmed],
+  );
+  if (taken) {
+    const error = new Error("Another firm already uses that name.");
+    error.status = 400;
+    throw error;
+  }
   const firm = await one(
     "update firms set name = $2 where id = $1 and is_active returning *",
     [id, trimmed],

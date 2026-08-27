@@ -3,7 +3,6 @@ import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import AppNav from "../components/AppNav";
 import { DailyChart, SequenceBars, StatTile, StepBars, useInterval } from "../components/charts";
-import { useFirm } from "../components/Firm";
 import { api, formatWhen } from "../lib/api";
 import { formatPhone } from "../../shared/messaging";
 
@@ -16,7 +15,6 @@ function percent(part, whole) {
 }
 
 export default function DashboardPage() {
-  const firm = useFirm();
   const [days, setDays] = useState(30);
   const [data, setData] = useState(null);
   const [status, setStatus] = useState("loading");
@@ -74,7 +72,7 @@ export default function DashboardPage() {
         <header className="page-heading">
           <div>
             <p className="eyebrow">Overview</p>
-            <h1>{data?.firm?.name || firm?.current?.name || "Dashboard"}</h1>
+            <h1>Dashboard</h1>
             <p>How the follow-up texts are doing over the last {days} days.</p>
           </div>
           <div className="heading-actions">

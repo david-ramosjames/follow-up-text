@@ -163,6 +163,16 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--primary); o
   color: #c3d0e4; font-size: 11px; font-weight: 600;
   letter-spacing: 0.08em; text-transform: uppercase;
 }
+.brand-bar-end {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-left: auto;
+}
+.brand-bar .firm-switch { color: #c3d0e4; }
+.brand-bar .firm-switch select {
+  max-width: 280px; padding: 6px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.28); border-radius: 4px;
+  background: rgba(255, 255, 255, 0.1); color: #fff; font-weight: 600;
+}
+.brand-bar .firm-switch select option { color: var(--ink); background: var(--card); }
 
 .app-nav {
   display: flex;
@@ -188,15 +198,6 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--primary); o
 .app-nav nav a:hover { background: var(--raised); text-decoration: none; }
 .app-nav nav a.active { background: var(--primary); color: #fff; }
 .app-user { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 12px; }
-.firm-switch {
-  display: inline-flex; align-items: center; gap: 6px;
-  color: var(--muted); font-size: 12px; font-weight: 600;
-}
-.firm-switch select {
-  max-width: 220px; padding: 6px 8px;
-  border: 1px solid var(--line); border-radius: 4px;
-  background: var(--card); color: var(--ink); font-weight: 600;
-}
 .app-user button {
   display: grid; place-items: center;
   width: 32px; height: 32px;
