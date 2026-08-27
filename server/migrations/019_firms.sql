@@ -84,8 +84,10 @@ update lead_observations set firm_id = default_firm_id() where firm_id is null;
 alter table lead_observations alter column firm_id set default default_firm_id();
 alter table lead_observations alter column firm_id set not null;
 
-drop index if exists followup_sequences_slug_key;
+-- Postgres stores UNIQUE as a constraint that owns the index. Dropping the
+-- index first fails; drop the constraint and the index goes with it.
 alter table followup_sequences drop constraint if exists followup_sequences_slug_key;
+drop index if exists followup_sequences_slug_key;
 alter table followup_sequences drop constraint if exists followup_sequences_firm_slug_key;
 alter table followup_sequences add constraint followup_sequences_firm_slug_key unique (firm_id, slug);
 

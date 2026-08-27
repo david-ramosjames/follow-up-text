@@ -54,24 +54,43 @@ export function publicFirm(row) {
   };
 }
 
+function missingRelation(error) {
+  return error?.code === "42P01";
+}
+
 export async function listFirms() {
-  return rows(`
-    select id, slug, name, is_default, is_active, created_at,
-           slack_bot_token, slack_signing_secret, slack_app_id, slack_team_id,
-           quo_api_key, quo_webhook_secret
-    from firms
-    where is_active
-    order by is_default desc, created_at, name
-  `);
+  try {
+    return await rows(`
+      select id, slug, name, is_default, is_active, created_at,
+             slack_bot_token, slack_signing_secret, slack_app_id, slack_team_id,
+             quo_api_key, quo_webhook_secret
+      from firms
+      where is_active
+      order by is_default desc, created_at, name
+    `);
+  } catch (error) {
+    if (missingRelation(error)) return [];
+    throw error;
+  }
 }
 
 export async function loadFirm(id) {
   if (!id) return null;
-  return one("select * from firms where id = $1 and is_active", [id]);
+  try {
+    return await one("select * from firms where id = $1 and is_active", [id]);
+  } catch (error) {
+    if (missingRelation(error)) return null;
+    throw error;
+  }
 }
 
 export async function defaultFirm() {
-  return one("select * from firms where is_active order by is_default desc, created_at, name limit 1");
+  try {
+    return await one("select * from firms where is_active order by is_default desc, created_at, name limit 1");
+  } catch (error) {
+    if (missingRelation(error)) return null;
+    throw error;
+  }
 }
 
 export async function resolveFirm(req) {

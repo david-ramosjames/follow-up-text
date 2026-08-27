@@ -38,10 +38,10 @@ const CONSTRAINT_MESSAGES = {
 };
 
 const ok = (handler) => requireSession(async (req, res) => {
-  const firm = await resolveFirm(req);
-  if (!firm) return res.status(500).json({ error: "No firm is set up yet." });
-  req.firm = firm;
   try {
+    const firm = await resolveFirm(req);
+    if (!firm) return res.status(500).json({ error: "No firm is set up yet." });
+    req.firm = firm;
     await runWithFirm(firm, () => handler(req, res));
   } catch (error) {
     console.error(`${req.method} ${req.originalUrl} failed`, error);
