@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import { formatPhone, maskPhone } from "../../shared/messaging.js";
 import { loadSettings } from "./settings.js";
-import { currentFirm, listFirms, slackBotToken, slackSigningSecret } from "./firms.js";
+import { currentFirm, listFirms, slackAppId, slackBotToken, slackSigningSecret } from "./firms.js";
 
 /* ------------------------------------------------------------- signatures */
 
@@ -15,10 +15,18 @@ function signatureMatches(secret, signature, timestamp, rawBody) {
   return crypto.timingSafeEqual(computed, Buffer.from(expected, "hex"));
 }
 
+function firmTeamId(firm) {
+  return firm?.slack_team_id
+    || (firm?.is_default ? process.env.SLACK_TEAM_ID : null)
+    || null;
+}
+
 // v0=HMAC-SHA256 over `v0:<timestamp>:<raw body>`. Tries every firm's signing
 // secret (and the env fallback on the default firm) so a second Slack workspace
-// can share this endpoint.
-export async function verifySlackRequest(req, rawBody, { teamId } = {}) {
+// can share this endpoint. When more than one secret matches, the Slack app ID
+// on the payload picks the firm — workspace ID alone is not enough, because
+// people paste the Ramos James T0… onto the other firm while setting it up.
+export async function verifySlackRequest(req, rawBody, { teamId, appId } = {}) {
   const signature = req.get("x-slack-signature");
   const timestamp = req.get("x-slack-request-timestamp");
   if (!signature || !timestamp) return { ok: false, reason: "Missing Slack signature headers." };
@@ -37,14 +45,41 @@ export async function verifySlackRequest(req, rawBody, { teamId } = {}) {
     };
   }
 
-  let firm = matched[0];
-  if (teamId && matched.length > 1) {
-    firm = matched.find((row) => row.slack_team_id === String(teamId)) || firm;
-  } else if (teamId) {
-    const named = matched.find((row) => row.slack_team_id === String(teamId));
-    if (named) firm = named;
-  }
+  const incomingApp = appId || req.body?.api_app_id || null;
+  const incomingTeam = teamId || req.body?.team_id || null;
+  const firm = pickFirm(matched, incomingApp, incomingTeam);
+  console.log(
+    `Slack request matched ${matched.map((row) => row.slug).join(",")} → ${firm.slug}`
+    + (incomingApp ? ` app=${incomingApp}` : "")
+    + (incomingTeam ? ` team=${incomingTeam}` : ""),
+  );
   return { ok: true, firm };
+}
+
+function pickByTeam(firms, incomingTeam) {
+  if (!incomingTeam) return null;
+  return firms.find((row) => firmTeamId(row) === String(incomingTeam)) || null;
+}
+
+// Prefer the Slack app that actually sent the payload. Workspace ID is a
+// fallback only, and a firm whose stored app ID disagrees with the payload is
+// skipped so a second firm that was given Ramos James's T0… does not steal
+// Ramos James events.
+function pickFirm(matched, incomingApp, incomingTeam) {
+  if (matched.length === 1) return matched[0];
+
+  if (incomingApp) {
+    const byApp = matched.find((row) => slackAppId(row) === String(incomingApp));
+    if (byApp) return byApp;
+    const remaining = matched.filter((row) => {
+      const stored = slackAppId(row);
+      return !stored || stored === String(incomingApp);
+    });
+    if (remaining.length === 1) return remaining[0];
+    if (remaining.length > 1) return pickByTeam(remaining, incomingTeam) || remaining[0];
+  }
+
+  return pickByTeam(matched, incomingTeam) || matched[0];
 }
 
 /* ----------------------------------------------------------------- Web API */

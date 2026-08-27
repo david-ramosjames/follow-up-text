@@ -51,7 +51,9 @@ export default function SettingsPage() {
     setSaved("");
     try {
       const payload = { ...values };
-      const filled = Object.fromEntries(Object.entries(secrets).filter(([, value]) => String(value ?? "").trim()));
+      const filled = Object.fromEntries(
+        Object.entries(secrets).filter(([, value]) => value === null || String(value ?? "").trim()),
+      );
       if (Object.keys(filled).length) payload.credentials = filled;
       await api.put("/settings", payload);
       setSecrets({});
@@ -243,31 +245,50 @@ export default function SettingsPage() {
             <h2>Keys for this firm</h2>
             <p>
               {firm?.isDefault
-                ? "The default firm can keep using Railway env vars. Fill these in only if this practice should use different Slack or Quo credentials."
-                : "This firm does not use the Railway env vars. Paste its Slack bot token, signing secret, and Quo API key here."}
+                ? "Ramos James should keep using the Railway bot token and signing secret. Slack app ID and workspace ID were never in Railway — leave them blank here, or paste them from the original Slack app (api.slack.com/apps) and the Ramos James Slack URL. Do not paste the second firm's new app into this practice."
+                : "Paste this practice's own Slack app here: the new app's bot token, signing secret, app ID (A0…), and this practice's workspace ID (T0… from its own Slack URL — not Ramos James's). If those last two are Ramos James's IDs, Ramos James @mentions get handled as this firm: sequences stay off, so Slack stays quiet and no texts go out."}
             </p>
           </div>
           <div className="editor-fields">
             {[
               ["slack_bot_token", "Slack bot token", "xoxb-…", firm?.credentials?.slackBotToken],
               ["slack_signing_secret", "Slack signing secret", "From Basic Information", firm?.credentials?.slackSigningSecret],
-              ["slack_app_id", "Slack app ID", "A0…", firm?.credentials?.slackAppId],
-              ["slack_team_id", "Slack workspace ID", "T0… — needed if two firms share a signing secret", firm?.credentials?.slackTeamId],
+              ["slack_app_id", "Slack app ID", "A0… from this firm's Slack app, not another practice's", firm?.credentials?.slackAppId],
+              ["slack_team_id", "Slack workspace ID", "T0… of this firm's Slack, not Ramos James's if this is another practice", firm?.credentials?.slackTeamId],
               ["quo_api_key", "Quo API key", "From Quo workspace settings", firm?.credentials?.quoApiKey],
               ["quo_webhook_secret", "Quo webhook secret", "From the webhook in Quo", firm?.credentials?.quoWebhookSecret],
             ].map(([key, label, placeholder, isSet]) => (
               <label key={key} className="wide">
                 <span>
                   {label}
-                  {isSet
-                    ? <span className="key-set"><CheckCircle2 size={13} aria-hidden="true" /> Set</span>
-                    : <span className="key-missing">Not set</span>}
+                  {secrets[key] === null
+                    ? <span className="key-missing">Will clear on save</span>
+                    : isSet
+                      ? <span className="key-set"><CheckCircle2 size={13} aria-hidden="true" /> Set</span>
+                      : <span className="key-missing">Not set</span>}
+                  {isSet && secrets[key] !== null && (
+                    <button
+                      type="button"
+                      className="key-clear"
+                      onClick={() => {
+                        setSecrets((current) => ({ ...current, [key]: null }));
+                        setDirty(true);
+                        setSaved("");
+                      }}
+                    >
+                      Clear
+                    </button>
+                  )}
                 </span>
                 <input
                   type="password"
                   autoComplete="off"
                   value={secrets[key] ?? ""}
-                  placeholder={isSet ? "Leave blank to keep the current value" : placeholder}
+                  placeholder={
+                    secrets[key] === null
+                      ? "Clears the stored value so the default firm can use Railway"
+                      : isSet ? "Leave blank to keep the current value" : placeholder
+                  }
                   onChange={(event) => {
                     setSecrets((current) => ({ ...current, [key]: event.target.value }));
                     setDirty(true);

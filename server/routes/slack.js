@@ -191,7 +191,11 @@ async function doStart({ tokens, actorId, actorName, channelId, threadTs, source
 
   if (!result?.ok) return ephemeral(enrollFailureText(result, parsed.phone));
 
-  await announceEnrollment(result, { fallbackResponseUrl: responseUrl });
+  const announced = await announceEnrollment(result, { fallbackResponseUrl: responseUrl });
+  if (source === "mention" && !announced?.ok) {
+    return ephemeral(`:white_check_mark: Started for ${formatPhone(parsed.phone)}, but I could not `
+      + `post the confirmation in this channel (${announced?.error ?? "unknown"}).`);
+  }
 
   // Slack sends no thread with a slash command — the payload has channel_id and
   // nothing else about where it was typed — so a series started this way always
@@ -345,7 +349,10 @@ async function openStartModal({ triggerId, userId, channelId, threadTs, sourceTe
 /* --------------------------------------------------------- slash command */
 
 slackRouter.post("/commands", async (req, res) => {
-  const verified = await verifySlackRequest(req, req.rawBody, { teamId: req.body?.team_id });
+  const verified = await verifySlackRequest(req, req.rawBody, {
+    teamId: req.body?.team_id,
+    appId: req.body?.api_app_id,
+  });
   if (!verified.ok) {
     console.warn("Rejected a Slack command:", verified.reason);
     return res.status(401).send("Unauthorized");
@@ -676,7 +683,10 @@ export async function handleLeadPost(event) {
 // Lets somebody start follow-ups by @mentioning the app inside an existing
 // thread, which is where intake conversations actually happen.
 slackRouter.post("/events", async (req, res) => {
-  const verified = await verifySlackRequest(req, req.rawBody, { teamId: req.body?.team_id });
+  const verified = await verifySlackRequest(req, req.rawBody, {
+    teamId: req.body?.team_id,
+    appId: req.body?.api_app_id,
+  });
   if (!verified.ok) {
     console.warn("Rejected a Slack event:", verified.reason);
     return res.status(401).send("Unauthorized");
@@ -728,20 +738,29 @@ function claimMention(event) {
 
 async function handleMention(event) {
   if (!claimMention(event)) return;
-  console.log(`@mention in ${event.channel} from ${event.user}: ${String(event.text ?? "").slice(0, 120)}`);
+  console.log(`@mention (${currentFirm()?.slug ?? "unknown"}) in ${event.channel} from ${event.user}: ${String(event.text ?? "").slice(0, 120)}`);
 
   try {
     const operator = await loadOperator(event.user);
     const threadTs = event.thread_ts ?? event.ts;
+    const inThread = async (text) => {
+      const posted = await slackApi("chat.postMessage", {
+        channel: event.channel,
+        thread_ts: threadTs,
+        text,
+      });
+      if (!posted?.ok) {
+        console.error(`@mention reply failed in ${event.channel}:`, posted?.error);
+      }
+      return posted;
+    };
 
     if (!operator) {
-      await slackApi("chat.postEphemeral", {
-        channel: event.channel,
-        user: event.user,
-        thread_ts: threadTs,
-        text: ":lock: You are not set up to send client follow-ups. An administrator can add you "
-          + `under Operators in the dashboard — your Slack ID is \`${event.user}\`.`,
-      });
+      console.warn(`@mention from ${event.user} in ${event.channel}: not on the operator list`);
+      await inThread(
+        ":lock: You are not set up to send client follow-ups. An administrator can add you "
+        + `under Access in the dashboard — your Slack ID is \`${event.user}\`.`,
+      );
       return;
     }
 
@@ -750,11 +769,7 @@ async function handleMention(event) {
     let tokens = withoutMention.split(/\s+/).filter(Boolean);
     if ((tokens[0] ?? "").toLowerCase() === "start") tokens = tokens.slice(1);
 
-    // Only the person who mistyped needs to see the correction, so it does not
-    // clutter a thread everyone else is reading.
-    const privately = (text) => slackApi("chat.postEphemeral", {
-      channel: event.channel, user: event.user, thread_ts: threadTs, text,
-    });
+    const privately = (text) => inThread(text);
 
     const verb = (tokens[0] ?? "").toLowerCase();
 
@@ -823,14 +838,11 @@ async function handleMention(event) {
       source: "mention",
       responseUrl: null,
     });
-
     if (reply) {
-      await slackApi("chat.postEphemeral", {
-        channel: event.channel,
-        user: event.user,
-        thread_ts: threadTs,
-        text: reply.text,
-      });
+      console.warn(`@mention start did not enroll: ${reply.text}`);
+      await inThread(reply.text);
+    } else {
+      console.log(`@mention start enrolled for ${event.user} on ${currentFirm()?.slug}`);
     }
   } catch (error) {
     console.error("app_mention handling failed", error);
@@ -1083,12 +1095,14 @@ async function handleReroute(payload, res) {
 
 slackRouter.post("/interactivity", async (req, res) => {
   let teamId = req.body?.team_id;
+  let appId;
   try {
     const preview = JSON.parse(req.body.payload || "{}");
     teamId = preview.team?.id || preview.team_id || teamId;
+    appId = preview.api_app_id;
   } catch { /* signature check still runs on the raw body */ }
 
-  const verified = await verifySlackRequest(req, req.rawBody, { teamId });
+  const verified = await verifySlackRequest(req, req.rawBody, { teamId, appId });
   if (!verified.ok) {
     console.warn("Rejected a Slack interaction:", verified.reason);
     return res.status(401).send("Unauthorized");

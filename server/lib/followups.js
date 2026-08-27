@@ -122,8 +122,12 @@ export async function announceEnrollment(result, {
        where id = $1`,
       [result.enrollment_id, String(posted.ts)],
     );
-    return;
+    return posted;
   }
+
+  console.error(
+    `enrollment card did not post for ${result.enrollment_id}: ${posted?.error ?? "unknown"}`,
+  );
 
   if (fallbackResponseUrl) {
     await fetch(fallbackResponseUrl, {
@@ -131,7 +135,9 @@ export async function announceEnrollment(result, {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ response_type: "in_channel", text, blocks }),
     }).catch((error) => console.error("Slack response_url failed", error));
+    return { ok: true, degraded: true };
   }
+  return posted ?? { ok: false, error: "no_post" };
 }
 
 export async function stopSeries({ enrollmentId, phone, actor, enforceAssignment = false, reason = "manual" }) {

@@ -483,6 +483,12 @@ label.checkbox small { display: block; margin-top: 2px; color: var(--muted); fon
 .key-set { color: var(--green); }
 .key-set svg { flex: none; }
 .key-missing { color: var(--muted); }
+.key-clear {
+  margin-left: 8px; padding: 0; border: 0; background: none;
+  color: var(--muted); font: inherit; font-size: 10px; font-weight: 700;
+  letter-spacing: 0.04em; text-transform: uppercase; cursor: pointer;
+}
+.key-clear:hover { color: var(--ink); }
 .field-note { display: block; margin: 6px 0 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
 
 .hours { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
