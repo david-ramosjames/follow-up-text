@@ -3,8 +3,7 @@ import pg from "pg";
 const connectionString = process.env.DATABASE_URL;
 
 if (!connectionString) {
-  console.error("DATABASE_URL is not set. On Railway, add a Postgres service and reference its DATABASE_URL.");
-  process.exit(1);
+  throw new Error("DATABASE_URL is not set. On Railway, add a Postgres service and reference its DATABASE_URL.");
 }
 
 // Railway's Postgres presents a certificate that is not in Node's trust store.
