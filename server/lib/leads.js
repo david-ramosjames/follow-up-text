@@ -1,10 +1,10 @@
 import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
-import { flattenSlackMessage, isOutboundReferral, kindSlug, pickTrackSlug, readLead } from "../../shared/leads.js";
+import { flattenSlackMessage, isOutboundReferral, kindSlug, normalizeCaseType, pickTrackSlug, readLead } from "../../shared/leads.js";
 import { missingMergeTokens } from "../../shared/messaging.js";
 import { rows } from "../db.js";
 
-export { flattenSlackMessage, readLead, isOutboundReferral, kindSlug, pickTrackSlug };
+export { flattenSlackMessage, readLead, isOutboundReferral, kindSlug, pickTrackSlug, normalizeCaseType };
 
 // Reading a lead out of a Slack post happens in two halves, and the split is
 // deliberate.
@@ -69,7 +69,14 @@ const CLASSIFICATION_SCHEMA = {
     language: { type: "string", enum: ["en", "es"], description: "The language to text them in." },
     case_type: {
       type: ["string", "null"],
-      description: "A few words for the record, e.g. 'rear-ended by a truck', 'slip and fall'.",
+      description: "A short noun phrase that reads naturally after 'your' in a text, "
+        + "e.g. 'car accident', 'slip and fall', 'sexual assault involving an Uber driver'. "
+        + "Same language as `language`. Not a comma list or a file label. Null if unknown.",
+    },
+    case_detail: {
+      type: ["string", "null"],
+      description: "The more exact situation for staff, e.g. 'sexual assault, Uber driver, MDL'. "
+        + "Never sent in a text. Null if nothing extra to log.",
     },
     lead_source: {
       type: ["string", "null"],
@@ -83,7 +90,7 @@ const CLASSIFICATION_SCHEMA = {
     reasoning: { type: "string", description: "One sentence. Shown to staff in Slack." },
   },
   required: ["is_lead", "sequence_slug", "first_name", "last_name", "language",
-    "case_type", "lead_source", "confidence", "reasoning"],
+    "case_type", "case_detail", "lead_source", "confidence", "reasoning"],
   additionalProperties: false,
 };
 
@@ -102,9 +109,18 @@ Rules:
   marked Referral or Referal is the referral track.
 - If none is a good fit, return null. Do not pick a sequence that is not on the
   list.
-- Judge the case type from what the person actually wrote about their situation,
-  not from the ad or campaign name. A campaign called "Slip ES" that produced a
-  lead describing a car crash is a car crash.
+- Judge what happened from what the person actually wrote, not from the ad or
+  campaign name. A campaign called "Slip ES" that produced a lead describing a
+  car crash is a car crash.
+- case_type is pasted into texts after the word "your" (or "su" in Spanish). It
+  has to sound like something a person would say, not a form label. "car accident"
+  and "sexual assault involving an Uber driver" work. "sexual assault, Uber
+  driver" does not — that reads as "about your sexual assault, Uber driver".
+  Write it in the same language as `language`. Keep it short. Do not start it
+  with "your" or "su". Do not use a comma list. If writing Spanish, avoid á, í,
+  ó, ú so the text stays one SMS segment.
+- case_detail is the exact situation for the file — parties, vehicle type, MDL,
+  whatever is useful internally. It is never texted. A comma list is fine there.
 - language is the language to TEXT THEM IN. Spanish if the form says Spanish, if
   they wrote in Spanish, or if the source is a Spanish campaign. Otherwise
   English. When genuinely unsure, English.
@@ -242,6 +258,15 @@ export async function classifyLead(text) {
 
 /* ------------------------------------------------------------ the whole job */
 
+function caseFields(classified) {
+  const caseType = normalizeCaseType(classified?.case_type);
+  const caseDetail = String(classified?.case_detail ?? "").replace(/\s+/g, " ").trim() || null;
+  return {
+    caseType,
+    caseDetail: caseDetail && caseDetail !== caseType ? caseDetail : null,
+  };
+}
+
 // Read a Slack post and say what should happen. Returns a decision rather than
 // acting on one, so the caller can honour the auto-start setting and so this is
 // testable without a Slack workspace.
@@ -299,7 +324,7 @@ export async function assessLeadPost(event) {
       firstName: classified.first_name,
       lastName: classified.last_name,
       language: classified.language,
-      caseType: classified.case_type,
+      ...caseFields(classified),
       leadSource: classified.lead_source,
       sequenceSlug: classified.sequence_slug,
       classifierSlug: kindSlug({ preferred: classified.sequence_slug, referral }),
@@ -317,7 +342,7 @@ export async function assessLeadPost(event) {
     language: classified.language,
     firstName: classified.first_name,
     lastName: classified.last_name,
-    caseType: classified.case_type,
+    ...caseFields(classified),
     leadSource: classified.lead_source,
     confidence: classified.confidence,
     reasoning,

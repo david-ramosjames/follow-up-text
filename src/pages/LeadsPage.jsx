@@ -56,6 +56,7 @@ function Classification({ item, tracks, onTrackChange, saving }) {
     ["Language", language],
     ["First name", item.first_name],
     ["Case type", item.case_type],
+    ["Logged as", item.case_detail && item.case_detail !== item.case_type ? item.case_detail : null],
     ["Source", item.lead_source],
     ["Confidence", item.confidence],
   ].filter(([, value]) => value);

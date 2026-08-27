@@ -125,3 +125,16 @@ export function describeTrackKind(slug) {
   if (slug === "qualified-lead" || slug === "new-lead") return "Qualified lead";
   return null;
 }
+
+// {{case_type}} is pasted after "your" / "su" in the texts, so strip a leading
+// "your" the model sometimes adds, and keep it short enough for one SMS clause.
+export function normalizeCaseType(value) {
+  let text = String(value ?? "").replace(/\s+/g, " ").trim();
+  text = text.replace(/^(your|su)\s+/i, "");
+  text = text.replace(/^["'\u201c\u201d]+/, "").replace(/["'\u201c\u201d.]+$/g, "").trim();
+  if (text.length > 80) {
+    const cut = text.slice(0, 80);
+    text = cut.replace(/\s+\S*$/, "") || cut;
+  }
+  return text || null;
+}

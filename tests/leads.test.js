@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { flattenSlackMessage, readLead, historyMessageToEvent, describeSlackHistoryError, isOutboundReferral, pickTrackSlug, describeTrackKind, kindSlug } from "../shared/leads.js";
+import { flattenSlackMessage, readLead, historyMessageToEvent, describeSlackHistoryError, isOutboundReferral, pickTrackSlug, describeTrackKind, kindSlug, normalizeCaseType } from "../shared/leads.js";
 
 // The four shapes actually posting into the lead channel. Kept verbatim rather
 // than tidied, because the point of these tests is that real posts parse — a
@@ -177,4 +177,12 @@ test("the gray facts label qualified vs referral from the classifier slug", () =
   assert.equal(describeTrackKind(null), null);
   assert.equal(kindSlug({ preferred: "new-lead" }), "qualified-lead");
   assert.equal(kindSlug({ preferred: "qualified-lead", referral: true }), "referral");
+});
+
+test("case type for texts is a short phrase, not a file label", () => {
+  assert.equal(normalizeCaseType("sexual assault involving an Uber driver"), "sexual assault involving an Uber driver");
+  assert.equal(normalizeCaseType("your car accident"), "car accident");
+  assert.equal(normalizeCaseType("su accidente de auto"), "accidente de auto");
+  assert.equal(normalizeCaseType("  \"slip and fall\".  "), "slip and fall");
+  assert.equal(normalizeCaseType(""), null);
 });
