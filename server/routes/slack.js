@@ -8,7 +8,7 @@ import {
 } from "../../shared/messaging.js";
 import { flattenSlackMessage } from "../../shared/leads.js";
 import { parseStartArgs } from "../../shared/startArgs.js";
-import { one, rows, rpc } from "../db.js";
+import { one, query, rows, rpc } from "../db.js";
 import { assessLeadPost } from "../lib/leads.js";
 import { previewFirstText } from "../lib/previewText.js";
 import { loadSettings } from "../lib/settings.js";
@@ -35,6 +35,7 @@ import {
   startModal,
   verifySlackRequest,
   botUserId,
+  lookupBotName,
   messageMentionsBot,
 } from "../lib/slack.js";
 
@@ -428,21 +429,48 @@ function senderName(event) {
   return String(event.bot_profile?.name || event.username || event.app_id || event.bot_id || "").trim();
 }
 
+async function senderIdentities(event) {
+  const identities = [
+    event.bot_profile?.name,
+    event.username,
+    event.app_id,
+    event.bot_id,
+  ].map((value) => String(value ?? "").trim().toLowerCase()).filter(Boolean);
+
+  // Catch-up history often only has B0…, while Settings lists the name Slack
+  // shows ("Web Leads"). Resolve the bot so those two still match.
+  if (event.bot_id && !event.bot_profile?.name && !event.username) {
+    const looked = await lookupBotName(event.bot_id);
+    if (looked) identities.push(looked.toLowerCase());
+  }
+  return identities;
+}
+
+async function displaySenderName(event) {
+  const named = senderName(event);
+  if (named && !/^B[A-Z0-9]+$/i.test(named)) return named;
+  const looked = await lookupBotName(event.bot_id);
+  return looked || named;
+}
+
 // Only a form fill counts, and the strongest available signal for that is who
 // posted it. A person pasting a client's number into the channel is not a form
 // fill, and this is the check that keeps the rest of the channel out.
-function isFormFill(event, allowedNames) {
+async function isFormFill(event, allowedNames) {
   // A human message has a user and no bot identity. Never read one.
   if (!event.bot_id && !event.app_id && event.subtype !== "bot_message") {
     return { ok: false, why: "posted by a person, not an app" };
   }
   if (!allowedNames.length) return { ok: true };
 
-  const name = senderName(event).toLowerCase();
-  const matched = allowedNames.some((allowed) => name === allowed || name.includes(allowed));
+  const identities = await senderIdentities(event);
+  const matched = allowedNames.some((allowed) =>
+    identities.some((id) => id === allowed || id.includes(allowed))
+  );
+  const shown = await displaySenderName(event);
   return matched
     ? { ok: true }
-    : { ok: false, why: `"${senderName(event) || "unnamed app"}" is not on the list of lead apps` };
+    : { ok: false, why: `"${shown || "unnamed app"}" is not on the list of lead apps` };
 }
 
 // Every post the router considered, and what it concluded. In watch-and-record
@@ -511,20 +539,25 @@ export async function handleLeadPost(event) {
   // unique index would have dropped anyway.
   if (event.ts) {
     const seen = await one(
-      "select id from lead_observations where slack_channel_id = $1 and slack_ts = $2",
+      "select id, outcome from lead_observations where slack_channel_id = $1 and slack_ts = $2",
       [event.channel, event.ts],
     );
-    if (seen) return { ignored: "already_recorded" };
+    // A skipped sender is retried: the allowlist may have been updated since.
+    if (seen?.outcome === "ignored_sender") {
+      await query("delete from lead_observations where id = $1", [seen.id]);
+    } else if (seen) {
+      return { ignored: "already_recorded" };
+    }
   }
 
   const allowed = String(settings.lead_senders ?? "")
     .split(",").map((name) => name.trim().toLowerCase()).filter(Boolean);
-  const sender = isFormFill(event, allowed);
+  const sender = await isFormFill(event, allowed);
 
   const base = {
     channel: event.channel,
     ts: event.ts,
-    senderName: senderName(event) || null,
+    senderName: (await displaySenderName(event)) || senderName(event) || null,
     appId: event.app_id ?? null,
     mode,
   };

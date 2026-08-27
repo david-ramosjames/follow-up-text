@@ -86,7 +86,8 @@ export async function catchUpLeadChannel({
   const already = timestamps.length
     ? await rows(
       `select slack_ts from lead_observations
-       where slack_channel_id = $1 and slack_ts = any($2::text[])`,
+       where slack_channel_id = $1 and slack_ts = any($2::text[])
+         and outcome <> 'ignored_sender'`,
       [channel, timestamps],
     )
     : [];

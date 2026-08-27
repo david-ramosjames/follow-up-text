@@ -89,6 +89,7 @@ export function slackConfigured() {
 }
 
 const botUserIds = new Map();
+const botDisplayNames = new Map();
 
 export async function botUserId() {
   const token = slackBotToken();
@@ -98,6 +99,19 @@ export async function botUserId() {
   const id = result?.user_id ?? null;
   if (id) botUserIds.set(token, id);
   return id;
+}
+
+// conversations.history often has bot_id (B0…) and no bot_profile.name. The
+// allowlist is written as "Web Leads", so look the display name up once.
+export async function lookupBotName(botId) {
+  if (!botId) return null;
+  const token = slackBotToken();
+  const key = `${token}:${botId}`;
+  if (botDisplayNames.has(key)) return botDisplayNames.get(key);
+  const info = await slackApi("bots.info", { bot: botId });
+  const name = info?.bot?.name ? String(info.bot.name).trim() : null;
+  if (name) botDisplayNames.set(key, name);
+  return name;
 }
 
 export function messageMentionsBot(event, userId) {

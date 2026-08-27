@@ -121,9 +121,10 @@ export const SETTING_DEFINITIONS = [
     type: "text",
     default: "",
     help: "Comma-separated names of the apps that post form fills — for example "
-      + "RJL, Web Chat Lead, rj-tiktok-leads. Only posts from these are considered. "
-      + "Leave empty to accept any app, but never a person: a colleague pasting a client's "
-      + "number into the channel is not a form fill and is always ignored.",
+      + "Web Leads, RJL, rj-tiktok-leads. The name Slack shows on the post. Only "
+      + "posts from these are considered. Leave empty to accept any app, but never "
+      + "a person: a colleague pasting a client's number into the channel is not a "
+      + "form fill and is always ignored.",
   },
   {
     key: "lead_default_owner_slack_id",
