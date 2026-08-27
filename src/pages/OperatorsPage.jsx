@@ -122,10 +122,13 @@ export default function OperatorsPage() {
             <p className="eyebrow">Access</p>
             <h1>Who can use this</h1>
             <p>
-              One list, two things it controls: a <strong>Slack member ID</strong> lets somebody
-              start and stop follow-ups from Slack, and an <strong>email address</strong> plus
-              dashboard access lets them sign in here with Google. Most people need both; the
+              Shared across every firm — this is who can sign in, not whose clients
+              they see. A <strong>Slack member ID</strong> lets somebody start and stop
+              follow-ups from Slack, and an <strong>email address</strong> plus dashboard
+              access lets them sign in here with Google. Most people need both; the
               office manager who never touches Slack needs only the email.
+              Slack IDs are per workspace, so someone starting <code>/followup</code> in
+              a second Slack needs that workspace's member ID on their row.
             </p>
           </div>
         </header>

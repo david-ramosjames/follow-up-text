@@ -2,9 +2,11 @@ import { CheckCircle2, RefreshCw, Save, XCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import AppNav from "../components/AppNav";
+import { useFirm } from "../components/Firm";
 import { api, TIMEZONES } from "../lib/api";
 
 export default function SettingsPage() {
+  const firmContext = useFirm();
   const [definitions, setDefinitions] = useState([]);
   const [values, setValues] = useState({});
   const [numbers, setNumbers] = useState([]);
@@ -54,6 +56,7 @@ export default function SettingsPage() {
       await api.put("/settings", payload);
       setSecrets({});
       await load();
+      await firmContext?.refresh?.();
       setDirty(false);
       setSaved("Saved. The dispatcher picks these up within one cycle — no redeploy needed.");
     } catch (saveError) {
@@ -254,7 +257,12 @@ export default function SettingsPage() {
               ["quo_webhook_secret", "Quo webhook secret", "From the webhook in Quo", firm?.credentials?.quoWebhookSecret],
             ].map(([key, label, placeholder, isSet]) => (
               <label key={key} className="wide">
-                <span>{label}{isSet ? " — set" : ""}</span>
+                <span>
+                  {label}
+                  {isSet
+                    ? <span className="key-set"><CheckCircle2 size={13} aria-hidden="true" /> Set</span>
+                    : <span className="key-missing">Not set</span>}
+                </span>
                 <input
                   type="password"
                   autoComplete="off"

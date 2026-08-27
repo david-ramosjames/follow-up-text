@@ -155,7 +155,9 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--primary); o
 .brand-mark .brand-stars { display: flex; gap: 3px; color: var(--brand-gold); }
 .brand-mark .brand-name {
   color: #fff; font-size: 14px; font-weight: 600;
-  letter-spacing: 0.14em; text-transform: uppercase; white-space: nowrap;
+  letter-spacing: 0.14em; text-transform: uppercase;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  max-width: min(42ch, 100%);
 }
 .brand-strap {
   color: #c3d0e4; font-size: 11px; font-weight: 600;
@@ -472,6 +474,14 @@ label.checkbox small { display: block; margin-top: 2px; color: var(--muted); fon
   color: var(--muted); font-size: 11px; font-weight: 700; text-transform: uppercase;
 }
 .editor-fields .wide { grid-column: 1 / -1; }
+.key-set, .key-missing {
+  display: inline-flex; align-items: center; gap: 4px;
+  margin-left: 8px; font-size: 10px; font-weight: 700; letter-spacing: 0.04em;
+  text-transform: uppercase; vertical-align: middle;
+}
+.key-set { color: var(--green); }
+.key-set svg { flex: none; }
+.key-missing { color: var(--muted); }
 .field-note { display: block; margin: 6px 0 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
 
 .hours { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }

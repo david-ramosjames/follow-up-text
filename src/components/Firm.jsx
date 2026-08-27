@@ -25,8 +25,14 @@ export function FirmProvider({ children }) {
       const match = data.firms?.find((firm) => firm.id === stored) || data.current || data.firms?.[0] || null;
       setCurrent(match);
       if (match) localStorage.setItem(STORAGE_KEY, match.id);
-    } catch {
+    } catch (error) {
+      if (error.status === 404) {
+        localStorage.removeItem(STORAGE_KEY);
+        window.location.reload();
+        return;
+      }
       setFirms([]);
+      setCurrent(null);
     } finally {
       setLoading(false);
     }

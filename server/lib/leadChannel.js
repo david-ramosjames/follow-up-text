@@ -2,7 +2,7 @@ import { describeSlackHistoryError, historyMessageToEvent } from "../../shared/l
 import { rows } from "../db.js";
 import { loadSettings } from "./settings.js";
 import { slackApi, slackConfigured } from "./slack.js";
-import { listFirms, runWithFirm } from "./firms.js";
+import { currentFirm, listFirms, runWithFirm } from "./firms.js";
 
 // Slack's Events API is how new posts normally arrive, but it fails silently:
 // the live app may not have message.channels (or message.groups, if the channel
@@ -16,15 +16,16 @@ import { listFirms, runWithFirm } from "./firms.js";
 export const CATCH_UP_LOOKBACK_HOURS = 48;
 export const CATCH_UP_BATCH = 12;
 
-let lastCatchUp = null;
+const lastCatchUpByFirm = new Map();
 
-export function lastLeadCatchUp() {
-  return lastCatchUp;
+export function lastLeadCatchUp(firmId = currentFirm()?.id) {
+  return lastCatchUpByFirm.get(firmId ?? "none") ?? null;
 }
 
 function remember(result) {
-  lastCatchUp = { ...result, at: new Date().toISOString() };
-  return lastCatchUp;
+  const entry = { ...result, at: new Date().toISOString() };
+  lastCatchUpByFirm.set(currentFirm()?.id ?? "none", entry);
+  return entry;
 }
 
 async function fetchChannelMessages(channel, oldest) {

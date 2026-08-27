@@ -2,16 +2,24 @@
 // rejects with the message the server actually gave, so pages can show that
 // message rather than inventing their own.
 
+function withFirmId(path, firmId) {
+  if (!firmId) return `/api${path}`;
+  const separator = path.includes("?") ? "&" : "?";
+  return `/api${path}${separator}firmId=${encodeURIComponent(firmId)}`;
+}
+
 async function request(path, options = {}) {
   const firmId = typeof localStorage !== "undefined" ? localStorage.getItem("followup_firm_id") : null;
-  const response = await fetch(`/api${path}`, {
+  const { headers: extraHeaders, body, ...rest } = options;
+  const response = await fetch(withFirmId(path, firmId), {
     credentials: "same-origin",
+    ...rest,
     headers: {
-      ...(options.body ? { "Content-Type": "application/json" } : {}),
+      ...(body ? { "Content-Type": "application/json" } : {}),
       ...(firmId ? { "X-Firm-Id": firmId } : {}),
+      ...extraHeaders,
     },
-    ...options,
-    body: options.body ? JSON.stringify(options.body) : undefined,
+    body: body ? JSON.stringify(body) : undefined,
   });
 
   if (response.status === 401) {
@@ -23,7 +31,11 @@ async function request(path, options = {}) {
   const text = await response.text();
   const data = text ? JSON.parse(text) : null;
 
-  if (!response.ok) throw new Error(data?.error || `Request failed (${response.status}).`);
+  if (!response.ok) {
+    const error = new Error(data?.error || `Request failed (${response.status}).`);
+    error.status = response.status;
+    throw error;
+  }
   return data;
 }
 

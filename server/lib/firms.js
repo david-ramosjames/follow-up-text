@@ -95,11 +95,20 @@ export async function defaultFirm() {
 
 export async function resolveFirm(req) {
   const requested = req.get?.("x-firm-id") || req.query?.firmId || req.body?.firm_id;
-  if (requested) {
+  if (!requested) return defaultFirm();
+
+  try {
     const found = await loadFirm(requested);
     if (found) return found;
+  } catch (error) {
+    if (error.code !== "22P02") throw error;
   }
-  return defaultFirm();
+
+  // A stale or unknown id must not silently fall back to Ramos James — that
+  // is how the new firm's dashboard showed the default firm's numbers.
+  const error = new Error("That firm is not available.");
+  error.status = 404;
+  throw error;
 }
 
 export async function uniqueSlug(name) {

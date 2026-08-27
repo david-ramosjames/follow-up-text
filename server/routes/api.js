@@ -46,7 +46,7 @@ const ok = (handler) => requireSession(async (req, res) => {
   } catch (error) {
     console.error(`${req.method} ${req.originalUrl} failed`, error);
     if (!error.code?.startsWith("23")) {
-      return res.status(500).json({ error: error.message || "Something went wrong." });
+      return res.status(error.status || 500).json({ error: error.message || "Something went wrong." });
     }
     // Unique violations describe the clash usefully; check violations do not, so
     // they fall back to the message rather than the row dump.
@@ -206,7 +206,7 @@ apiRouter.get("/dashboard", ok(async (req, res) => {
     ))?.at ?? null,
   };
 
-  res.json({ days, totals, daily, bySequence, byStep, upcoming, health });
+  res.json({ days, firm: publicFirm(req.firm), totals, daily, bySequence, byStep, upcoming, health });
 }));
 
 /* -------------------------------------------------------------- sequences */
@@ -915,7 +915,8 @@ apiRouter.get("/events", ok(async (req, res) => {
     select e.*, c.phone_e164, c.first_name
     from followup_events e
     left join followup_contacts c on c.id = e.contact_id
-    where c.firm_id = $1 or e.contact_id is null
+    left join followup_enrollments en on en.id = e.enrollment_id
+    where coalesce(c.firm_id, en.firm_id) = $1
     order by e.created_at desc limit 100
   `, [firmId()]));
 }));
