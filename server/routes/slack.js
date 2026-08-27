@@ -34,6 +34,8 @@ import {
   slackApi,
   startModal,
   verifySlackRequest,
+  botUserId,
+  messageMentionsBot,
 } from "../lib/slack.js";
 
 export const slackRouter = express.Router();
@@ -692,15 +694,41 @@ slackRouter.post("/events", async (req, res) => {
 
   return runWithFirm(verified.firm, async () => {
 
-  // Lead posts come from other apps, so they arrive as ordinary channel
-  // messages rather than mentions. handleLeadPost drops anything outside the
-  // one configured channel before looking at it at all.
+  // A mention arrives as `app_mention` when that event is subscribed, and also
+  // as an ordinary `message` because we subscribe to message.channels for lead
+  // intake. The message path used to swallow the command (wrong-channel skip)
+  // and never start a series. Handle an @mention of this bot either way.
   if (event.type === "message") {
+    const ours = await botUserId();
+    if (ours && !event.subtype && !event.bot_id && messageMentionsBot(event, ours)) {
+      await handleMention(event).catch((error) => console.error("app_mention handling failed", error));
+      return;
+    }
     await handleLeadPost(event).catch((error) => console.error("lead intake failed", error));
     return;
   }
 
   if (event.type !== "app_mention" || event.bot_id) return;
+  await handleMention(event).catch((error) => console.error("app_mention handling failed", error));
+  });
+});
+
+const recentMentions = new Map();
+
+function claimMention(event) {
+  const key = `${event.channel}:${event.ts}`;
+  const now = Date.now();
+  for (const [seen, at] of recentMentions) {
+    if (now - at > 120_000) recentMentions.delete(seen);
+  }
+  if (recentMentions.has(key)) return false;
+  recentMentions.set(key, now);
+  return true;
+}
+
+async function handleMention(event) {
+  if (!claimMention(event)) return;
+  console.log(`@mention in ${event.channel} from ${event.user}: ${String(event.text ?? "").slice(0, 120)}`);
 
   try {
     const operator = await loadOperator(event.user);
@@ -807,8 +835,7 @@ slackRouter.post("/events", async (req, res) => {
   } catch (error) {
     console.error("app_mention handling failed", error);
   }
-  });
-});
+}
 
 /* ---------------------------------------------------------- interactivity */
 

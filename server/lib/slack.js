@@ -53,6 +53,23 @@ export function slackConfigured() {
   return Boolean(slackBotToken());
 }
 
+const botUserIds = new Map();
+
+export async function botUserId() {
+  const token = slackBotToken();
+  if (!token) return null;
+  if (botUserIds.has(token)) return botUserIds.get(token);
+  const result = await slackApi("auth.test");
+  const id = result?.user_id ?? null;
+  if (id) botUserIds.set(token, id);
+  return id;
+}
+
+export function messageMentionsBot(event, userId) {
+  if (!userId || !event?.text) return false;
+  return String(event.text).includes(`<@${userId}>`);
+}
+
 // Overridable only so the end-to-end suite can point this at a stub and assert
 // which channel and thread each message actually landed in. Nothing in a real
 // deployment should set it.
