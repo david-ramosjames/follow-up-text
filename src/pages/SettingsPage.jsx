@@ -15,6 +15,10 @@ export default function SettingsPage() {
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState("");
+  const [firm, setFirm] = useState(null);
+  const [secrets, setSecrets] = useState({});
+  const [newFirmName, setNewFirmName] = useState("");
+  const [addingFirm, setAddingFirm] = useState(false);
 
   const load = async () => {
     try {
@@ -23,6 +27,7 @@ export default function SettingsPage() {
       setValues(data.values);
       setNumbers(data.numbers);
       setEnvironment(data.environment);
+      setFirm(data.firm ?? null);
       setStatus("ready");
     } catch (loadError) {
       setError(loadError.message);
@@ -43,7 +48,12 @@ export default function SettingsPage() {
     setError("");
     setSaved("");
     try {
-      setValues(await api.put("/settings", values));
+      const payload = { ...values };
+      const filled = Object.fromEntries(Object.entries(secrets).filter(([, value]) => String(value ?? "").trim()));
+      if (Object.keys(filled).length) payload.credentials = filled;
+      await api.put("/settings", payload);
+      setSecrets({});
+      await load();
       setDirty(false);
       setSaved("Saved. The dispatcher picks these up within one cycle — no redeploy needed.");
     } catch (saveError) {
@@ -166,14 +176,100 @@ export default function SettingsPage() {
             <p className="eyebrow">Configuration</p>
             <h1>Settings</h1>
             <p>
-              Everything here is stored in the database and takes effect without a redeploy. Only
-              secrets live in environment variables — see <Link to="/help">Help</Link>.
+              Everything here is stored in the database and takes effect without a redeploy.
+              Ramos James can keep using Railway env vars. Additional firms paste their Slack
+              and Quo keys on this page — see <Link to="/help">Help</Link>.
             </p>
           </div>
         </header>
 
         {error && <p className="form-error">{error}</p>}
         {saved && <p className="form-ok">{saved}</p>}
+
+        <section className="editor-section">
+          <div>
+            <h2>This firm</h2>
+            <p>
+              The switcher in the top bar picks which practice you are looking at. Each firm
+              has its own sequences, leads, numbers, Slack workspace and sending keys. A new
+              firm starts empty, with automatic sending off — import sequences from another
+              firm on the Sequences page if you want the same copy.
+            </p>
+          </div>
+          <div className="editor-fields">
+            {group(["firm_name", "default_timezone"])}
+            <label className="wide">
+              <span>Add another firm</span>
+              <div className="heading-actions">
+                <input
+                  value={newFirmName}
+                  onChange={(event) => setNewFirmName(event.target.value)}
+                  placeholder="e.g. Sister firm PLLC"
+                />
+                <button
+                  type="button"
+                  className="button ghost"
+                  disabled={addingFirm || !newFirmName.trim()}
+                  onClick={async () => {
+                    setAddingFirm(true);
+                    setError("");
+                    try {
+                      const created = await api.post("/firms", { name: newFirmName.trim() });
+                      localStorage.setItem("followup_firm_id", created.id);
+                      window.location.reload();
+                    } catch (addError) {
+                      setError(addError.message);
+                      setAddingFirm(false);
+                    }
+                  }}
+                >
+                  {addingFirm ? "Adding…" : "Add firm"}
+                </button>
+              </div>
+              <small className="field-note">
+                Then switch to it, paste its Slack and Quo keys, refresh numbers, and import
+                sequences from another firm on the Sequences page — or write new ones.
+                Sending stays off until you turn a sequence on.
+              </small>
+            </label>
+          </div>
+        </section>
+
+        <section className="editor-section">
+          <div>
+            <h2>Keys for this firm</h2>
+            <p>
+              {firm?.isDefault
+                ? "The default firm can keep using Railway env vars. Fill these in only if this practice should use different Slack or Quo credentials."
+                : "This firm does not use the Railway env vars. Paste its Slack bot token, signing secret, and Quo API key here."}
+            </p>
+          </div>
+          <div className="editor-fields">
+            {[
+              ["slack_bot_token", "Slack bot token", "xoxb-…", firm?.credentials?.slackBotToken],
+              ["slack_signing_secret", "Slack signing secret", "From Basic Information", firm?.credentials?.slackSigningSecret],
+              ["slack_app_id", "Slack app ID", "A0…", firm?.credentials?.slackAppId],
+              ["slack_team_id", "Slack workspace ID", "T0… — needed if two firms share a signing secret", firm?.credentials?.slackTeamId],
+              ["quo_api_key", "Quo API key", "From Quo workspace settings", firm?.credentials?.quoApiKey],
+              ["quo_webhook_secret", "Quo webhook secret", "From the webhook in Quo", firm?.credentials?.quoWebhookSecret],
+            ].map(([key, label, placeholder, isSet]) => (
+              <label key={key} className="wide">
+                <span>{label}{isSet ? " — set" : ""}</span>
+                <input
+                  type="password"
+                  autoComplete="off"
+                  value={secrets[key] ?? ""}
+                  placeholder={isSet ? "Leave blank to keep the current value" : placeholder}
+                  onChange={(event) => {
+                    setSecrets((current) => ({ ...current, [key]: event.target.value }));
+                    setDirty(true);
+                    setSaved("");
+                  }}
+                />
+              </label>
+            ))}
+          </div>
+        </section>
 
         <section className="editor-section">
           <div>
@@ -224,14 +320,6 @@ export default function SettingsPage() {
 
             {group(["default_quo_number_id", "secondary_quo_number_id"])}
           </div>
-        </section>
-
-        <section className="editor-section">
-          <div>
-            <h2>Firm</h2>
-            <p>Used in message copy and in how times are shown.</p>
-          </div>
-          <div className="editor-fields">{group(["firm_name", "default_timezone"])}</div>
         </section>
 
         <section className="editor-section">

@@ -1,4 +1,5 @@
 import { rows, query } from "../db.js";
+import { currentFirm, defaultFirm } from "./firms.js";
 
 // Everything the firm can change lives in the database so it is editable in the
 // dashboard. The environment holds only secrets, which nobody should be able to
@@ -172,14 +173,25 @@ let cache = null;
 let cachedAt = 0;
 const CACHE_MS = 5_000;
 
+async function settingsFirmId() {
+  return currentFirm()?.id ?? (await defaultFirm())?.id ?? null;
+}
+
 export async function loadSettings({ fresh = false } = {}) {
-  if (!fresh && cache && Date.now() - cachedAt < CACHE_MS) return cache;
-  const stored = await rows("select key, value from app_settings");
+  const id = await settingsFirmId();
+  const cacheKey = id ?? "none";
+  if (!fresh && cache && cache._firmId === cacheKey && Date.now() - cachedAt < CACHE_MS) {
+    const { _firmId, ...rest } = cache;
+    return rest;
+  }
+  const stored = id
+    ? await rows("select key, value from app_settings where firm_id = $1", [id])
+    : [];
   const merged = { ...DEFAULTS };
   for (const row of stored) {
     if (row.key in merged) merged[row.key] = row.value;
   }
-  cache = merged;
+  cache = { ...merged, _firmId: cacheKey };
   cachedAt = Date.now();
   return merged;
 }
@@ -221,6 +233,8 @@ function coerce(definition, raw) {
 }
 
 export async function saveSettings(values, actor) {
+  const id = await settingsFirmId();
+  if (!id) throw new Error("No firm is set up yet.");
   const updates = [];
   for (const definition of SETTING_DEFINITIONS) {
     if (!(definition.key in values)) continue;
@@ -229,11 +243,11 @@ export async function saveSettings(values, actor) {
 
   for (const [key, value] of updates) {
     await query(
-      `insert into app_settings (key, value, updated_by, updated_at)
-       values ($1, $2::jsonb, $3, now())
-       on conflict (key) do update
+      `insert into app_settings (firm_id, key, value, updated_by, updated_at)
+       values ($1, $2, $3::jsonb, $4, now())
+       on conflict (firm_id, key) do update
          set value = excluded.value, updated_by = excluded.updated_by, updated_at = now()`,
-      [key, JSON.stringify(value), actor ?? null],
+      [id, key, JSON.stringify(value), actor ?? null],
     );
   }
 

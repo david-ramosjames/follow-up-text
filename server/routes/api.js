@@ -10,6 +10,10 @@ import { previewFirstText } from "../lib/previewText.js";
 import { catchUpLeadChannel, lastLeadCatchUp } from "../lib/leadChannel.js";
 import { runDispatch } from "../lib/dispatch.js";
 import { slackConfigured } from "../lib/slack.js";
+import {
+  createFirm, firmId, listFirms, loadFirm, publicFirm, renameFirm, resolveFirm, runWithFirm,
+  saveFirmCredentials,
+} from "../lib/firms.js";
 
 export const apiRouter = express.Router();
 
@@ -28,13 +32,17 @@ const CONSTRAINT_MESSAGES = {
   followup_sequences_slug_format:
     "A sequence's short name can only use lowercase letters, numbers and hyphens.",
   followup_sequences_slug_key: "There is already a sequence with that short name.",
+  followup_sequences_firm_slug_key: "There is already a sequence with that short name.",
   followup_operators_email_key: "Somebody on the list already has that email address.",
   followup_operators_slack_user_id_key: "Somebody on the list already has that Slack member ID.",
 };
 
 const ok = (handler) => requireSession(async (req, res) => {
+  const firm = await resolveFirm(req);
+  if (!firm) return res.status(500).json({ error: "No firm is set up yet." });
+  req.firm = firm;
   try {
-    await handler(req, res);
+    await runWithFirm(firm, () => handler(req, res));
   } catch (error) {
     console.error(`${req.method} ${req.originalUrl} failed`, error);
     if (!error.code?.startsWith("23")) {
@@ -53,58 +61,92 @@ const ok = (handler) => requireSession(async (req, res) => {
 
 const actor = (req) => req.session.display_name || req.session.email || req.session.slack_user_id || "admin";
 
+apiRouter.get("/firms", ok(async (req, res) => {
+  res.json({
+    firms: (await listFirms()).map(publicFirm),
+    current: publicFirm(req.firm),
+  });
+}));
+
+apiRouter.post("/firms", ok(async (req, res) => {
+  const firm = await createFirm({ name: req.body?.name, actor: actor(req) });
+  res.status(201).json(publicFirm(firm));
+}));
+
+apiRouter.patch("/firms/:id", ok(async (req, res) => {
+  if (req.body?.name) await renameFirm(req.params.id, req.body.name);
+  if (req.body?.credentials) await saveFirmCredentials(req.params.id, req.body.credentials);
+  res.json(publicFirm(await loadFirm(req.params.id)));
+}));
+
+apiRouter.get("/firms/:id/sequences", ok(async (req, res) => {
+  const firm = await loadFirm(req.params.id);
+  if (!firm) return res.status(404).json({ error: "No such firm." });
+  res.json(await rows(
+    `select q.id, q.slug, q.name, q.description, q.is_active, q.auto_routable,
+            (select count(*)::int from followup_steps s where s.sequence_id = q.id) as step_count
+     from followup_sequences q
+     where q.firm_id = $1
+     order by q.name`,
+    [firm.id],
+  ));
+}));
+
 /* -------------------------------------------------------------- dashboard */
 
 apiRouter.get("/dashboard", ok(async (req, res) => {
   const days = Math.min(90, Math.max(7, Number(req.query.days) || 30));
+  const fid = firmId();
 
   const totals = await one(`
     select
-      (select count(*) from followup_enrollments where status = 'active') as active,
-      (select count(*) from followup_contacts where opted_out_at is not null) as opted_out,
-      (select count(*) from followup_enrollments where started_at >= now() - ($1 || ' days')::interval) as started,
-      (select count(*) from followup_messages
-         where direction = 'outbound' and status <> 'failed'
-           and created_at >= now() - ($1 || ' days')::interval) as sent,
-      (select coalesce(sum(segments), 0) from followup_messages
-         where direction = 'outbound' and status <> 'failed'
-           and created_at >= now() - ($1 || ' days')::interval) as segments,
-      -- Replies from somebody actually in a series. Every other inbound text is
-      -- the office's ordinary traffic — a wrong number, an existing client, a
-      -- cold enquiry — and counting those made the reply rate meaningless.
-      (select count(*) from followup_messages
-         where direction = 'inbound' and enrollment_id is not null
-           and created_at >= now() - ($1 || ' days')::interval) as replies,
-      (select count(*) from followup_messages
-         where direction = 'inbound' and enrollment_id is null
-           and created_at >= now() - ($1 || ' days')::interval) as other_inbound,
+      (select count(*) from followup_enrollments where status = 'active' and firm_id = $2) as active,
+      (select count(*) from followup_contacts where opted_out_at is not null and firm_id = $2) as opted_out,
+      (select count(*) from followup_enrollments where started_at >= now() - ($1 || ' days')::interval and firm_id = $2) as started,
+      (select count(*) from followup_messages m
+         join followup_contacts c on c.id = m.contact_id
+         where c.firm_id = $2 and m.direction = 'outbound' and m.status <> 'failed'
+           and m.created_at >= now() - ($1 || ' days')::interval) as sent,
+      (select coalesce(sum(m.segments), 0) from followup_messages m
+         join followup_contacts c on c.id = m.contact_id
+         where c.firm_id = $2 and m.direction = 'outbound' and m.status <> 'failed'
+           and m.created_at >= now() - ($1 || ' days')::interval) as segments,
+      (select count(*) from followup_messages m
+         join followup_contacts c on c.id = m.contact_id
+         where c.firm_id = $2 and m.direction = 'inbound' and m.enrollment_id is not null
+           and m.created_at >= now() - ($1 || ' days')::interval) as replies,
+      (select count(*) from followup_messages m
+         join followup_contacts c on c.id = m.contact_id
+         where c.firm_id = $2 and m.direction = 'inbound' and m.enrollment_id is null
+           and m.created_at >= now() - ($1 || ' days')::interval) as other_inbound,
       (select count(*) from followup_enrollments
          where status in ('stopped_reply', 'stopped_call')
-           and ended_at >= now() - ($1 || ' days')::interval) as reengaged,
+           and ended_at >= now() - ($1 || ' days')::interval and firm_id = $2) as reengaged,
       (select count(*) from followup_enrollments
-         where status = 'completed' and ended_at >= now() - ($1 || ' days')::interval) as completed,
+         where status = 'completed' and ended_at >= now() - ($1 || ' days')::interval and firm_id = $2) as completed,
       (select count(*) from followup_enrollments
-         where status = 'failed' and ended_at >= now() - ($1 || ' days')::interval) as failed,
-      (select count(*) from followup_messages
-         where direction = 'outbound' and status in ('undelivered', 'failed')
-           and created_at >= now() - ($1 || ' days')::interval) as undelivered
-  `, [String(days)]);
+         where status = 'failed' and ended_at >= now() - ($1 || ' days')::interval and firm_id = $2) as failed,
+      (select count(*) from followup_messages m
+         join followup_contacts c on c.id = m.contact_id
+         where c.firm_id = $2 and m.direction = 'outbound' and m.status in ('undelivered', 'failed')
+           and m.created_at >= now() - ($1 || ' days')::interval) as undelivered
+  `, [String(days), fid]);
 
   // Daily counts for the activity chart. generate_series keeps zero-days in the
   // result so the chart shows a real gap rather than compressing it away.
   const daily = await rows(`
     select d::date as day,
       (select count(*) from followup_messages m
-        where m.direction = 'outbound' and m.status <> 'failed' and m.created_at::date = d::date) as sent,
+        join followup_contacts c on c.id = m.contact_id
+        where c.firm_id = $2 and m.direction = 'outbound' and m.status <> 'failed' and m.created_at::date = d::date) as sent,
       (select count(*) from followup_messages m
-        where m.direction = 'inbound' and m.enrollment_id is not null
+        join followup_contacts c on c.id = m.contact_id
+        where c.firm_id = $2 and m.direction = 'inbound' and m.enrollment_id is not null
           and m.created_at::date = d::date) as replies
     from generate_series(now() - ($1 || ' days')::interval, now(), interval '1 day') d
     order by day
-  `, [String(days - 1)]);
+  `, [String(days - 1), fid]);
 
-  // Which step actually earns the replies: for each sequence, how many series
-  // ended in re-engagement, and at which step they were up to when it happened.
   const bySequence = await rows(`
     select q.id, q.name, q.slug, q.is_active,
       count(e.id) as started,
@@ -115,9 +157,10 @@ apiRouter.get("/dashboard", ok(async (req, res) => {
     from followup_sequences q
     left join followup_enrollments e
       on e.sequence_id = q.id and e.started_at >= now() - ($1 || ' days')::interval
+    where q.firm_id = $2
     group by q.id, q.name, q.slug, q.is_active
     order by started desc, q.name
-  `, [String(days)]);
+  `, [String(days), fid]);
 
   const byStep = await rows(`
     select q.slug as sequence_slug, s.position, s.label,
@@ -130,9 +173,10 @@ apiRouter.get("/dashboard", ok(async (req, res) => {
       and m.created_at >= now() - ($1 || ' days')::interval
     left join followup_enrollments e on e.sequence_id = q.id
       and e.ended_at >= now() - ($1 || ' days')::interval
+    where q.firm_id = $2
     group by q.slug, s.position, s.label
     order by q.slug, s.position
-  `, [String(days)]);
+  `, [String(days), fid]);
 
   const upcoming = await rows(`
     select e.id, e.next_run_at, e.next_position, e.assigned_slack_user_id, e.assigned_slack_user_name,
@@ -140,21 +184,25 @@ apiRouter.get("/dashboard", ok(async (req, res) => {
     from followup_enrollments e
     join followup_contacts c on c.id = e.contact_id
     join followup_sequences q on q.id = e.sequence_id
-    where e.status = 'active' and e.next_run_at is not null
+    where e.status = 'active' and e.next_run_at is not null and e.firm_id = $1
     order by e.next_run_at limit 8
-  `);
+  `, [fid]);
 
   const health = {
     quoConfigured: quoConfigured(),
     slackConfigured: slackConfigured(),
     sequencesReady: Number((await one(
       `select count(*)::int as count from followup_sequences q
-       where q.is_active and exists (select 1 from followup_steps s where s.sequence_id = q.id and s.is_active)`,
+       where q.firm_id = $1 and q.is_active and exists (select 1 from followup_steps s where s.sequence_id = q.id and s.is_active)`,
+      [fid],
     ))?.count ?? 0),
     operators: Number((await one("select count(*)::int as count from followup_operators where is_active"))?.count ?? 0),
-    numbers: Number((await one("select count(*)::int as count from quo_numbers where is_active"))?.count ?? 0),
+    numbers: Number((await one("select count(*)::int as count from quo_numbers where is_active and firm_id = $1", [fid]))?.count ?? 0),
     lastSendAt: (await one(
-      "select max(sent_at) as at from followup_messages where direction = 'outbound'",
+      `select max(m.sent_at) as at from followup_messages m
+       join followup_contacts c on c.id = m.contact_id
+       where m.direction = 'outbound' and c.firm_id = $1`,
+      [fid],
     ))?.at ?? null,
   };
 
@@ -171,12 +219,47 @@ const SEQUENCE_SELECT = `
   from followup_sequences q
 `;
 
+async function copySequence({ sourceId, sourceFirmId, destFirmId, slug, name, keepSendingNumber = false }) {
+  return withTransaction(async (client) => {
+    const inserted = await client.query(
+      `insert into followup_sequences (
+         firm_id, slug, name, description, is_active, is_default, quo_number_id, timezone,
+         quiet_hours_start, quiet_hours_end, send_days, append_opt_out_notice,
+         respond_immediately, auto_routable, night_starts_hour, night_ends_hour
+       )
+       select $1::uuid, $2, $3, description, false, false,
+              case when $6::boolean then quo_number_id else null end,
+              timezone, quiet_hours_start, quiet_hours_end, send_days, append_opt_out_notice,
+              respond_immediately, false, night_starts_hour, night_ends_hour
+       from followup_sequences
+       where id = $4 and firm_id = $5
+       returning id`,
+      [destFirmId, slug, name, sourceId, sourceFirmId, Boolean(keepSendingNumber)],
+    );
+    const id = inserted.rows[0]?.id;
+    if (!id) throw new Error("No such sequence.");
+    await client.query(
+      `insert into followup_steps (
+         sequence_id, position, label, delay_minutes, body_en, body_es,
+         body_en_night, body_es_night, is_active
+       )
+       select $1, position, label, delay_minutes, body_en, body_es,
+              body_en_night, body_es_night, is_active
+       from followup_steps
+       where sequence_id = $2
+       order by position`,
+      [id, sourceId],
+    );
+    return id;
+  });
+}
+
 apiRouter.get("/sequences", ok(async (req, res) => {
-  res.json(await rows(`${SEQUENCE_SELECT} order by q.is_default desc, q.name`));
+  res.json(await rows(`${SEQUENCE_SELECT} where q.firm_id = $1 order by q.is_default desc, q.name`, [firmId()]));
 }));
 
 apiRouter.get("/sequences/:slug", ok(async (req, res) => {
-  const sequence = await one(`${SEQUENCE_SELECT} where q.slug = $1`, [req.params.slug]);
+  const sequence = await one(`${SEQUENCE_SELECT} where q.firm_id = $1 and q.slug = $2`, [firmId(), req.params.slug]);
   if (!sequence) return res.status(404).json({ error: "No such sequence." });
   res.json(sequence);
 }));
@@ -186,18 +269,71 @@ apiRouter.post("/sequences", ok(async (req, res) => {
   if (!name?.trim()) return res.status(400).json({ error: "A name is required." });
 
   const settings = await loadSettings();
-  const isFirst = !(await one("select 1 as found from followup_sequences limit 1"));
+  const fid = firmId();
+  const isFirst = !(await one("select 1 as found from followup_sequences where firm_id = $1 limit 1", [fid]));
 
   const created = await one(
-    `insert into followup_sequences (slug, name, is_active, is_default, timezone,
+    `insert into followup_sequences (firm_id, slug, name, is_active, is_default, timezone,
                                     night_starts_hour, night_ends_hour)
-     values ($1, $2, false, $3, $4, $5, $6) returning *`,
+     values ($1, $2, $3, false, $4, $5, $6, $7) returning *`,
     [
-      slug, name.trim(), isFirst, settings.default_timezone,
+      fid, slug, name.trim(), isFirst, settings.default_timezone,
       Number(settings.night_starts_hour ?? 21), Number(settings.night_ends_hour ?? 8),
     ],
   );
   res.status(201).json(created);
+}));
+
+// Copy schedules and wording from another firm into this one. Same short names
+// so the lead router still recognises qualified-lead / referral. Sending stays
+// off, and the source firm's Quo number is not copied — that number belongs to
+// a different account.
+apiRouter.post("/sequences/import", ok(async (req, res) => {
+  const sourceFirmId = String(req.body?.source_firm_id ?? "").trim();
+  const destFirmId = firmId();
+  if (!sourceFirmId) return res.status(400).json({ error: "Pick a firm to copy from." });
+  if (sourceFirmId === destFirmId) {
+    return res.status(400).json({ error: "That firm is the one you are already looking at." });
+  }
+
+  const sourceFirm = await loadFirm(sourceFirmId);
+  if (!sourceFirm) return res.status(404).json({ error: "No such firm." });
+
+  const catalog = await rows(
+    "select id, slug, name from followup_sequences where firm_id = $1 order by name",
+    [sourceFirmId],
+  );
+  const requested = Array.isArray(req.body?.sequence_ids)
+    ? new Set(req.body.sequence_ids.map((id) => String(id)))
+    : null;
+  const wanted = requested ? catalog.filter((row) => requested.has(String(row.id))) : catalog;
+  if (!wanted.length) return res.status(400).json({ error: "No sequences to import." });
+
+  const taken = new Set((await rows(
+    "select slug from followup_sequences where firm_id = $1",
+    [destFirmId],
+  )).map((row) => row.slug));
+
+  const imported = [];
+  const skipped = [];
+  for (const source of wanted) {
+    if (taken.has(source.slug)) {
+      skipped.push({ id: source.id, name: source.name, slug: source.slug, reason: "already_exists" });
+      continue;
+    }
+    const createdId = await copySequence({
+      sourceId: source.id,
+      sourceFirmId,
+      destFirmId,
+      slug: source.slug,
+      name: source.name,
+      keepSendingNumber: false,
+    });
+    taken.add(source.slug);
+    imported.push({ id: createdId, name: source.name, slug: source.slug });
+  }
+
+  res.json({ imported, skipped, source: { id: sourceFirm.id, name: sourceFirm.name } });
 }));
 
 const SEQUENCE_FIELDS = [
@@ -217,62 +353,46 @@ apiRouter.patch("/sequences/:id", ok(async (req, res) => {
   if (!updates.length) return res.status(400).json({ error: "Nothing to update." });
 
   const updated = await one(
-    `update followup_sequences set ${updates.join(", ")} where id = $1 returning *`,
-    values,
+    `update followup_sequences set ${updates.join(", ")} where id = $1 and firm_id = $${values.length + 1} returning *`,
+    [...values, firmId()],
   );
   if (!updated) return res.status(404).json({ error: "No such sequence." });
   res.json(updated);
 }));
 
 apiRouter.post("/sequences/:id/default", ok(async (req, res) => {
-  await query("update followup_sequences set is_default = false where is_default and id <> $1", [req.params.id]);
-  const updated = await one("update followup_sequences set is_default = true where id = $1 returning *", [req.params.id]);
+  await query(
+    "update followup_sequences set is_default = false where is_default and firm_id = $1 and id <> $2",
+    [firmId(), req.params.id],
+  );
+  const updated = await one(
+    "update followup_sequences set is_default = true where id = $1 and firm_id = $2 returning *",
+    [req.params.id, firmId()],
+  );
   res.json(updated);
 }));
 
 apiRouter.delete("/sequences/:id", ok(async (req, res) => {
-  await query("delete from followup_sequences where id = $1", [req.params.id]);
+  await query("delete from followup_sequences where id = $1 and firm_id = $2", [req.params.id, firmId()]);
   res.json({ ok: true });
 }));
 
 // A copy of the schedule and wording, not of anybody already enrolled. It starts
 // switched off and off the lead router so you can tweak a few texts first.
 apiRouter.post("/sequences/:id/duplicate", ok(async (req, res) => {
-  const source = await one("select id, name from followup_sequences where id = $1", [req.params.id]);
+  const source = await one("select id, name from followup_sequences where id = $1 and firm_id = $2", [req.params.id, firmId()]);
   if (!source) return res.status(404).json({ error: "No such sequence." });
 
-  const taken = (await rows("select slug from followup_sequences")).map((row) => row.slug);
+  const taken = (await rows("select slug from followup_sequences where firm_id = $1", [firmId()])).map((row) => row.slug);
   const { name, slug } = uniqueCopyIdentity(source.name, taken);
 
-  const createdId = await withTransaction(async (client) => {
-    const inserted = await client.query(
-      `insert into followup_sequences (
-         slug, name, description, is_active, is_default, quo_number_id, timezone,
-         quiet_hours_start, quiet_hours_end, send_days, append_opt_out_notice,
-         respond_immediately, auto_routable, night_starts_hour, night_ends_hour
-       )
-       select $1, $2, description, false, false, quo_number_id, timezone,
-              quiet_hours_start, quiet_hours_end, send_days, append_opt_out_notice,
-              respond_immediately, false, night_starts_hour, night_ends_hour
-       from followup_sequences
-       where id = $3
-       returning id`,
-      [slug, name, source.id],
-    );
-    const id = inserted.rows[0].id;
-    await client.query(
-      `insert into followup_steps (
-         sequence_id, position, label, delay_minutes, body_en, body_es,
-         body_en_night, body_es_night, is_active
-       )
-       select $1, position, label, delay_minutes, body_en, body_es,
-              body_en_night, body_es_night, is_active
-       from followup_steps
-       where sequence_id = $2
-       order by position`,
-      [id, source.id],
-    );
-    return id;
+  const createdId = await copySequence({
+    sourceId: source.id,
+    sourceFirmId: firmId(),
+    destFirmId: firmId(),
+    slug,
+    name,
+    keepSendingNumber: true,
   });
 
   res.status(201).json(await one(`${SEQUENCE_SELECT} where q.id = $1`, [createdId]));
@@ -382,9 +502,9 @@ apiRouter.get("/enrollments", ok(async (req, res) => {
     from followup_enrollments e
     join followup_contacts c on c.id = e.contact_id
     join followup_sequences q on q.id = e.sequence_id
-    ${conditions.length ? `where ${conditions.join(" and ")}` : ""}
+    where e.firm_id = $${values.length + 1}${conditions.length ? ` and ${conditions.join(" and ")}` : ""}
     order by e.started_at desc limit 100
-  `, values);
+  `, [...values, firmId()]);
   res.json(list);
 }));
 
@@ -416,10 +536,12 @@ apiRouter.get("/contacts", ok(async (req, res) => {
     values.push(digits ? `%${digits}%` : `%${req.query.search}%`);
     conditions.push(digits ? `phone_e164 ilike $${values.length}` : `first_name ilike $${values.length}`);
   }
+  values.push(firmId());
+  conditions.push(`firm_id = $${values.length}`);
 
   res.json(await rows(`
     select * from followup_contacts
-    ${conditions.length ? `where ${conditions.join(" and ")}` : ""}
+    where ${conditions.join(" and ")}
     order by updated_at desc limit 200
   `, values));
 }));
@@ -637,9 +759,9 @@ apiRouter.get("/leads", ok(async (req, res) => {
 
   const list = await rows(`
     select * from lead_observations
-    ${conditions.length ? `where ${conditions.join(" and ")}` : ""}
+    where firm_id = $${values.length + 1}${conditions.length ? ` and ${conditions.join(" and ")}` : ""}
     order by created_at desc limit 100
-  `, values);
+  `, [...values, firmId()]);
 
   const counts = await one(`
     select
@@ -651,8 +773,8 @@ apiRouter.get("/leads", ok(async (req, res) => {
       count(*) filter (where outcome in ('enroll_failed', 'no_owner', 'classifier_failed')) as problems,
       count(*) as total
     from lead_observations
-    where created_at >= now() - interval '30 days'
-  `);
+    where firm_id = $1 and created_at >= now() - interval '30 days'
+  `, [firmId()]);
 
   const settings = await loadSettings();
   res.json({
@@ -665,8 +787,10 @@ apiRouter.get("/leads", ok(async (req, res) => {
     tracks: await rows(
       `select slug, name, is_active, auto_routable
        from followup_sequences q
-       where exists (select 1 from followup_steps s where s.sequence_id = q.id and s.is_active)
+       where q.firm_id = $1
+         and exists (select 1 from followup_steps s where s.sequence_id = q.id and s.is_active)
        order by q.auto_routable desc, q.name`,
+      [firmId()],
     ),
     routable: await routableSequences(),
   });
@@ -676,7 +800,7 @@ apiRouter.get("/leads", ok(async (req, res) => {
 // type already extracted. Does not re-run the classifier and does not text
 // anyone — it only refreshes "the first text they would get".
 apiRouter.patch("/leads/:id", ok(async (req, res) => {
-  const observation = await one("select * from lead_observations where id = $1", [req.params.id]);
+  const observation = await one("select * from lead_observations where id = $1 and firm_id = $2", [req.params.id, firmId()]);
   if (!observation) return res.status(404).json({ error: "No such lead." });
 
   const slug = String(req.body?.sequence_slug ?? "").trim();
@@ -684,9 +808,9 @@ apiRouter.patch("/leads/:id", ok(async (req, res) => {
 
   const sequence = await one(
     `select slug, name from followup_sequences q
-     where q.slug = $1
+     where q.slug = $1 and q.firm_id = $2
        and exists (select 1 from followup_steps s where s.sequence_id = q.id and s.is_active)`,
-    [slug],
+    [slug, firmId()],
   );
   if (!sequence) return res.status(400).json({ error: "That sequence has no texts to preview." });
 
@@ -748,11 +872,13 @@ apiRouter.get("/settings", ok(async (req, res) => {
     definitions: SETTING_DEFINITIONS,
     values: await loadSettings({ fresh: true }),
     numbers: await listQuoNumbers(),
+    firm: publicFirm(req.firm),
+    firms: (await listFirms()).map(publicFirm),
     environment: {
       quoConfigured: quoConfigured(),
       slackBotConfigured: slackConfigured(),
-      slackSigningConfigured: Boolean(process.env.SLACK_SIGNING_SECRET),
-      quoWebhookConfigured: Boolean(process.env.QUO_WEBHOOK_SECRET || process.env.QUO_WEBHOOK_TOKEN),
+      slackSigningConfigured: publicFirm(req.firm).credentials.slackSigningSecret,
+      quoWebhookConfigured: publicFirm(req.firm).credentials.quoWebhookSecret,
       slackSignInConfigured: slackSignInConfigured(),
       googleSignInConfigured: googleConfigured(),
       publicUrl: process.env.PUBLIC_URL || null,
@@ -762,11 +888,15 @@ apiRouter.get("/settings", ok(async (req, res) => {
 }));
 
 apiRouter.put("/settings", ok(async (req, res) => {
-  res.json(await saveSettings(req.body ?? {}, actor(req)));
+  const body = req.body ?? {};
+  const { credentials, ...values } = body;
+  if (credentials) await saveFirmCredentials(req.firm.id, credentials);
+  if (values.firm_name) await renameFirm(req.firm.id, values.firm_name);
+  res.json(await saveSettings(values, actor(req)));
 }));
 
 apiRouter.post("/quo-numbers/sync", ok(async (req, res) => {
-  if (!quoConfigured()) return res.status(400).json({ error: "QUO_API_KEY is not set." });
+  if (!quoConfigured()) return res.status(400).json({ error: "No Quo API key is set for this firm." });
   try {
     res.json(await syncQuoNumbers());
   } catch (error) {
@@ -785,8 +915,9 @@ apiRouter.get("/events", ok(async (req, res) => {
     select e.*, c.phone_e164, c.first_name
     from followup_events e
     left join followup_contacts c on c.id = e.contact_id
+    where c.firm_id = $1 or e.contact_id is null
     order by e.created_at desc limit 100
-  `));
+  `, [firmId()]));
 }));
 
 // Lets an administrator prove the pipeline works without waiting for the timer.

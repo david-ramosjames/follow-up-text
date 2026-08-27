@@ -1,15 +1,24 @@
 import crypto from "node:crypto";
 import { formatPhone, maskPhone } from "../../shared/messaging.js";
 import { loadSettings } from "./settings.js";
+import { currentFirm, listFirms, slackBotToken, slackSigningSecret } from "./firms.js";
 
 /* ------------------------------------------------------------- signatures */
 
-// v0=HMAC-SHA256 over `v0:<timestamp>:<raw body>`. The raw bytes matter: parsing
-// and re-serialising the form would change them and break the signature.
-export function verifySlackRequest(req, rawBody) {
-  const secret = process.env.SLACK_SIGNING_SECRET;
-  if (!secret) return { ok: false, reason: "SLACK_SIGNING_SECRET is not set." };
+function signatureMatches(secret, signature, timestamp, rawBody) {
+  if (!secret) return false;
+  const computed = crypto.createHmac("sha256", secret)
+    .update(`v0:${timestamp}:${rawBody}`)
+    .digest();
+  const expected = signature.startsWith("v0=") ? signature.slice(3) : signature;
+  if (!/^[0-9a-f]*$/i.test(expected) || expected.length !== computed.length * 2) return false;
+  return crypto.timingSafeEqual(computed, Buffer.from(expected, "hex"));
+}
 
+// v0=HMAC-SHA256 over `v0:<timestamp>:<raw body>`. Tries every firm's signing
+// secret (and the env fallback on the default firm) so a second Slack workspace
+// can share this endpoint.
+export async function verifySlackRequest(req, rawBody, { teamId } = {}) {
   const signature = req.get("x-slack-signature");
   const timestamp = req.get("x-slack-request-timestamp");
   if (!signature || !timestamp) return { ok: false, reason: "Missing Slack signature headers." };
@@ -17,24 +26,31 @@ export function verifySlackRequest(req, rawBody) {
   const age = Math.abs(Date.now() / 1000 - Number(timestamp));
   if (!Number.isFinite(age) || age > 300) return { ok: false, reason: "Slack request is too old." };
 
-  const computed = crypto.createHmac("sha256", secret)
-    .update(`v0:${timestamp}:${rawBody}`)
-    .digest();
-
-  const expected = signature.startsWith("v0=") ? signature.slice(3) : signature;
-  if (!/^[0-9a-f]*$/i.test(expected) || expected.length !== computed.length * 2) {
-    return { ok: false, reason: "Malformed Slack signature." };
+  const firms = await listFirms();
+  const matched = firms.filter((firm) => signatureMatches(slackSigningSecret(firm), signature, timestamp, rawBody));
+  if (!matched.length) {
+    return {
+      ok: false,
+      reason: firms.some((firm) => slackSigningSecret(firm))
+        ? "Slack signature did not match."
+        : "SLACK_SIGNING_SECRET is not set.",
+    };
   }
 
-  return crypto.timingSafeEqual(computed, Buffer.from(expected, "hex"))
-    ? { ok: true }
-    : { ok: false, reason: "Slack signature did not match." };
+  let firm = matched[0];
+  if (teamId && matched.length > 1) {
+    firm = matched.find((row) => row.slack_team_id === String(teamId)) || firm;
+  } else if (teamId) {
+    const named = matched.find((row) => row.slack_team_id === String(teamId));
+    if (named) firm = named;
+  }
+  return { ok: true, firm };
 }
 
 /* ----------------------------------------------------------------- Web API */
 
 export function slackConfigured() {
-  return Boolean(process.env.SLACK_BOT_TOKEN);
+  return Boolean(slackBotToken());
 }
 
 // Overridable only so the end-to-end suite can point this at a stub and assert
@@ -43,7 +59,7 @@ export function slackConfigured() {
 const SLACK_API_BASE = (process.env.SLACK_API_BASE || "https://slack.com/api").replace(/\/$/, "");
 
 export async function slackApi(method, payload) {
-  const token = process.env.SLACK_BOT_TOKEN;
+  const token = slackBotToken(currentFirm());
   if (!token) return { ok: false, error: "no_bot_token" };
 
   try {
@@ -72,7 +88,7 @@ export async function postToThread({ channel, threadTs, text, blocks }) {
     return { ok: false, error: "no_channel" };
   }
 
-  if (process.env.SLACK_BOT_TOKEN) {
+  if (slackBotToken()) {
     return slackApi("chat.postMessage", {
       channel: target,
       text,
@@ -129,9 +145,41 @@ export function formatWhen(iso, timezone = "America/Chicago") {
 
 /* ----------------------------------------------------------------- blocks */
 
+const CONFIDENCE_ICON = { high: ":large_green_circle:", medium: ":large_yellow_circle:", low: ":red_circle:" };
+
 export function enrollmentBlocks(card) {
   const who = card.firstName ? `*${card.firstName}* ` : "";
   const language = card.language === "es" ? "Spanish" : "English";
+  const actions = [{
+    type: "button",
+    action_id: "followup_stop",
+    style: "danger",
+    text: { type: "plain_text", text: "Stop follow-ups" },
+    value: card.enrollmentId,
+    confirm: {
+      title: { type: "plain_text", text: "Stop follow-ups?" },
+      text: { type: "mrkdwn", text: "No further texts will go out for this client." },
+      confirm: { type: "plain_text", text: "Stop them" },
+      deny: { type: "plain_text", text: "Keep going" },
+    },
+  }];
+
+  if (card.rerouteOptions?.length) {
+    actions.push({
+      type: "static_select",
+      action_id: "followup_reroute",
+      placeholder: { type: "plain_text", text: "Wrong track? Move to…" },
+      options: card.rerouteOptions,
+    });
+  }
+
+  const routing = card.routing;
+  const routingLine = routing
+    ? `${CONFIDENCE_ICON[routing.confidence] ?? ":white_circle:"} Routed to *${card.sequenceName}*`
+      + `${routing.caseType ? ` · ${routing.caseType}` : ""}`
+      + ` · ${language}`
+      + (routing.reasoning ? `\n_${routing.reasoning}_` : "")
+    : null;
 
   return [
     {
@@ -150,6 +198,10 @@ export function enrollmentBlocks(card) {
         ...(card.caseReference ? [{ type: "mrkdwn", text: `*Reference*\n${card.caseReference}` }] : []),
       ],
     },
+    ...(routingLine ? [{
+      type: "context",
+      elements: [{ type: "mrkdwn", text: routingLine }],
+    }] : []),
     {
       type: "context",
       elements: [{
@@ -158,22 +210,7 @@ export function enrollmentBlocks(card) {
           + "Replies land in this thread.",
       }],
     },
-    {
-      type: "actions",
-      elements: [{
-        type: "button",
-        action_id: "followup_stop",
-        style: "danger",
-        text: { type: "plain_text", text: "Stop follow-ups" },
-        value: card.enrollmentId,
-        confirm: {
-          title: { type: "plain_text", text: "Stop follow-ups?" },
-          text: { type: "mrkdwn", text: "No further texts will go out for this client." },
-          confirm: { type: "plain_text", text: "Stop them" },
-          deny: { type: "plain_text", text: "Keep going" },
-        },
-      }],
-    },
+    { type: "actions", elements: actions },
   ];
 }
 

@@ -1,6 +1,7 @@
 import { Activity, CircleHelp, Inbox, LayoutDashboard, LogOut, MessageSquareText, Settings, Users, UserCog } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import BrandBar from "./BrandBar";
+import { useFirm } from "./Firm";
 import { useSession } from "./Session";
 
 const links = [
@@ -16,6 +17,7 @@ const links = [
 
 export default function AppNav() {
   const session = useSession();
+  const firm = useFirm();
   return (
     <>
       <BrandBar />
@@ -26,6 +28,20 @@ export default function AppNav() {
           ))}
         </nav>
         <div className="app-user">
+          {firm?.firms?.length > 0 && (
+            <label className="firm-switch">
+              <span>Firm</span>
+              <select
+                value={firm.current?.id ?? ""}
+                onChange={(event) => firm.switchFirm(event.target.value)}
+                aria-label="Switch firm"
+              >
+                {firm.firms.map((item) => (
+                  <option key={item.id} value={item.id}>{item.name}</option>
+                ))}
+              </select>
+            </label>
+          )}
           <span>{session.user?.displayName || session.user?.email || "Signed in"}</span>
           <button type="button" onClick={session.signOut} title="Sign out"><LogOut size={16} /></button>
         </div>

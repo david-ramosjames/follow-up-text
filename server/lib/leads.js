@@ -3,6 +3,7 @@ import OpenAI from "openai";
 import { flattenSlackMessage, isOutboundReferral, kindSlug, normalizeCaseType, pickTrackSlug, readLead } from "../../shared/leads.js";
 import { missingMergeTokens } from "../../shared/messaging.js";
 import { rows } from "../db.js";
+import { currentFirm } from "./firms.js";
 
 export { flattenSlackMessage, readLead, isOutboundReferral, kindSlug, pickTrackSlug, normalizeCaseType };
 
@@ -205,12 +206,15 @@ async function classifyWithOpenAI(sequences, text) {
 // actually go out — not whether a form can be assigned here. Switching Qualified
 // lead off used to hide it from this list, so injury posts fell through.
 export async function routableSequences() {
+  const id = currentFirm()?.id;
   return rows(
     `select slug, name, coalesce(description, '') as description, is_active
      from followup_sequences q
      where q.auto_routable
+       and ($1::uuid is null or q.firm_id = $1)
        and exists (select 1 from followup_steps s where s.sequence_id = q.id and s.is_active)
      order by q.name`,
+    [id ?? null],
   );
 }
 

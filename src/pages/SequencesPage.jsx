@@ -1,12 +1,15 @@
-import { CheckCircle2, Copy, Edit3, Plus, Star, Trash2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { CheckCircle2, Copy, Download, Edit3, Plus, Star, Trash2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import AppNav from "../components/AppNav";
+import { useFirm } from "../components/Firm";
 import { api, slugify } from "../lib/api";
 import { describeDelay } from "../../shared/messaging";
 
 export default function SequencesPage() {
   const navigate = useNavigate();
+  const firm = useFirm();
+  const otherFirms = (firm?.firms ?? []).filter((item) => item.id !== firm?.current?.id);
   const [sequences, setSequences] = useState([]);
   const [numbers, setNumbers] = useState([]);
   const [status, setStatus] = useState("loading");
@@ -14,6 +17,14 @@ export default function SequencesPage() {
   const [busy, setBusy] = useState(false);
   const [duplicatingId, setDuplicatingId] = useState("");
   const [error, setError] = useState("");
+  const [importNote, setImportNote] = useState("");
+  const [sourceFirmId, setSourceFirmId] = useState("");
+  const [catalog, setCatalog] = useState([]);
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
+  const [catalogStatus, setCatalogStatus] = useState("idle");
+  const [importing, setImporting] = useState(false);
+  const sequencesRef = useRef(sequences);
+  sequencesRef.current = sequences;
 
   const refresh = async () => {
     try {
@@ -31,6 +42,31 @@ export default function SequencesPage() {
   };
 
   useEffect(() => { refresh(); }, []);
+
+  useEffect(() => {
+    if (!sourceFirmId) {
+      setCatalog([]);
+      setSelectedIds(new Set());
+      setCatalogStatus("idle");
+      return undefined;
+    }
+    let cancelled = false;
+    setCatalogStatus("loading");
+    api.get(`/firms/${sourceFirmId}/sequences`)
+      .then((list) => {
+        if (cancelled) return;
+        const taken = new Set(sequencesRef.current.map((sequence) => sequence.slug));
+        setCatalog(list);
+        setSelectedIds(new Set(list.filter((row) => !taken.has(row.slug)).map((row) => row.id)));
+        setCatalogStatus("ready");
+      })
+      .catch((loadError) => {
+        if (cancelled) return;
+        setError(loadError.message);
+        setCatalogStatus("error");
+      });
+    return () => { cancelled = true; };
+  }, [sourceFirmId]);
 
   const create = async (event) => {
     event.preventDefault();
@@ -75,6 +111,38 @@ export default function SequencesPage() {
     }
   };
 
+  const importSequences = async (event) => {
+    event.preventDefault();
+    if (!sourceFirmId || importableIds.length === 0) return;
+    setImporting(true);
+    setError("");
+    setImportNote("");
+    try {
+      const result = await api.post("/sequences/import", {
+        source_firm_id: sourceFirmId,
+        sequence_ids: importableIds,
+      });
+      const n = result.imported?.length ?? 0;
+      const skip = result.skipped?.length ?? 0;
+      const bits = [];
+      if (n) bits.push(`Imported ${n} sequence${n === 1 ? "" : "s"}, switched off.`);
+      if (skip) bits.push(`${skip} skipped because this firm already has that short name.`);
+      setImportNote(bits.join(" ") || "Nothing to import.");
+      const importedSlugs = new Set((result.imported ?? []).map((row) => row.slug));
+      const skippedIds = new Set((result.skipped ?? []).map((row) => row.id));
+      setSelectedIds((current) => new Set([...current].filter((id) => {
+        if (skippedIds.has(id)) return false;
+        const row = catalog.find((item) => item.id === id);
+        return row && !importedSlugs.has(row.slug);
+      })));
+      await refresh();
+    } catch (importError) {
+      setError(importError.message);
+    } finally {
+      setImporting(false);
+    }
+  };
+
   const remove = async (sequence) => {
     const confirmed = window.confirm(
       `Delete “${sequence.name}”? Series already running on it keep their history, but the `
@@ -97,6 +165,12 @@ export default function SequencesPage() {
     if (!found) return id ? "unknown number" : "default";
     return found.label || found.phone_e164;
   };
+
+  const takenSlugs = new Set(sequences.map((sequence) => sequence.slug));
+  const importableIds = [...selectedIds].filter((id) => {
+    const row = catalog.find((item) => item.id === id);
+    return row && !takenSlugs.has(row.slug);
+  });
 
   return (
     <main className="page">
@@ -129,13 +203,83 @@ export default function SequencesPage() {
           Duplicate an existing one if you only need a few changes.
         </p>
 
+        {otherFirms.length > 0 && (
+          <form className="import-panel" onSubmit={importSequences}>
+            <h2>Import from another firm</h2>
+            <p>
+              Copies keep the same short names so the lead router still recognises
+              qualified-lead and referral. They start switched off. This firm’s sending
+              number is not filled in — pick one before you turn sending on.
+            </p>
+            <label>
+              <span>Copy from</span>
+              <select
+                value={sourceFirmId}
+                onChange={(event) => setSourceFirmId(event.target.value)}
+              >
+                <option value="">Choose a firm</option>
+                {otherFirms.map((item) => (
+                  <option key={item.id} value={item.id}>{item.name}</option>
+                ))}
+              </select>
+            </label>
+            {catalogStatus === "loading" && <p className="inline-note">Loading their sequences…</p>}
+            {catalogStatus === "ready" && catalog.length === 0 && (
+              <p className="inline-note">That firm has no sequences yet.</p>
+            )}
+            {catalog.length > 0 && (
+              <div className="import-picker">
+                {catalog.map((row) => {
+                  const taken = takenSlugs.has(row.slug);
+                  return (
+                    <label key={row.id} className="checkbox">
+                      <input
+                        type="checkbox"
+                        disabled={taken}
+                        checked={!taken && selectedIds.has(row.id)}
+                        onChange={(event) => {
+                          setSelectedIds((current) => {
+                            const next = new Set(current);
+                            if (event.target.checked) next.add(row.id);
+                            else next.delete(row.id);
+                            return next;
+                          });
+                        }}
+                      />
+                      <span>
+                        <strong>{row.name}</strong>
+                        <small>
+                          {row.slug}
+                          {row.step_count != null ? ` · ${row.step_count} text${row.step_count === 1 ? "" : "s"}` : ""}
+                          {taken ? " · already here" : ""}
+                        </small>
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+            <button
+              type="submit"
+              className="button"
+              disabled={importing || !sourceFirmId || importableIds.length === 0}
+            >
+              <Download size={16} /> {importing ? "Importing…" : "Import"}
+            </button>
+          </form>
+        )}
+
+        {importNote && <p className="form-ok">{importNote}</p>}
         {error && <p className="form-error">{error}</p>}
         {status === "loading" && <div className="page-state">Loading…</div>}
 
         {status === "ready" && sequences.length === 0 && (
           <div className="empty-state">
             <h2>No sequences yet</h2>
-            <p>Create one above, write the texts and timings, then switch it on.</p>
+            <p>
+              Create one above, write the texts and timings, then switch it on.
+              {otherFirms.length > 0 ? " Or import copies from another firm." : ""}
+            </p>
           </div>
         )}
 

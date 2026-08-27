@@ -186,6 +186,15 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--primary); o
 .app-nav nav a:hover { background: var(--raised); text-decoration: none; }
 .app-nav nav a.active { background: var(--primary); color: #fff; }
 .app-user { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 12px; }
+.firm-switch {
+  display: inline-flex; align-items: center; gap: 6px;
+  color: var(--muted); font-size: 12px; font-weight: 600;
+}
+.firm-switch select {
+  max-width: 220px; padding: 6px 8px;
+  border: 1px solid var(--line); border-radius: 4px;
+  background: var(--card); color: var(--ink); font-weight: 600;
+}
 .app-user button {
   display: grid; place-items: center;
   width: 32px; height: 32px;
@@ -400,6 +409,22 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--primary); o
 .operator-form label.checkbox > span { text-transform: none; font-size: 13px; }
 
 .inline-note { margin: 8px 0 22px; color: var(--muted); font-size: 12px; max-width: 88ch; line-height: 1.6; }
+
+.import-panel {
+  margin: 0 0 22px; padding: 16px;
+  background: var(--card); border: 1px solid var(--line); border-radius: 6px;
+}
+.import-panel h2 { margin: 0 0 6px; font-size: 14px; }
+.import-panel > p { margin: 0 0 14px; color: var(--muted); font-size: 13px; max-width: 88ch; line-height: 1.6; }
+.import-panel > label { display: block; max-width: 320px; margin-bottom: 12px; }
+.import-panel > label > span {
+  display: block; margin-bottom: 5px;
+  color: var(--muted); font-size: 11px; font-weight: 700; text-transform: uppercase;
+}
+.import-picker {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 8px 16px; margin: 4px 0 14px;
+}
 .form-error, .form-ok {
   margin: 14px 0; padding: 11px 14px; border-radius: 4px; font-size: 13px;
 }

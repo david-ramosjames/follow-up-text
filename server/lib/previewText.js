@@ -6,6 +6,7 @@ import {
 } from "../../shared/messaging.js";
 import { one } from "../db.js";
 import { loadSettings } from "./settings.js";
+import { currentFirm } from "./firms.js";
 
 // What a lead would actually receive as text 1, merge fields filled in.
 // Used by watch-and-record and by the Leads page when someone switches tracks.
@@ -16,9 +17,13 @@ export async function previewFirstText(slug, { firstName, lastName, caseType, la
             q.night_starts_hour, q.night_ends_hour
      from followup_sequences q
      join followup_steps s on s.sequence_id = q.id and s.is_active
-     where q.slug = coalesce($1, (select slug from followup_sequences where is_default limit 1))
+     where ($2::uuid is null or q.firm_id = $2)
+       and q.slug = coalesce($1, (
+         select slug from followup_sequences
+         where is_default and ($2::uuid is null or firm_id = $2) limit 1
+       ))
      order by s.position limit 1`,
-    [slug],
+    [slug, currentFirm()?.id ?? null],
   );
   if (!step) return null;
 

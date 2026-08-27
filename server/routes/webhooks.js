@@ -12,6 +12,7 @@ import { retireStartCard } from "../lib/followups.js";
 import { displayPhone, postToThread } from "../lib/slack.js";
 import { loadSettings } from "../lib/settings.js";
 import { verifyWebhook } from "../lib/quo.js";
+import { currentFirm, firmForQuoNumber, runWithFirm } from "../lib/firms.js";
 
 export const webhookRouter = express.Router();
 
@@ -69,6 +70,7 @@ async function handleInboundMessage(object) {
     to_number: to,
     is_stop: isStop,
     is_start: isStart,
+    firm_id: currentFirm()?.id ?? null,
   });
 
   if (result?.duplicate) return { duplicate: true };
@@ -155,6 +157,7 @@ async function handleInboundCall(object) {
     kind: "call",
     is_stop: false,
     is_start: false,
+    firm_id: currentFirm()?.id ?? null,
   });
   if (!result?.ok) return { ignored: result?.reason };
   if (!result.stopped?.ok) return { action: "call", stopped: false };
@@ -183,13 +186,9 @@ async function handleDelivery(object, status) {
 }
 
 webhookRouter.post("/quo", async (req, res) => {
-  const verified = verifyWebhook(req, req.rawBody);
+  const verified = await verifyWebhook(req, req.rawBody);
   if (!verified.ok) {
     console.warn("Rejected a Quo webhook:", verified.reason);
-    // The reason goes in the body, not just the log. Quo's own Events log shows
-    // the response to each delivery, so a wall of 401s there should say what is
-    // wrong with the secret rather than making somebody go and read Railway's
-    // logs to find out. None of these reasons discloses anything secret.
     return res.status(401).json({ error: "Unauthorized", reason: verified.reason });
   }
 
@@ -201,6 +200,13 @@ webhookRouter.post("/quo", async (req, res) => {
   }
 
   const { type, object } = readEvent(body);
+  const to = readPhone(object?.to) || readPhone(object?.phoneNumber);
+  const firm = await firmForQuoNumber({
+    quoNumberId: object?.phoneNumberId ? String(object.phoneNumberId) : null,
+    toNumber: to,
+  }) || verified.firm;
+
+  return runWithFirm(firm, async () => {
 
   try {
     if (type === "message.received" || (!type && object.direction === "incoming")) {
@@ -240,4 +246,5 @@ webhookRouter.post("/quo", async (req, res) => {
     }
     return res.status(500).json({ error: error.message });
   }
+  });
 });

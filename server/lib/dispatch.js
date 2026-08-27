@@ -8,6 +8,7 @@ import { resolveSendingNumber, sendText } from "./quo.js";
 import { retireStartCard } from "./followups.js";
 import { displayPhone, postToThread } from "./slack.js";
 import { loadSettings } from "./settings.js";
+import { defaultFirm, loadFirm, runWithFirm } from "./firms.js";
 
 // Quo throttles the messages endpoint at roughly ten calls a second. Pacing at
 // eight keeps a large batch comfortably under the limit.
@@ -101,18 +102,22 @@ export async function runDispatch() {
 
   try {
     const settings = await loadSettings();
-    const rows = await rpcSet("followup_claim_due", settings.dispatch_batch_size ?? 25);
-    if (!rows.length) return { claimed: 0, sent: 0, failed: 0, ms: Date.now() - started };
+    const batch = await rpcSet("followup_claim_due", settings.dispatch_batch_size ?? 25);
+    if (!batch.length) return { claimed: 0, sent: 0, failed: 0, ms: Date.now() - started };
 
     let sent = 0;
     let failed = 0;
     let segments = 0;
     const failures = [];
 
-    for (const [index, row] of rows.entries()) {
+    for (const [index, row] of batch.entries()) {
       if (index > 0) await sleep(SEND_INTERVAL_MS);
       try {
-        const result = await sendOne(row, settings);
+        const firm = (row.firm_id && await loadFirm(row.firm_id)) || await defaultFirm();
+        const result = await runWithFirm(firm, async () => {
+          const firmSettings = await loadSettings({ fresh: true });
+          return sendOne(row, firmSettings);
+        });
         segments += result.segments ?? 0;
         if (result.sent) sent += 1;
         else { failed += 1; failures.push({ enrollment: row.enrollment_id, error: result.error }); }
@@ -124,7 +129,7 @@ export async function runDispatch() {
       }
     }
 
-    return { claimed: rows.length, sent, failed, segments, failures, ms: Date.now() - started };
+    return { claimed: batch.length, sent, failed, segments, failures, ms: Date.now() - started };
   } finally {
     running = false;
   }

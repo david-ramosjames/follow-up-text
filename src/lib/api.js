@@ -3,9 +3,13 @@
 // message rather than inventing their own.
 
 async function request(path, options = {}) {
+  const firmId = typeof localStorage !== "undefined" ? localStorage.getItem("followup_firm_id") : null;
   const response = await fetch(`/api${path}`, {
     credentials: "same-origin",
-    headers: options.body ? { "Content-Type": "application/json" } : {},
+    headers: {
+      ...(options.body ? { "Content-Type": "application/json" } : {}),
+      ...(firmId ? { "X-Firm-Id": firmId } : {}),
+    },
     ...options,
     body: options.body ? JSON.stringify(options.body) : undefined,
   });

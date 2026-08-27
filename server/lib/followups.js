@@ -1,6 +1,7 @@
 import { one, rows, rpc, query } from "../db.js";
 import { displayPhone, enrollmentBlocks, postToThread, slackApi } from "./slack.js";
 import { formatPhone } from "../../shared/messaging.js";
+import { currentFirm } from "./firms.js";
 
 export async function loadOperator(slackUserId) {
   const found = await rows(
@@ -12,9 +13,12 @@ export async function loadOperator(slackUserId) {
 }
 
 export async function activeSequences() {
+  const id = currentFirm()?.id;
+  if (!id) return [];
   return rows(
     `select slug, name, is_default, timezone from followup_sequences
-     where is_active order by is_default desc, name`,
+     where is_active and firm_id = $1 order by is_default desc, name`,
+    [id],
   );
 }
 
@@ -56,13 +60,18 @@ export const ENROLL_FIELD_ERRORS = {
 };
 
 export async function startSeries(payload) {
-  return rpc("followup_enroll", payload);
+  return rpc("followup_enroll", { ...payload, firm_id: payload.firm_id ?? currentFirm()?.id ?? null });
 }
 
 // Posts the confirmation card. When the series came from a message or a thread,
 // this posts as a threaded reply and records the ts, so the Stop button and every
 // later update stay in that one conversation.
-export async function announceEnrollment(result, { fallbackResponseUrl = null } = {}) {
+export async function announceEnrollment(result, {
+  fallbackResponseUrl = null,
+  channel = null,
+  threadTs = null,
+  routing = null,
+} = {}) {
   const phone = await displayPhone(String(result.phone));
   let fromNumber = null;
   if (result.quo_number_id) {
@@ -72,6 +81,13 @@ export async function announceEnrollment(result, { fallbackResponseUrl = null } 
         ? `${row.label} (${formatPhone(row.phone_e164) || row.phone_e164})`
         : (formatPhone(row.phone_e164) || row.phone_e164);
     }
+  }
+  let rerouteOptions = [];
+  if (routing) {
+    rerouteOptions = (await activeSequences()).slice(0, 100).map((sequence) => ({
+      text: { type: "plain_text", text: sequence.name.slice(0, 75) },
+      value: `${result.enrollment_id}|${sequence.slug}`,
+    }));
   }
   const blocks = enrollmentBlocks({
     enrollmentId: String(result.enrollment_id),
@@ -85,12 +101,14 @@ export async function announceEnrollment(result, { fallbackResponseUrl = null } 
     caseReference: result.case_reference ?? null,
     timezone: result.sequence?.timezone ?? "America/Chicago",
     fromNumber,
+    routing,
+    rerouteOptions,
   });
   const text = `Follow-up texts started for ${phone}`;
 
   const posted = await postToThread({
-    channel: result.slack_channel_id,
-    threadTs: result.slack_thread_ts,
+    channel: channel || result.slack_channel_id,
+    threadTs: threadTs || result.slack_thread_ts,
     text,
     blocks,
   });

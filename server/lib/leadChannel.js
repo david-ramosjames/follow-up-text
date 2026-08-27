@@ -1,7 +1,8 @@
 import { describeSlackHistoryError, historyMessageToEvent } from "../../shared/leads.js";
 import { rows } from "../db.js";
 import { loadSettings } from "./settings.js";
-import { slackApi } from "./slack.js";
+import { slackApi, slackConfigured } from "./slack.js";
+import { listFirms, runWithFirm } from "./firms.js";
 
 // Slack's Events API is how new posts normally arrive, but it fails silently:
 // the live app may not have message.channels (or message.groups, if the channel
@@ -59,10 +60,10 @@ export async function catchUpLeadChannel({
       ms: Date.now() - started,
     });
   }
-  if (!process.env.SLACK_BOT_TOKEN) {
+  if (!slackConfigured()) {
     return remember({
       skipped: "no_token",
-      error: "SLACK_BOT_TOKEN is not set, so the channel cannot be read.",
+      error: "No Slack bot token is set for this firm, so the channel cannot be read.",
       channel,
       ms: Date.now() - started,
     });
@@ -126,16 +127,20 @@ export function startLeadCatchUp() {
     if (stopped) return;
     let remaining = 0;
     try {
-      const result = await catchUpLeadChannel();
-      remaining = Number(result.remaining ?? 0);
-      if (result.error) {
-        console.warn(`lead catch-up: ${result.error}`);
-      } else if (result.processed) {
-        console.log(`lead catch-up: ${result.processed} new of ${result.unseen} unseen `
-          + `(${result.posted} posts in ${result.channel}), ${result.ms}ms`);
-      } else if (first) {
-        if (result.skipped) console.log(`lead catch-up: skipped (${result.skipped})`);
-        else console.log(`lead catch-up: ${result.posted} posts in ${result.channel}, none new`);
+      const firms = await listFirms();
+      for (const firm of firms) {
+        const result = await runWithFirm(firm, () => catchUpLeadChannel());
+        remaining += Number(result.remaining ?? 0);
+        if (result.error) {
+          console.warn(`lead catch-up (${firm.slug}): ${result.error}`);
+        } else if (result.processed) {
+          console.log(`lead catch-up (${firm.slug}): ${result.processed} new of ${result.unseen} unseen `
+            + `(${result.posted} posts in ${result.channel}), ${result.ms}ms`);
+        } else if (first && !result.skipped) {
+          console.log(`lead catch-up (${firm.slug}): ${result.posted} posts in ${result.channel}, none new`);
+        } else if (first && result.skipped) {
+          console.log(`lead catch-up (${firm.slug}): skipped (${result.skipped})`);
+        }
       }
       first = false;
     } catch (error) {

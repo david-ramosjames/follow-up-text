@@ -25,6 +25,7 @@ import {
   stopSeries,
 } from "../lib/followups.js";
 import { listQuoNumbers } from "../lib/quo.js";
+import { currentFirm, runWithFirm, slackAppId, slackBotToken } from "../lib/firms.js";
 import {
   displayPhone,
   formatWhen,
@@ -239,8 +240,8 @@ async function doStatus(tokens) {
 
   const contacts = await rows(
     `select id, phone_e164, first_name, language, opted_out_at, last_inbound_at
-     from followup_contacts where phone_e164 = $1`,
-    [phone],
+     from followup_contacts where phone_e164 = $1 and ($2::uuid is null or firm_id = $2)`,
+    [phone, currentFirm()?.id ?? null],
   );
   const contact = contacts[0];
   if (!contact) return ephemeral(`:information_source: No history for ${maskPhone(phone)}.`);
@@ -342,11 +343,13 @@ async function openStartModal({ triggerId, userId, channelId, threadTs, sourceTe
 /* --------------------------------------------------------- slash command */
 
 slackRouter.post("/commands", async (req, res) => {
-  const verified = verifySlackRequest(req, req.rawBody);
+  const verified = await verifySlackRequest(req, req.rawBody, { teamId: req.body?.team_id });
   if (!verified.ok) {
     console.warn("Rejected a Slack command:", verified.reason);
     return res.status(401).send("Unauthorized");
   }
+
+  return runWithFirm(verified.firm, async () => {
 
   const params = req.body;
   const userId = params.user_id ?? "";
@@ -382,7 +385,7 @@ slackRouter.post("/commands", async (req, res) => {
     }
 
     if (!tokens.length) {
-      if (process.env.SLACK_BOT_TOKEN && params.trigger_id) {
+      if (slackBotToken() && params.trigger_id) {
         const opened = await openStartModal({
           triggerId: params.trigger_id,
           userId,
@@ -405,11 +408,10 @@ slackRouter.post("/commands", async (req, res) => {
     console.error("slash command failed", error);
     return res.json(ephemeral(":warning: Something went wrong. The error has been logged."));
   }
+  });
 });
 
 /* ------------------------------------------------------------ lead intake */
-
-const CONFIDENCE_ICON = { high: ":large_green_circle:", medium: ":large_yellow_circle:", low: ":red_circle:" };
 
 // The name Slack shows against an app's post. Different sources fill different
 // fields, so try all of them before giving up.
@@ -493,7 +495,7 @@ export async function handleLeadPost(event) {
   // Our own posts, edits, deletions and thread replies are not new leads.
   if (event.subtype && event.subtype !== "bot_message") { log(`skipped — message subtype ${event.subtype}`); return { ignored: event.subtype }; }
   if (event.thread_ts && event.thread_ts !== event.ts) { log("skipped — a thread reply, not a new post"); return { ignored: "thread_reply" }; }
-  if (event.app_id && event.app_id === process.env.SLACK_APP_ID) { log("skipped — our own post"); return { ignored: "self" }; }
+  if (event.app_id && event.app_id === slackAppId()) { log("skipped — our own post"); return { ignored: "self" }; }
 
   // Catch-up and Slack retries both redeliver the same ts. Skip before the
   // model runs, otherwise a reread costs a classification for a row that the
@@ -560,8 +562,8 @@ export async function handleLeadPost(event) {
     ` → ${assessment.sequenceSlug ?? "default"} · ${assessment.confidence ?? "?"} confidence`);
 
   const sequence = assessment.sequenceSlug
-    ? (await rows("select name from followup_sequences where slug = $1", [assessment.sequenceSlug]))[0]
-    : (await rows("select name from followup_sequences where is_default limit 1"))[0];
+    ? (await rows("select name from followup_sequences where slug = $1 and ($2::uuid is null or firm_id = $2)", [assessment.sequenceSlug, currentFirm()?.id ?? null]))[0]
+    : (await rows("select name from followup_sequences where is_default and ($1::uuid is null or firm_id = $1) limit 1", [currentFirm()?.id ?? null]))[0];
 
   const preview = await previewFirstText(assessment.sequenceSlug, {
     firstName: assessment.firstName,
@@ -653,40 +655,14 @@ export async function handleLeadPost(event) {
   }
 
   await recordObservation({ ...observed, outcome: "started", enrollmentId: result.enrollment_id });
-  await announceEnrollment(result);
-
-  // The routing decision, in the thread, next to the lead it was made about. A
-  // wrong track is then something anybody can see and correct rather than
-  // something they discover from the texts a client received.
-  const icon = CONFIDENCE_ICON[assessment.confidence] ?? ":white_circle:";
-  await slackApi("chat.postMessage", {
+  await announceEnrollment(result, {
     channel: event.channel,
-    thread_ts: threadTs,
-    text: `${icon} Routed to *${result.sequence?.name}* — ${assessment.reasoning}`,
-    blocks: [
-      {
-        type: "context",
-        elements: [{
-          type: "mrkdwn",
-          text: `${icon} Routed to *${result.sequence?.name}*`
-            + `${assessment.caseType ? ` · ${assessment.caseType}` : ""}`
-            + ` · ${assessment.language === "es" ? "Spanish" : "English"}`
-            + `\n_${assessment.reasoning}_`,
-        }],
-      },
-      {
-        type: "actions",
-        elements: [{
-          type: "static_select",
-          action_id: "followup_reroute",
-          placeholder: { type: "plain_text", text: "Wrong track? Move to…" },
-          options: (await activeSequences()).slice(0, 100).map((sequence) => ({
-            text: { type: "plain_text", text: sequence.name.slice(0, 75) },
-            value: `${result.enrollment_id}|${sequence.slug}`,
-          })),
-        }],
-      },
-    ],
+    threadTs,
+    routing: {
+      confidence: assessment.confidence,
+      reasoning: assessment.reasoning,
+      caseType: assessment.caseType,
+    },
   });
 
   return { started: true, enrollment_id: result.enrollment_id };
@@ -698,7 +674,7 @@ export async function handleLeadPost(event) {
 // Lets somebody start follow-ups by @mentioning the app inside an existing
 // thread, which is where intake conversations actually happen.
 slackRouter.post("/events", async (req, res) => {
-  const verified = verifySlackRequest(req, req.rawBody);
+  const verified = await verifySlackRequest(req, req.rawBody, { teamId: req.body?.team_id });
   if (!verified.ok) {
     console.warn("Rejected a Slack event:", verified.reason);
     return res.status(401).send("Unauthorized");
@@ -713,6 +689,8 @@ slackRouter.post("/events", async (req, res) => {
 
   const event = body.event;
   if (!event) return;
+
+  return runWithFirm(verified.firm, async () => {
 
   // Lead posts come from other apps, so they arrive as ordinary channel
   // messages rather than mentions. handleLeadPost drops anything outside the
@@ -829,6 +807,7 @@ slackRouter.post("/events", async (req, res) => {
   } catch (error) {
     console.error("app_mention handling failed", error);
   }
+  });
 });
 
 /* ---------------------------------------------------------- interactivity */
@@ -1076,11 +1055,19 @@ async function handleReroute(payload, res) {
 }
 
 slackRouter.post("/interactivity", async (req, res) => {
-  const verified = verifySlackRequest(req, req.rawBody);
+  let teamId = req.body?.team_id;
+  try {
+    const preview = JSON.parse(req.body.payload || "{}");
+    teamId = preview.team?.id || preview.team_id || teamId;
+  } catch { /* signature check still runs on the raw body */ }
+
+  const verified = await verifySlackRequest(req, req.rawBody, { teamId });
   if (!verified.ok) {
     console.warn("Rejected a Slack interaction:", verified.reason);
     return res.status(401).send("Unauthorized");
   }
+
+  return runWithFirm(verified.firm, async () => {
 
   let payload;
   try {
@@ -1108,4 +1095,5 @@ slackRouter.post("/interactivity", async (req, res) => {
     if (!res.headersSent) return res.status(200).send("");
     return undefined;
   }
+  });
 });
