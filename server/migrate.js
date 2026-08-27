@@ -30,6 +30,10 @@ export async function migrate() {
       const sql = readFileSync(join(migrationsDir, file), "utf8");
       process.stdout.write(`  applying ${file}... `);
       try {
+        // Fail fast on a lock the old replica is still holding, so boot can
+        // retry after Railway has stopped it. An unbounded wait here used to
+        // keep /healthz from ever coming up.
+        await client.query("set lock_timeout = '8s'");
         await client.query("begin");
         await client.query(sql);
         await client.query("insert into schema_migrations (filename) values ($1)", [file]);

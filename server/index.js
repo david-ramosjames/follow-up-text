@@ -107,12 +107,25 @@ async function main() {
   // that waits on the old replica's queries would otherwise deadlock the
   // deploy: migrate never finishes, listen never runs, healthcheck never
   // passes, old replica never stops.
-  const server = app.listen(port, "0.0.0.0", () => {
+  //
+  // Do not bind 0.0.0.0 only — Railway Metal healthchecks over IPv6, and a
+  // v4-only listen looks like "service unavailable" for the full retry window.
+  const server = app.listen(port, () => {
     console.log(`Follow-up texts listening on ${port}`);
   });
 
-  console.log("Running migrations...");
-  await migrate();
+  const delays = [0, 2000, 4000, 8000, 8000];
+  for (let attempt = 0; attempt < delays.length; attempt += 1) {
+    if (delays[attempt]) await new Promise((resolve) => setTimeout(resolve, delays[attempt]));
+    try {
+      console.log(attempt ? `Running migrations (attempt ${attempt + 1})...` : "Running migrations...");
+      await migrate();
+      break;
+    } catch (error) {
+      console.error(error.message);
+      if (attempt === delays.length - 1) throw error;
+    }
+  }
 
   const bootstrapped = await ensureBootstrapAdmins().catch((error) => {
     console.error("BOOTSTRAP_ADMIN_EMAIL could not be applied:", error.message);
