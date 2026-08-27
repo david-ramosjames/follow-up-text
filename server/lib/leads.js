@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
-import { flattenSlackMessage, isOutboundReferral, kindSlug, normalizeCaseType, pickTrackSlug, readLead } from "../../shared/leads.js";
+import { flattenSlackMessage, isOutboundReferral, kindSlug, normalizeCaseType, pickTrackSlug, readLead, buildClassificationUserPrompt } from "../../shared/leads.js";
 import { missingMergeTokens } from "../../shared/messaging.js";
 import { rows } from "../db.js";
 import { currentFirm } from "./firms.js";
@@ -70,9 +70,11 @@ const CLASSIFICATION_SCHEMA = {
     language: { type: "string", enum: ["en", "es"], description: "The language to text them in." },
     case_type: {
       type: ["string", "null"],
-      description: "A short noun phrase that reads naturally after 'your' in a text, "
-        + "e.g. 'car accident', 'slip and fall', 'sexual assault involving an Uber driver'. "
-        + "Same language as `language`. Not a comma list or a file label. Null if unknown.",
+      description: "The exact words that replace {{case_type}} in a client SMS, after "
+        + "'your' or 'su'. Two to five ordinary words you would send tonight: "
+        + "'car accident', 'slip and fall', 'sexual assault case'. "
+        + "Not a file note — no clinic, city, date, or 'involving …' clause. "
+        + "Those go in case_detail. Same language as `language`. Null if unknown.",
     },
     case_detail: {
       type: ["string", "null"],
@@ -106,22 +108,27 @@ Rules:
 
 - Choose sequence_slug from the list of sequences you are given, and nothing
   else. Never invent a slug.
-- An injured person this firm may represent is the qualified-lead track. A form
-  marked Referral or Referal is the referral track.
+- An injured person this firm may represent is the qualified-lead track.
+- The referral track is only for posts that contain the word Referral or Referal
+  (the form's own label, including that misspelling). Do not choose referral
+  because the post lacks injury details, is a contact-us request, looks weak, or
+  has low confidence. Those still go on qualified-lead.
 - If none is a good fit, return null. Do not pick a sequence that is not on the
   list.
 - Judge what happened from what the person actually wrote, not from the ad or
   campaign name. A campaign called "Slip ES" that produced a lead describing a
   car crash is a car crash.
-- case_type is pasted into texts after the word "your" (or "su" in Spanish). It
-  has to sound like something a person would say, not a form label. "car accident"
-  and "sexual assault involving an Uber driver" work. "sexual assault, Uber
-  driver" does not — that reads as "about your sexual assault, Uber driver".
-  Write it in the same language as the language field. Keep it short. Do not start it
-  with "your" or "su". Do not use a comma list. If writing Spanish, avoid á, í,
-  ó, ú so the text stays one SMS segment.
-- case_detail is the exact situation for the file — parties, vehicle type, MDL,
-  whatever is useful internally. It is never texted. A comma list is fine there.
+- case_type is the words that fill {{case_type}} in the first texts you are
+  given, not a summary of the post. Read each first text with your phrase in
+  the blank. If any sentence sounds like a file note, it is wrong.
+  Right: "car accident", "slip and fall", "truck accident", "sexual assault case".
+  Wrong: "sexual assault involving a clinic", "accident at Kind Clinic, South
+  Austin". Put the clinic, city, date, other party, and extra facts in
+  case_detail. Keep case_type to a few spoken words. Do not start it with
+  "your" or "su". Do not use a comma list. Same language as the language field.
+  If writing Spanish, avoid á, í, ó, ú so the text stays one SMS segment.
+- case_detail is the exact situation for the file — parties, clinic, vehicle
+  type, MDL, dates. It is never texted. A comma list is fine there.
 - language is the language to TEXT THEM IN. Spanish if the form says Spanish, if
   they wrote in Spanish, or if the source is a Spanish campaign. Otherwise
   English. When genuinely unsure, English.
@@ -130,7 +137,8 @@ Rules:
   receive.
 - If the post is marked Referral or Referal, this firm will send the person to
   another lawyer. That is the referral track. It is not another attorney sending
-  us a case, and it is not a qualified lead we will represent ourselves.
+  us a case, and it is not a qualified lead we will represent ourselves. If those
+  words are not in the post, never choose referral.
 - is_lead is false for anything that is not a new prospective client: test posts,
   status updates, staff conversation, an existing client's message. A form marked
   Referral is still a lead.
@@ -152,10 +160,7 @@ function openai() {
 // The one prompt both providers share. Kept identical so switching provider
 // changes only the model, not what it is asked to do.
 function buildPrompt(sequences, text) {
-  const menu = sequences.length
-    ? sequences.map((s) => `- ${s.slug}: ${s.name}${s.description ? ` — ${s.description}` : ""}`).join("\n")
-    : "(none are set up yet — return sequence_slug: null, but still fill in everything else)";
-  return `Sequences you may choose from:\n${menu}\n\nThe Slack post:\n"""\n${text}\n"""`;
+  return buildClassificationUserPrompt(sequences, text);
 }
 
 async function classifyWithAnthropic(sequences, text) {
@@ -218,8 +223,38 @@ export async function routableSequences() {
   );
 }
 
+// Same tracks, plus the first text on each one, so the model writes case_type
+// against the sentences that will actually go out.
+async function classifierSequences() {
+  const id = currentFirm()?.id;
+  return rows(
+    `select q.slug, q.name, coalesce(q.description, '') as description, q.is_active,
+            s.body_en, s.body_es, s.body_en_night, s.body_es_night
+     from followup_sequences q
+     left join lateral (
+       select body_en, body_es, body_en_night, body_es_night
+       from followup_steps
+       where sequence_id = q.id and is_active
+       order by position
+       limit 1
+     ) s on true
+     where q.auto_routable
+       and ($1::uuid is null or q.firm_id = $1)
+       and exists (select 1 from followup_steps st where st.sequence_id = q.id and st.is_active)
+     order by q.name`,
+    [id ?? null],
+  );
+}
+
 export async function classifyLead(text) {
-  const sequences = await routableSequences();
+  const sequences = await classifierSequences();
+  const markedReferral = isOutboundReferral(text);
+  // Referral is a parsed form label, not a judgement. If the word is not in the
+  // post, keep that track off the menu so a contact request with no accident
+  // details cannot land there.
+  const menu = markedReferral
+    ? sequences
+    : sequences.filter((sequence) => sequence.slug !== "referral");
 
   const provider = llmProvider();
   if (!provider || !llmConfigured()) return { ok: false, reason: "llm_not_configured" };
@@ -233,12 +268,12 @@ export async function classifyLead(text) {
 
   try {
     const result = provider === "openai"
-      ? await classifyWithOpenAI(sequences, text)
-      : await classifyWithAnthropic(sequences, text);
+      ? await classifyWithOpenAI(menu, text)
+      : await classifyWithAnthropic(menu, text);
     if (!result.ok) return { ...result, provider };
 
     const parsed = result.parsed;
-    const allowed = new Set(sequences.map((s) => s.slug));
+    const allowed = new Set(menu.map((s) => s.slug));
 
     // A slug outside the menu is treated as no choice at all rather than
     // passed through to fail an enrollment later.
@@ -246,6 +281,10 @@ export async function classifyLead(text) {
       parsed.invalid_slug = parsed.sequence_slug;
       parsed.sequence_slug = null;
       parsed.confidence = "low";
+    }
+    if (parsed.sequence_slug === "referral" && !markedReferral) {
+      parsed.invalid_slug = parsed.sequence_slug;
+      parsed.sequence_slug = null;
     }
 
     return { ok: true, provider, ...parsed };

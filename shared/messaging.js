@@ -17,7 +17,7 @@ export const MERGE_FIELDS = [
   { token: "{{last_name}}", label: "Last name" },
   { token: "{{full_name}}", label: "Full name" },
   { token: "{{case_reference}}", label: "Case number — the firm's own reference" },
-  { token: "{{case_type}}", label: "Case type — fits after “your”, like car accident" },
+  { token: "{{case_type}}", label: "Case type — short spoken words after “your”, like car accident" },
   { token: "{{assigned_user}}", label: "Assigned staff member" },
   { token: "{{firm_name}}", label: "Firm name" },
 ];

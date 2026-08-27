@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { flattenSlackMessage, readLead, historyMessageToEvent, describeSlackHistoryError, isOutboundReferral, pickTrackSlug, describeTrackKind, kindSlug, normalizeCaseType } from "../shared/leads.js";
+import { flattenSlackMessage, readLead, historyMessageToEvent, describeSlackHistoryError, isOutboundReferral, pickTrackSlug, describeTrackKind, kindSlug, normalizeCaseType, buildClassificationUserPrompt } from "../shared/leads.js";
 
 // The four shapes actually posting into the lead channel. Kept verbatim rather
 // than tidied, because the point of these tests is that real posts parse — a
@@ -169,6 +169,20 @@ test("an injury lead with no slug lands on qualified-lead, not the hand-start de
   assert.equal(pickTrackSlug({ preferred: "qualified-lead", referral: true, tracks }), "referral");
 });
 
+test("the model cannot put a lead on referral unless the post says referral", () => {
+  const tracks = [
+    { slug: "qualified-lead", is_active: false },
+    { slug: "referral", is_active: false },
+  ];
+  assert.equal(pickTrackSlug({ preferred: "referral", tracks }), "qualified-lead");
+  assert.equal(kindSlug({ preferred: "referral" }), "qualified-lead");
+  assert.equal(pickTrackSlug({
+    preferred: "referral",
+    tracks: [{ slug: "referral" }],
+  }), null);
+  assert.equal(pickTrackSlug({ preferred: "referral", referral: true, tracks }), "referral");
+});
+
 test("the gray facts label qualified vs referral from the classifier slug", () => {
   assert.equal(describeTrackKind("qualified-lead"), "Qualified lead");
   assert.equal(describeTrackKind("referral"), "Referral");
@@ -180,9 +194,24 @@ test("the gray facts label qualified vs referral from the classifier slug", () =
 });
 
 test("case type for texts is a short phrase, not a file label", () => {
-  assert.equal(normalizeCaseType("sexual assault involving an Uber driver"), "sexual assault involving an Uber driver");
+  assert.equal(normalizeCaseType("sexual assault case"), "sexual assault case");
   assert.equal(normalizeCaseType("your car accident"), "car accident");
   assert.equal(normalizeCaseType("su accidente de auto"), "accidente de auto");
   assert.equal(normalizeCaseType("  \"slip and fall\".  "), "slip and fall");
   assert.equal(normalizeCaseType(""), null);
+});
+
+test("the classifier is shown the first texts case_type will be pasted into", () => {
+  const prompt = buildClassificationUserPrompt([{
+    slug: "qualified-lead",
+    name: "Qualified lead",
+    description: "Injured person this firm may represent",
+    body_en: "Thank you for contacting us about your {{case_type}}.",
+    body_en_night: "We got your {{case_type}} tonight. Could you tell us a little more about when and where it happened?",
+  }], "Name: Nicholas\nPhone: 512-788-6991\nKind Clinic, sexual assault");
+  assert.match(prompt, /We got your \{\{case_type\}\} tonight/);
+  assert.match(prompt, /Thank you for contacting us about your \{\{case_type\}\}/);
+  assert.match(prompt, /reads like a text you would send tonight/);
+  assert.match(prompt, /Kind Clinic, sexual assault/);
+  assert.match(prompt, /qualified-lead: Qualified lead/);
 });

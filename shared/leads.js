@@ -103,17 +103,20 @@ export function isOutboundReferral(text) {
 export function pickTrackSlug({ preferred, referral = false, tracks = [] } = {}) {
   const has = (slug) => tracks.some((track) => track.slug === slug);
   if (referral && has("referral")) return "referral";
-  // New lead follow-up is not a track, even if it was left on the menu.
-  if (preferred && preferred !== "new-lead" && has(preferred)) return preferred;
+  // The model must not dump a contact-us post onto referral. That track is
+  // only for posts that contain the word Referral or Referal.
+  if (preferred && preferred !== "new-lead" && preferred !== "referral" && has(preferred)) {
+    return preferred;
+  }
   if (has("qualified-lead")) return "qualified-lead";
-  return tracks[0]?.slug ?? null;
+  return tracks.find((track) => track.slug !== "referral")?.slug ?? null;
 }
 
 // The classifier only has two kinds. New lead follow-up is the hand-start
 // default, not a kind — leftover slugs from when Qualified lead was off the
-// menu still count as qualified.
+// menu still count as qualified. Referral is only the parsed form label.
 export function kindSlug({ preferred, referral = false } = {}) {
-  if (referral || preferred === "referral") return "referral";
+  if (referral) return "referral";
   return "qualified-lead";
 }
 
@@ -137,4 +140,43 @@ export function normalizeCaseType(value) {
     text = cut.replace(/\s+\S*$/, "") || cut;
   }
   return text || null;
+}
+
+function firstTextLines(sequence) {
+  const lines = [];
+  if (sequence.body_en) lines.push(`Day (English): ${sequence.body_en}`);
+  if (sequence.body_en_night) lines.push(`Night (English): ${sequence.body_en_night}`);
+  if (sequence.body_es) lines.push(`Day (Spanish): ${sequence.body_es}`);
+  if (sequence.body_es_night) lines.push(`Night (Spanish): ${sequence.body_es_night}`);
+  return lines;
+}
+
+// The user half of the classifier prompt. case_type has to be written against
+// the first texts that will actually go out — otherwise the model describes
+// the file ("sexual assault involving a clinic") and the night text reads
+// "We got your sexual assault involving a clinic tonight".
+export function buildClassificationUserPrompt(sequences, text) {
+  const menu = sequences.length
+    ? sequences.map((s) => `- ${s.slug}: ${s.name}${s.description ? ` — ${s.description}` : ""}`).join("\n")
+    : "(none are set up yet — return sequence_slug: null, but still fill in everything else)";
+
+  const firstTexts = sequences
+    .map((sequence) => {
+      const lines = firstTextLines(sequence);
+      if (!lines.length) return null;
+      return `${sequence.name} (${sequence.slug}):\n${lines.map((line) => `  ${line}`).join("\n")}`;
+    })
+    .filter(Boolean)
+    .join("\n\n");
+
+  return `Sequences you may choose from:\n${menu}
+
+{{case_type}} is pasted into these first texts. Write case_type so every sentence reads like a text you would send tonight. Clinics, cities, dates, and other parties go in case_detail, never in case_type.
+
+${firstTexts || "(no first texts on file yet)"}
+
+The Slack post:
+"""
+${text}
+"""`;
 }
