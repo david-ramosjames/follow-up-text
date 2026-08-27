@@ -116,7 +116,7 @@ Rules:
   has to sound like something a person would say, not a form label. "car accident"
   and "sexual assault involving an Uber driver" work. "sexual assault, Uber
   driver" does not — that reads as "about your sexual assault, Uber driver".
-  Write it in the same language as `language`. Keep it short. Do not start it
+  Write it in the same language as the language field. Keep it short. Do not start it
   with "your" or "su". Do not use a comma list. If writing Spanish, avoid á, í,
   ó, ú so the text stays one SMS segment.
 - case_detail is the exact situation for the file — parties, vehicle type, MDL,
