@@ -1,5 +1,6 @@
 import { rows, query } from "../db.js";
 import { currentFirm, defaultFirm } from "./firms.js";
+import { clockHourLabel, nightEndHours, nightStartHours } from "../../shared/messaging.js";
 
 // Everything the firm can change lives in the database so it is editable in the
 // dashboard. The environment holds only secrets, which nobody should be able to
@@ -137,10 +138,9 @@ export const SETTING_DEFINITIONS = [
   {
     key: "night_starts_hour",
     label: "Night starts at",
-    type: "number",
-    default: 21,
-    min: 12,
-    max: 23,
+    type: "select",
+    default: "21",
+    options: nightStartHours().map((hour) => ({ value: String(hour), label: clockHourLabel(hour) })),
     help: "Copied onto a sequence when you create it. After that, edit night hours on the "
       + "sequence itself — that is what the first text actually uses. This is not the "
       + "sending window; Earliest and Latest on each sequence still decide when later texts "
@@ -149,11 +149,10 @@ export const SETTING_DEFINITIONS = [
   {
     key: "night_ends_hour",
     label: "Night ends at",
-    type: "number",
-    default: 8,
-    min: 1,
-    max: 11,
-    help: "Default closing hour copied onto new sequences. A first text before this hour "
+    type: "select",
+    default: "8",
+    options: nightEndHours().map((hour) => ({ value: String(hour), label: clockHourLabel(hour) })),
+    help: "Default closing time copied onto new sequences. A first text before this time "
       + "uses night copy; a first text after it uses the usual copy.",
   },
   {

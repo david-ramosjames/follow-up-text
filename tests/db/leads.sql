@@ -116,8 +116,7 @@ begin
   where (value ->> 'enrollment_id')::uuid = e.id;
   perform pg_temp.check('night hours come from the sequence',
     (claimed ->> 'is_night')::boolean =
-    (extract(hour from (now() at time zone 'America/Chicago'))::int >= 12
-      or extract(hour from (now() at time zone 'America/Chicago'))::int < 11),
+    followup_is_night(now(), 'America/Chicago', 12, 11),
     claimed ->> 'is_night');
 end $$;
 

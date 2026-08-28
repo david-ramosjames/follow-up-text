@@ -30,7 +30,8 @@ export async function previewFirstText(slug, { firstName, lastName, caseType, la
   const settings = await loadSettings();
   const tz = step.timezone || "America/Chicago";
   const hourRow = await one(
-    "select extract(hour from (now() at time zone $1))::int as hour",
+    `select extract(hour from (now() at time zone $1))::int
+            + extract(minute from (now() at time zone $1))::int / 60.0 as hour`,
     [tz],
   );
   const hour = Number(hourRow?.hour ?? 0);

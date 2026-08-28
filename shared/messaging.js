@@ -172,9 +172,10 @@ export function previewStep(step, { language = "en", isFirst = false, appendNoti
 }
 
 // Night wording wraps midnight: from 9pm to 8am is hour >= 21 or hour < 8.
+// `hour` is hours from midnight and may be fractional (22.5 is 10:30 PM).
 export function isNightHour(hour, start = 21, end = 8) {
-  const value = Number(hour);
-  return value >= Number(start) || value < Number(end);
+  const mins = Number(hour) * 60;
+  return mins >= Number(start) * 60 || mins < Number(end) * 60;
 }
 
 // Sending-window hours are stored as hours from midnight in 30-minute steps
@@ -199,6 +200,14 @@ export function sendingWindowHours() {
     values.push(minutes / 60);
   }
   return values;
+}
+
+export function nightStartHours() {
+  return sendingWindowHours().filter((hour) => hour >= 12 && hour < 24);
+}
+
+export function nightEndHours() {
+  return sendingWindowHours().filter((hour) => hour >= 0.5 && hour <= 11.5);
 }
 
 export function describeDelay(minutes) {

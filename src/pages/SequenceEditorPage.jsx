@@ -4,7 +4,7 @@ import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import AppNav from "../components/AppNav";
 import EmojiField from "../components/EmojiField";
 import { api, DAY_NAMES, TIMEZONES } from "../lib/api";
-import { DELAY_PRESETS, clockHourLabel, describeDelay, hasEmoji, MERGE_FIELDS, previewStep, sendingWindowHours } from "../../shared/messaging";
+import { DELAY_PRESETS, clockHourLabel, describeDelay, hasEmoji, MERGE_FIELDS, nightEndHours, nightStartHours, previewStep, sendingWindowHours } from "../../shared/messaging";
 
 function sampleVars(firmName) {
   return {
@@ -690,7 +690,7 @@ export default function SequenceEditorPage() {
                     value={Number(sequence.night_starts_hour ?? 21)}
                     onChange={(event) => updateSequence({ night_starts_hour: Number(event.target.value) })}
                   >
-                    {Array.from({ length: 12 }, (_, i) => i + 12).map((hour) => (
+                    {nightStartHours().map((hour) => (
                       <option key={hour} value={hour}>{hourLabel(hour)}</option>
                     ))}
                   </select>
@@ -701,7 +701,7 @@ export default function SequenceEditorPage() {
                     value={Number(sequence.night_ends_hour ?? 8)}
                     onChange={(event) => updateSequence({ night_ends_hour: Number(event.target.value) })}
                   >
-                    {Array.from({ length: 11 }, (_, i) => i + 1).map((hour) => (
+                    {nightEndHours().map((hour) => (
                       <option key={hour} value={hour}>{hourLabel(hour)}</option>
                     ))}
                   </select>
@@ -712,7 +712,7 @@ export default function SequenceEditorPage() {
                 {hourLabel(Number(sequence.night_starts_hour ?? 21))} to{" "}
                 {hourLabel(Number(sequence.night_ends_hour ?? 8))} the first text uses night
                 copy; the rest of the day uses the usual copy. Together they cover the 24-hour
-                clock. Later texts still wait for Earliest–Latest above.
+                clock. Times are in 30-minute steps. Later texts still wait for Earliest–Latest above.
               </p>
             </div>
           </div>

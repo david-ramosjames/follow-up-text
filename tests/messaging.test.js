@@ -12,6 +12,8 @@ import {
   formatPhone,
   hasEmoji,
   isNightHour,
+  nightEndHours,
+  nightStartHours,
   maskPhone,
   matchSendingNumber,
   missingMergeTokens,
@@ -177,6 +179,14 @@ test("night hours wrap midnight", () => {
   assert.equal(isNightHour(2, 21, 8), true);
   assert.equal(isNightHour(8, 21, 8), false);
   assert.equal(isNightHour(14, 21, 8), false);
+  assert.equal(isNightHour(22.25, 22.5, 8), false);
+  assert.equal(isNightHour(22.5, 22.5, 8), true);
+  assert.equal(isNightHour(8.25, 21, 8.5), true);
+  assert.equal(isNightHour(8.5, 21, 8.5), false);
+  assert.equal(nightStartHours().includes(22.5), true);
+  assert.equal(nightEndHours().includes(8.5), true);
+  assert.equal(nightStartHours().includes(11.5), false);
+  assert.equal(nightEndHours().includes(12), false);
 });
 
 test("sending-window labels include the half hour", () => {

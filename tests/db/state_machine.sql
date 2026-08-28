@@ -76,6 +76,15 @@ begin
   shifted := followup_shift_into_window(timestamptz '2026-08-03 19:00:00-05', tz, 10.5, 19, days);
   perform pg_temp.check('closing hour waits until 10:30 the next day',
     (shifted at time zone tz) = timestamp '2026-08-04 10:30:00');
+
+  perform pg_temp.check('10:15pm is still day when night starts at 10:30pm',
+    followup_is_night(timestamptz '2026-08-03 22:15:00-05', tz, 22.5, 8) = false);
+  perform pg_temp.check('10:30pm is night when night starts at 10:30pm',
+    followup_is_night(timestamptz '2026-08-03 22:30:00-05', tz, 22.5, 8) = true);
+  perform pg_temp.check('8:15am is still night when night ends at 8:30am',
+    followup_is_night(timestamptz '2026-08-03 08:15:00-05', tz, 21, 8.5) = true);
+  perform pg_temp.check('8:30am is day when night ends at 8:30am',
+    followup_is_night(timestamptz '2026-08-03 08:30:00-05', tz, 21, 8.5) = false);
 end;
 $$;
 

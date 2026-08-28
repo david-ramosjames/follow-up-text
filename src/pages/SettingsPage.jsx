@@ -114,7 +114,7 @@ export default function SettingsPage() {
         return (
           <label key={definition.key} className="wide">
             <span>{definition.label}</span>
-            <select value={value ?? ""} onChange={(event) => set(definition.key, event.target.value)}>
+            <select value={String(value ?? "")} onChange={(event) => set(definition.key, event.target.value)}>
               {(definition.options ?? []).map((option) => (
                 <option key={option.value} value={option.value}>{option.label}</option>
               ))}
@@ -382,8 +382,8 @@ export default function SettingsPage() {
             <p>
               Copied onto a sequence when you create it. After that, the split between usual
               copy and night copy is edited on the sequence itself — that is what the first
-              text uses. Earliest/Latest on a sequence are still the sending window for later
-              texts, not this wording switch.
+              text uses. Times are in 30-minute steps. Earliest/Latest on a sequence are still
+              the sending window for later texts, not this wording switch.
             </p>
           </div>
           <div className="editor-fields">{group(["night_starts_hour", "night_ends_hour"])}</div>

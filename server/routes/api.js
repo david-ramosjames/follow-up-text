@@ -28,7 +28,7 @@ const CONSTRAINT_MESSAGES = {
     + "opens and closes on the same day — 9:00 AM to 7:00 PM, for instance.",
   followup_sequences_night_hours_range:
     "Night wording wraps midnight, so it starts in the evening (noon or later) and ends "
-    + "in the morning (11:00 AM or earlier).",
+    + "in the morning (11:30 AM or earlier).",
   followup_sequences_slug_format:
     "A sequence's short name can only use lowercase letters, numbers and hyphens.",
   followup_sequences_slug_key: "There is already a sequence with that short name.",
