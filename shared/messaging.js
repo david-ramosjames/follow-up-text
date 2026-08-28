@@ -177,6 +177,30 @@ export function isNightHour(hour, start = 21, end = 8) {
   return value >= Number(start) || value < Number(end);
 }
 
+// Sending-window hours are stored as hours from midnight in 30-minute steps
+// (10.5 is 10:30). Labels stay 12-hour so "05:00" cannot be saved as 5am when
+// someone meant 5pm.
+export function clockHourLabel(value) {
+  const hours = Number(value);
+  if (!Number.isFinite(hours)) return "";
+  if (hours === 0 || hours === 24) return "Midnight";
+  if (hours === 12) return "Noon";
+  const whole = Math.floor(hours + 1e-9);
+  const minutes = Math.round((hours - whole) * 60);
+  const suffix = whole < 12 ? "AM" : "PM";
+  const h12 = whole % 12 === 0 ? 12 : whole % 12;
+  const mm = String(minutes).padStart(2, "0");
+  return `${h12}:${mm} ${suffix}`;
+}
+
+export function sendingWindowHours() {
+  const values = [];
+  for (let minutes = 0; minutes <= 24 * 60; minutes += 30) {
+    values.push(minutes / 60);
+  }
+  return values;
+}
+
 export function describeDelay(minutes) {
   const value = Number(minutes) || 0;
   if (value === 0) return "immediately";

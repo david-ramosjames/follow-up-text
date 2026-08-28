@@ -4,7 +4,7 @@ import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import AppNav from "../components/AppNav";
 import EmojiField from "../components/EmojiField";
 import { api, DAY_NAMES, TIMEZONES } from "../lib/api";
-import { DELAY_PRESETS, describeDelay, hasEmoji, MERGE_FIELDS, previewStep } from "../../shared/messaging";
+import { DELAY_PRESETS, clockHourLabel, describeDelay, hasEmoji, MERGE_FIELDS, previewStep, sendingWindowHours } from "../../shared/messaging";
 
 function sampleVars(firmName) {
   return {
@@ -20,11 +20,7 @@ function sampleVars(firmName) {
 // 24-hour labels were a trap: picking "05:00" for five in the afternoon saves an
 // end hour of 5, which is before the 9am start, and the database rightly refuses
 // it. Nobody in a Texas law office thinks in 24-hour time, so neither does this.
-function hourLabel(hour) {
-  if (hour === 0 || hour === 24) return "Midnight";
-  if (hour === 12) return "Noon";
-  return `${hour % 12 === 0 ? 12 : hour % 12}:00 ${hour < 12 ? "AM" : "PM"}`;
-}
+const hourLabel = clockHourLabel;
 
 function TranslateFromEnglish({ disabled, busy, title, onClick }) {
   return (
@@ -399,8 +395,8 @@ export default function SequenceEditorPage() {
         is_active: sequence.is_active,
         quo_number_id: sequence.quo_number_id || null,
         timezone: sequence.timezone,
-        quiet_hours_start: sequence.quiet_hours_start,
-        quiet_hours_end: sequence.quiet_hours_end,
+        quiet_hours_start: Number(sequence.quiet_hours_start),
+        quiet_hours_end: Number(sequence.quiet_hours_end),
         send_days: sequence.send_days,
         append_opt_out_notice: sequence.append_opt_out_notice,
         respond_immediately: Boolean(sequence.respond_immediately),
@@ -564,22 +560,22 @@ export default function SequenceEditorPage() {
               <label>
                 <span>Earliest send</span>
                 <select
-                  value={sequence.quiet_hours_start}
+                  value={Number(sequence.quiet_hours_start)}
                   onChange={(event) => updateSequence({ quiet_hours_start: Number(event.target.value) })}
                 >
-                  {Array.from({ length: 24 }, (_, hour) => hour)
-                    .filter((hour) => hour < sequence.quiet_hours_end)
+                  {sendingWindowHours()
+                    .filter((hour) => hour < 24 && hour < Number(sequence.quiet_hours_end))
                     .map((hour) => <option key={hour} value={hour}>{hourLabel(hour)}</option>)}
                 </select>
               </label>
               <label>
                 <span>Latest send</span>
                 <select
-                  value={sequence.quiet_hours_end}
+                  value={Number(sequence.quiet_hours_end)}
                   onChange={(event) => updateSequence({ quiet_hours_end: Number(event.target.value) })}
                 >
-                  {Array.from({ length: 24 }, (_, hour) => hour + 1)
-                    .filter((hour) => hour > sequence.quiet_hours_start)
+                  {sendingWindowHours()
+                    .filter((hour) => hour > 0 && hour > Number(sequence.quiet_hours_start))
                     .map((hour) => <option key={hour} value={hour}>{hourLabel(hour)}</option>)}
                 </select>
               </label>
@@ -601,7 +597,7 @@ export default function SequenceEditorPage() {
               </div>
               <p className="field-note">
                 Federal and Texas rules both measure this window against the client's local
-                time, which is why the timezone matters.
+                time, which is why the timezone matters. Times are in 30-minute steps.
               </p>
             </div>
 

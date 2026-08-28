@@ -4,7 +4,7 @@ import { Link, useNavigate } from "react-router-dom";
 import AppNav from "../components/AppNav";
 import { useFirm } from "../components/Firm";
 import { api, slugify } from "../lib/api";
-import { describeDelay } from "../../shared/messaging";
+import { clockHourLabel, describeDelay } from "../../shared/messaging";
 
 export default function SequencesPage() {
   const navigate = useNavigate();
@@ -314,8 +314,8 @@ export default function SequencesPage() {
                       <td>{last ? describeDelay(last.delay_minutes).replace("after ", "") : "—"}</td>
                       <td>{numberLabel(sequence.quo_number_id)}</td>
                       <td>
-                        {String(sequence.quiet_hours_start).padStart(2, "0")}:00–
-                        {String(sequence.quiet_hours_end).padStart(2, "0")}:00
+                        {clockHourLabel(sequence.quiet_hours_start)}–
+                        {clockHourLabel(sequence.quiet_hours_end)}
                         <small>{sequence.timezone}</small>
                       </td>
                       <td>

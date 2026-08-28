@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   appendOptOutNotice,
+  clockHourLabel,
   classifyInbound,
   countSegments,
   DELAY_PRESETS,
@@ -22,6 +23,7 @@ import {
   START_KEYWORDS,
   STOP_KEYWORDS,
   truncateChars,
+  sendingWindowHours,
 } from "../shared/messaging.js";
 
 /* ------------------------------------------------------------ merge fields */
@@ -175,6 +177,18 @@ test("night hours wrap midnight", () => {
   assert.equal(isNightHour(2, 21, 8), true);
   assert.equal(isNightHour(8, 21, 8), false);
   assert.equal(isNightHour(14, 21, 8), false);
+});
+
+test("sending-window labels include the half hour", () => {
+  assert.equal(clockHourLabel(0), "Midnight");
+  assert.equal(clockHourLabel(10), "10:00 AM");
+  assert.equal(clockHourLabel(10.5), "10:30 AM");
+  assert.equal(clockHourLabel(12), "Noon");
+  assert.equal(clockHourLabel(12.5), "12:30 PM");
+  assert.equal(clockHourLabel(19), "7:00 PM");
+  assert.equal(clockHourLabel(24), "Midnight");
+  assert.equal(sendingWindowHours().includes(10.5), true);
+  assert.equal(sendingWindowHours().at(-1), 24);
 });
 
 /* ------------------------------------------------------------------ delays */

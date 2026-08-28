@@ -64,6 +64,18 @@ begin
   shifted := followup_shift_into_window(timestamptz '2026-08-07 21:00:00-05', tz, 8, 20, weekdays);
   perform pg_temp.check('Friday night defers to Monday',
     (shifted at time zone tz) = timestamp '2026-08-10 08:00:00');
+
+  shifted := followup_shift_into_window(timestamptz '2026-08-03 10:00:00-05', tz, 10.5, 19, days);
+  perform pg_temp.check('before 10:30 waits for 10:30',
+    (shifted at time zone tz) = timestamp '2026-08-03 10:30:00');
+
+  shifted := followup_shift_into_window(timestamptz '2026-08-03 10:30:00-05', tz, 10.5, 19, days);
+  perform pg_temp.check('10:30 on the opening is untouched',
+    (shifted at time zone tz) = timestamp '2026-08-03 10:30:00');
+
+  shifted := followup_shift_into_window(timestamptz '2026-08-03 19:00:00-05', tz, 10.5, 19, days);
+  perform pg_temp.check('closing hour waits until 10:30 the next day',
+    (shifted at time zone tz) = timestamp '2026-08-04 10:30:00');
 end;
 $$;
 
