@@ -161,14 +161,96 @@ export function truncateChars(body, limit) {
   return kept.length > limit ? [...kept].slice(0, -1).join("") : kept;
 }
 
+// Phrases on a step that opt that text onto its alternate copy. Matching is
+// against the client's case_type, which is decided when the series starts.
+export function normalizeCasePhrase(value) {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function parseCaseTypePhrases(value) {
+  const parts = Array.isArray(value) ? value : String(value ?? "").split(/[,;\n]+/);
+  const seen = new Set();
+  const out = [];
+  for (const part of parts) {
+    const phrase = String(part ?? "").replace(/\s+/g, " ").trim();
+    if (!phrase || phrase.length > 80) continue;
+    const key = normalizeCasePhrase(phrase);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(phrase);
+    if (out.length >= 20) break;
+  }
+  return out;
+}
+
+export function caseTypeUsesAlternate(caseType, phrases) {
+  const haystack = normalizeCasePhrase(caseType);
+  if (!haystack) return false;
+  return parseCaseTypePhrases(phrases).some((phrase) => {
+    const needle = normalizeCasePhrase(phrase);
+    if (!needle) return false;
+    const start = haystack.indexOf(needle);
+    if (start < 0) return false;
+    const before = start === 0 || haystack[start - 1] === " ";
+    const after = start + needle.length === haystack.length
+      || haystack[start + needle.length] === " ";
+    return before && after;
+  });
+}
+
+// Night copy, then case-type alternate, then the usual body. An empty alternate
+// box falls through rather than sending a blank text.
+export function pickStepTemplate(step, {
+  language = "en",
+  isNight = false,
+  caseType,
+  useAlternate,
+} = {}) {
+  const es = language === "es";
+  const wantsAlternate = useAlternate === true
+    || (useAlternate !== false && caseTypeUsesAlternate(caseType, step.alt_case_types));
+  const altNight = es ? step.body_es_alt_night : step.body_en_alt_night;
+  const alt = es ? step.body_es_alt : step.body_en_alt;
+  const night = es ? step.body_es_night : step.body_en_night;
+  const day = es ? step.body_es : step.body_en;
+
+  if (wantsAlternate && isNight && altNight?.trim()) {
+    return { template: altNight, usedNight: true, usedAlternate: true };
+  }
+  if (wantsAlternate && alt?.trim()) {
+    return { template: alt, usedNight: false, usedAlternate: true };
+  }
+  if (isNight && night?.trim()) {
+    return { template: night, usedNight: true, usedAlternate: false };
+  }
+  return { template: day || "", usedNight: false, usedAlternate: false };
+}
+
 // What one step will look like on the client's phone.
-export function previewStep(step, { language = "en", isFirst = false, appendNotice = true, isNight = false, vars = {} } = {}) {
-  const night = language === "es" ? step.body_es_night : step.body_en_night;
-  const day = language === "es" ? step.body_es : step.body_en;
-  const template = isNight && night?.trim() ? night : day;
-  const rendered = renderBody(template || "", vars, language);
+export function previewStep(step, {
+  language = "en",
+  isFirst = false,
+  appendNotice = true,
+  isNight = false,
+  caseType,
+  useAlternate,
+  vars = {},
+} = {}) {
+  const picked = pickStepTemplate(step, {
+    language,
+    isNight,
+    caseType: caseType ?? vars.case_type,
+    useAlternate,
+  });
+  const rendered = renderBody(picked.template || "", vars, language);
   const body = isFirst && appendNotice ? appendOptOutNotice(rendered, language) : rendered;
-  return { body, usedNight: Boolean(isNight && night?.trim()), ...countSegments(body) };
+  return { body, usedNight: picked.usedNight, usedAlternate: picked.usedAlternate, ...countSegments(body) };
 }
 
 // Night wording wraps midnight: from 9pm to 8am is hour >= 21 or hour < 8.

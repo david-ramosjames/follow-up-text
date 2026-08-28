@@ -1,10 +1,10 @@
-import { ArrowLeft, ChevronDown, ChevronUp, Copy, Languages, Moon, Plus, Save, Trash2 } from "lucide-react";
+import { ArrowLeft, ChevronDown, ChevronUp, Copy, Languages, Moon, Plus, Save, Split, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import AppNav from "../components/AppNav";
 import EmojiField from "../components/EmojiField";
 import { api, DAY_NAMES, TIMEZONES } from "../lib/api";
-import { DELAY_PRESETS, clockHourLabel, describeDelay, hasEmoji, MERGE_FIELDS, nightEndHours, nightStartHours, previewStep, sendingWindowHours } from "../../shared/messaging";
+import { DELAY_PRESETS, clockHourLabel, describeDelay, hasEmoji, MERGE_FIELDS, nightEndHours, nightStartHours, parseCaseTypePhrases, previewStep, sendingWindowHours } from "../../shared/messaging";
 
 function sampleVars(firmName) {
   return {
@@ -37,19 +37,72 @@ function TranslateFromEnglish({ disabled, busy, title, onClick }) {
   );
 }
 
+function CaseTypePhrases({ value, onChange }) {
+  const phrases = parseCaseTypePhrases(value);
+  const [draft, setDraft] = useState("");
+
+  const add = (raw) => {
+    const next = parseCaseTypePhrases([...phrases, raw]);
+    if (next.length === phrases.length) {
+      setDraft("");
+      return;
+    }
+    onChange(next);
+    setDraft("");
+  };
+
+  return (
+    <div className="phrase-chips">
+      {phrases.map((phrase) => (
+        <span className="chip" key={phrase.toLowerCase()}>
+          {phrase}
+          <button
+            type="button"
+            title={`Remove ${phrase}`}
+            onClick={() => onChange(phrases.filter((item) => item !== phrase))}
+          >
+            ×
+          </button>
+        </span>
+      ))}
+      <input
+        value={draft}
+        placeholder={phrases.length ? "Add another" : "wrongful death"}
+        onChange={(event) => setDraft(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === ",") {
+            event.preventDefault();
+            add(draft);
+          }
+        }}
+        onBlur={() => { if (draft.trim()) add(draft); }}
+      />
+    </div>
+  );
+}
+
 function StepCard({
   step, index, total, sequence, onChange, onMove, onRemove, language,
   firmName, canTranslate, translating, onTranslate,
 }) {
   const [previewNight, setPreviewNight] = useState(false);
+  const [previewAlt, setPreviewAlt] = useState(false);
   const nightStart = Number(sequence.night_starts_hour ?? 21);
   const nightEnd = Number(sequence.night_ends_hour ?? 8);
+  const altPhrases = parseCaseTypePhrases(step.alt_case_types);
+  const hasAlt = Boolean(step.body_en_alt || step.body_es_alt || altPhrases.length);
+  const hasNight = Boolean(index === 0 || step.body_en_night || step.body_es_night);
+  const previewVars = {
+    ...sampleVars(firmName),
+    ...(previewAlt && altPhrases[0] ? { case_type: altPhrases[0] } : {}),
+  };
   const preview = previewStep(step, {
     language,
     isFirst: index === 0,
     appendNotice: sequence.append_opt_out_notice,
     isNight: previewNight,
-    vars: sampleVars(firmName),
+    useAlternate: previewAlt,
+    vars: previewVars,
   });
   const empty = !(language === "es" ? step.body_es : step.body_en)?.trim();
   const translateTitle = canTranslate
@@ -63,6 +116,7 @@ function StepCard({
           <span className="step-number">Text {index + 1}</span>
           <strong>{describeDelay(step.delay_minutes)}</strong>
           {step.label && <span className="step-label">{step.label}</span>}
+          {hasAlt && <span className="tag muted">alternate copy</span>}
           {!step.is_active && <span className="tag muted">skipped</span>}
         </div>
         <div className="step-controls">
@@ -199,6 +253,82 @@ function StepCard({
         </details>
       )}
 
+      <details className="night-copy" defaultOpen={hasAlt}>
+        <summary>
+          <Split size={13} /> Different wording for some case types
+          {!hasAlt && <span> — optional</span>}
+        </summary>
+        <p>
+          Used instead of the copy above when the client's case type includes one of
+          these phrases — decided when the series starts, from the form or from what
+          a paralegal typed. Wrongful death, child abuse, and sexual assault are the
+          usual ones. Leave this closed to use the usual wording for every case.
+        </p>
+        <span className="field-label">Case types that use this wording</span>
+        <CaseTypePhrases
+          value={step.alt_case_types}
+          onChange={(alt_case_types) => onChange(step, { alt_case_types })}
+        />
+        <div className="body-grid">
+          <label>
+            <span>English for these cases</span>
+            <EmojiField
+              value={step.body_en_alt || ""}
+              onChange={(body_en_alt) => onChange(step, { body_en_alt })}
+              rows={3}
+              placeholder="Hi {{first_name}}, we are so sorry for your loss. This is {{firm_name}}."
+            />
+          </label>
+          <label>
+            <span className="field-head">
+              Spanish for these cases
+              <TranslateFromEnglish
+                disabled={!canTranslate || !String(step.body_en_alt ?? "").trim()}
+                busy={translating === `${step.id}:body_es_alt`}
+                title={translateTitle}
+                onClick={() => onTranslate(step, "body_en_alt", "body_es_alt")}
+              />
+            </span>
+            <EmojiField
+              value={step.body_es_alt || ""}
+              onChange={(body_es_alt) => onChange(step, { body_es_alt })}
+              rows={3}
+              placeholder="Hola {{first_name}}, sentimos mucho su perdida. Le escribimos de {{firm_name}}."
+            />
+          </label>
+        </div>
+        {hasNight && (
+          <div className="body-grid stacked">
+            <label>
+              <span>English at night for these cases</span>
+              <EmojiField
+                value={step.body_en_alt_night || ""}
+                onChange={(body_en_alt_night) => onChange(step, { body_en_alt_night })}
+                rows={3}
+                placeholder="Optional. Leave empty to use the alternate copy above at night too."
+              />
+            </label>
+            <label>
+              <span className="field-head">
+                Spanish at night for these cases
+                <TranslateFromEnglish
+                  disabled={!canTranslate || !String(step.body_en_alt_night ?? "").trim()}
+                  busy={translating === `${step.id}:body_es_alt_night`}
+                  title={translateTitle}
+                  onClick={() => onTranslate(step, "body_en_alt_night", "body_es_alt_night")}
+                />
+              </span>
+              <EmojiField
+                value={step.body_es_alt_night || ""}
+                onChange={(body_es_alt_night) => onChange(step, { body_es_alt_night })}
+                rows={3}
+                placeholder="Opcional."
+              />
+            </label>
+          </div>
+        )}
+      </details>
+
       <div className={`preview ${preview.segments > 1 ? "warn" : ""}`}>
         <p className="preview-label">
           On the client's phone
@@ -215,11 +345,25 @@ function StepCard({
             </button>
           </div>
         )}
+        {hasAlt && (
+          <div className="preview-toggle tight">
+            <span>Case</span>
+            <button type="button" className={!previewAlt ? "on" : ""} onClick={() => setPreviewAlt(false)}>
+              Usual
+            </button>
+            <button type="button" className={previewAlt ? "on" : ""} onClick={() => setPreviewAlt(true)}>
+              {altPhrases[0] ? altPhrases.slice(0, 2).join(", ") : "These case types"}
+            </button>
+          </div>
+        )}
         {empty
           ? <p className="preview-empty">No {language === "es" ? "Spanish" : "English"} copy yet.</p>
           : <p className="preview-body">{preview.body}</p>}
         {previewNight && !preview.usedNight && (
           <p className="preview-note">No night wording yet — showing the usual copy.</p>
+        )}
+        {previewAlt && !preview.usedAlternate && (
+          <p className="preview-note">No alternate wording yet — showing the usual copy.</p>
         )}
         {!String(firmName ?? "").trim() && (
           <p className="preview-note">
@@ -723,7 +867,8 @@ export default function SequenceEditorPage() {
             <h2>The texts</h2>
             <p>
               Every text needs both languages. Which one is sent is chosen per client when the
-              series starts.
+              series starts. A later text can also carry alternate wording for particular case
+              types — wrongful death, child abuse, sexual assault — without splitting the sequence.
             </p>
             <div className="merge-help">
               <span className="field-label">Merge fields</span>

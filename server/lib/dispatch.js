@@ -1,6 +1,7 @@
 import {
   appendOptOutNotice,
   countSegments,
+  pickStepTemplate,
   renderBody,
 } from "../../shared/messaging.js";
 import { rpc, rpcSet } from "../db.js";
@@ -18,14 +19,17 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export function buildBody(row, settings) {
   // A step may carry separate copy for the middle of the night, because "we
-  // just received your message" reads wrong at 3am. Falls back to the ordinary
-  // body, so night copy is something you add where it matters rather than
-  // something every step has to have. Whether it is night was decided in the
-  // database, on the client's clock, at the moment the text was claimed.
-  const night = row.language === "es" ? row.body_es_night : row.body_en_night;
-  const day = row.language === "es" ? row.body_es : row.body_en;
-  const template = row.is_night && night?.trim() ? night : day;
-  const rendered = renderBody(template, {
+  // just received your message" reads wrong at 3am, and separate copy for
+  // particular case types (wrongful death, child abuse) decided when the
+  // series started. Empty boxes fall back, so you only fill in the spots that
+  // need a different text. Whether it is night was decided in the database, on
+  // the client's clock, at the moment the text was claimed.
+  const picked = pickStepTemplate(row, {
+    language: row.language,
+    isNight: row.is_night,
+    caseType: row.case_type,
+  });
+  const rendered = renderBody(picked.template, {
     first_name: row.first_name,
     last_name: row.last_name,
     case_reference: row.case_reference,

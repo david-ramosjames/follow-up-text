@@ -3,7 +3,7 @@
 // Kept apart from the classifier on purpose. Everything here is deterministic
 // and testable on its own, and the phone number in particular is never left to
 // a model: being wrong about it means texting a stranger.
-import { extractPhones } from "./messaging.js";
+import { extractPhones, parseCaseTypePhrases } from "./messaging.js";
 
 // Slack apps put their content in wildly different places — some in `text`,
 // some only inside block elements, some in legacy attachments. The four sources
@@ -146,9 +146,31 @@ function firstTextLines(sequence) {
   const lines = [];
   if (sequence.body_en) lines.push(`Day (English): ${sequence.body_en}`);
   if (sequence.body_en_night) lines.push(`Night (English): ${sequence.body_en_night}`);
+  if (sequence.body_en_alt) lines.push(`Alternate case types (English): ${sequence.body_en_alt}`);
+  if (sequence.body_en_alt_night) {
+    lines.push(`Alternate case types at night (English): ${sequence.body_en_alt_night}`);
+  }
   if (sequence.body_es) lines.push(`Day (Spanish): ${sequence.body_es}`);
   if (sequence.body_es_night) lines.push(`Night (Spanish): ${sequence.body_es_night}`);
+  if (sequence.body_es_alt) lines.push(`Alternate case types (Spanish): ${sequence.body_es_alt}`);
+  if (sequence.body_es_alt_night) {
+    lines.push(`Alternate case types at night (Spanish): ${sequence.body_es_alt_night}`);
+  }
   return lines;
+}
+
+function listedAlternatePhrases(sequences) {
+  const seen = new Set();
+  const phrases = [];
+  for (const sequence of sequences) {
+    for (const phrase of parseCaseTypePhrases(sequence.alt_case_types)) {
+      const key = phrase.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      phrases.push(phrase);
+    }
+  }
+  return phrases;
 }
 
 // The user half of the classifier prompt. case_type has to be written against
@@ -169,11 +191,18 @@ export function buildClassificationUserPrompt(sequences, text) {
     .filter(Boolean)
     .join("\n\n");
 
+  const phrases = listedAlternatePhrases(sequences);
+  const alternateRule = phrases.length
+    ? `Some later texts switch to alternate copy when case_type contains one of these phrases: ${
+      phrases.join(", ")
+    }. If the case is that sort of case, write case_type as the matching phrase from that list (Spanish wording from the list when the text is in Spanish). Do not bury it as a generic accident.\n\n`
+    : "";
+
   return `Sequences you may choose from:\n${menu}
 
 {{case_type}} is pasted into these first texts. Write case_type so every sentence reads like a text you would send tonight. Clinics, cities, dates, and other parties go in case_detail, never in case_type.
 
-${firstTexts || "(no first texts on file yet)"}
+${alternateRule}${firstTexts || "(no first texts on file yet)"}
 
 The Slack post:
 """

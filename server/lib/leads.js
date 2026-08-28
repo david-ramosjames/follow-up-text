@@ -73,6 +73,9 @@ const CLASSIFICATION_SCHEMA = {
       description: "The exact words that replace {{case_type}} in a client SMS, after "
         + "'your' or 'su'. Two to five ordinary words you would send tonight: "
         + "'car accident', 'slip and fall', 'sexual assault case'. "
+        + "If the case is one of the listed sensitive types (wrongful death, "
+        + "child abuse, sexual assault, or any other phrase you are given), "
+        + "use that listed phrase so the alternate texts can fire. "
         + "Not a file note — no clinic, city, date, or 'involving …' clause. "
         + "Those go in case_detail. Same language as `language`. Null if unknown.",
     },
@@ -127,6 +130,10 @@ Rules:
   case_detail. Keep case_type to a few spoken words. Do not start it with
   "your" or "su". Do not use a comma list. Same language as the language field.
   If writing Spanish, avoid á, í, ó, ú so the text stays one SMS segment.
+  If the case is a listed sensitive type — wrongful death, child abuse, sexual
+  assault, or another phrase you are given — write case_type as that listed
+  phrase (the Spanish wording from the list when texting in Spanish). That is
+  how later texts know to use their alternate copy.
 - case_detail is the exact situation for the file — parties, clinic, vehicle
   type, MDL, dates. It is never texted. A comma list is fine there.
 - language is the language to TEXT THEM IN. Spanish if the form says Spanish, if
@@ -229,10 +236,17 @@ async function classifierSequences() {
   const id = currentFirm()?.id;
   return rows(
     `select q.slug, q.name, coalesce(q.description, '') as description, q.is_active,
-            s.body_en, s.body_es, s.body_en_night, s.body_es_night
+            s.body_en, s.body_es, s.body_en_night, s.body_es_night,
+            s.body_en_alt, s.body_es_alt, s.body_en_alt_night, s.body_es_alt_night,
+            (
+              select coalesce(array_agg(distinct phrase), '{}'::text[])
+              from followup_steps st, unnest(st.alt_case_types) as phrase
+              where st.sequence_id = q.id and st.is_active
+            ) as alt_case_types
      from followup_sequences q
      left join lateral (
-       select body_en, body_es, body_en_night, body_es_night
+       select body_en, body_es, body_en_night, body_es_night,
+              body_en_alt, body_es_alt, body_en_alt_night, body_es_alt_night
        from followup_steps
        where sequence_id = q.id and is_active
        order by position

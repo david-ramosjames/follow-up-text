@@ -1,6 +1,7 @@
 import express from "express";
 import { one, query, rows, withTransaction } from "../db.js";
 import { uniqueCopyIdentity } from "../../shared/sequences.js";
+import { parseCaseTypePhrases } from "../../shared/messaging.js";
 import { googleConfigured, requireSession, slackSignInConfigured } from "../auth.js";
 import { listQuoNumbers, quoConfigured, syncQuoNumbers } from "../lib/quo.js";
 import { loadSettings, SETTING_DEFINITIONS, saveSettings } from "../lib/settings.js";
@@ -241,10 +242,14 @@ async function copySequence({ sourceId, sourceFirmId, destFirmId, slug, name, ke
     await client.query(
       `insert into followup_steps (
          sequence_id, position, label, delay_minutes, body_en, body_es,
-         body_en_night, body_es_night, is_active
+         body_en_night, body_es_night,
+         alt_case_types, body_en_alt, body_es_alt, body_en_alt_night, body_es_alt_night,
+         is_active
        )
        select $1, position, label, delay_minutes, body_en, body_es,
-              body_en_night, body_es_night, is_active
+              body_en_night, body_es_night,
+              alt_case_types, body_en_alt, body_es_alt, body_en_alt_night, body_es_alt_night,
+              is_active
        from followup_steps
        where sequence_id = $2
        order by position`,
@@ -435,6 +440,21 @@ apiRouter.put("/sequences/:id/steps", ok(async (req, res) => {
           + "because the language is chosen per client when the series starts.",
       });
     }
+    const phrases = parseCaseTypePhrases(step.alt_case_types);
+    const altEn = String(step.body_en_alt ?? "").trim();
+    const altEs = String(step.body_es_alt ?? "").trim();
+    if ((altEn || altEs) && !phrases.length) {
+      return res.status(400).json({
+        error: `Text ${index + 1} has alternate wording but no case types. Add the phrases `
+          + "that should use it — wrongful death, child abuse, sexual assault, for instance.",
+      });
+    }
+    if (phrases.length && (!altEn || !altEs)) {
+      return res.status(400).json({
+        error: `Text ${index + 1} uses alternate wording for some case types but is missing its `
+          + `${!altEn ? "English" : "Spanish"} alternate copy.`,
+      });
+    }
   }
 
   const client = await (await import("../db.js")).pool.connect();
@@ -445,7 +465,9 @@ apiRouter.put("/sequences/:id/steps", ok(async (req, res) => {
       await client.query(
         `update followup_steps
          set position = $2, label = $3, delay_minutes = $4, body_en = $5, body_es = $6, is_active = $7,
-             body_en_night = $9, body_es_night = $10
+             body_en_night = $9, body_es_night = $10,
+             alt_case_types = $11::text[],
+             body_en_alt = $12, body_es_alt = $13, body_en_alt_night = $14, body_es_alt_night = $15
          where id = $1 and sequence_id = $8`,
         [
           step.id, index + 1, step.label || null, Math.max(0, Number(step.delay_minutes) || 0),
@@ -453,6 +475,11 @@ apiRouter.put("/sequences/:id/steps", ok(async (req, res) => {
           // Empty means "no night variant", not an empty text.
           String(step.body_en_night ?? "").trim() || null,
           String(step.body_es_night ?? "").trim() || null,
+          parseCaseTypePhrases(step.alt_case_types),
+          String(step.body_en_alt ?? "").trim() || null,
+          String(step.body_es_alt ?? "").trim() || null,
+          String(step.body_en_alt_night ?? "").trim() || null,
+          String(step.body_es_alt_night ?? "").trim() || null,
         ],
       );
     }

@@ -46,6 +46,14 @@ const FAQ = [
     ],
   },
   {
+    q: "Some case types should not get the usual follow-up text. How do I write a different one?",
+    a: [
+      "On the text that needs to change — not on every text — open “Different wording for some case types”. Add the phrases that should use it, then write the English and Spanish. Wrongful death, child abuse, and sexual assault are the ones that usually need a different tone; you can add any phrase you use.",
+      "Which wording goes out is decided when the series starts. The classifier writes the case type from the form, and a Slack start uses whatever the paralegal typed. If that case type includes one of your phrases — “sexual assault case” counts for “sexual assault” — that text uses the alternate copy. Other texts in the sequence stay as they are. If you text in Spanish, add the Spanish phrase too, or the usual copy is used.",
+      "Leave the boxes empty on texts that should read the same for every case. Alternate night wording is only offered on a text that can actually go out at night.",
+    ],
+  },
+  {
     q: "Why do updates land in a thread?",
     a: [
       "Because intake conversations already happen in threads. When a series starts from a message or a thread, every later update about that client — the reply, the stop, the “no answer after six texts” — posts back into that same thread instead of scattering down the channel.",
@@ -122,7 +130,7 @@ const FAQ = [
   {
     q: "How do I make a variant of a sequence without rewriting it?",
     a: [
-      "On the Sequences page, or from the sequence editor, Duplicate. That copies the name, timings, English and Spanish, night wording, and sending window into a new sequence. People already on the original stay on it.",
+      "On the Sequences page, or from the sequence editor, Duplicate. That copies the name, timings, English and Spanish, night wording, alternate case-type wording, and sending window into a new sequence. People already on the original stay on it.",
       "The copy starts switched off, and is not offered to the lead router, so you can change the few texts you wanted to change before anyone can send it. Rename it, then switch it on when it is ready.",
     ],
   },

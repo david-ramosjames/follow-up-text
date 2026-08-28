@@ -215,3 +215,15 @@ test("the classifier is shown the first texts case_type will be pasted into", ()
   assert.match(prompt, /Kind Clinic, sexual assault/);
   assert.match(prompt, /qualified-lead: Qualified lead/);
 });
+
+test("the classifier is told which phrases switch a text onto alternate copy", () => {
+  const prompt = buildClassificationUserPrompt([{
+    slug: "qualified-lead",
+    name: "Qualified lead",
+    alt_case_types: ["wrongful death", "sexual assault"],
+    body_en: "Thank you for contacting us about your {{case_type}}.",
+    body_en_alt: "We are so sorry about your {{case_type}}.",
+  }], "Name: Ana\nPhone: 512-555-0100\nwrongful death");
+  assert.match(prompt, /wrongful death, sexual assault/);
+  assert.match(prompt, /Alternate case types \(English\): We are so sorry about your \{\{case_type\}\}/);
+});

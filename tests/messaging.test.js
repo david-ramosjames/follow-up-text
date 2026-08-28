@@ -14,6 +14,9 @@ import {
   isNightHour,
   nightEndHours,
   nightStartHours,
+  parseCaseTypePhrases,
+  caseTypeUsesAlternate,
+  pickStepTemplate,
   maskPhone,
   matchSendingNumber,
   missingMergeTokens,
@@ -172,6 +175,58 @@ test("the preview uses night wording when asked", () => {
   assert.equal(previewStep(step, { isNight: true }).body, "Hi, we got your message tonight.");
   assert.equal(previewStep(step, { isNight: true }).usedNight, true);
   assert.equal(previewStep({ body_en: "Hi.", body_es: "Hola." }, { isNight: true }).usedNight, false);
+});
+
+test("alternate copy is used when the case type matches a phrase", () => {
+  const step = {
+    body_en: "Checking in about your {{case_type}}.",
+    body_es: "Sobre su {{case_type}}.",
+    body_en_alt: "We are so sorry about your {{case_type}}.",
+    body_es_alt: "Sentimos lo de su {{case_type}}.",
+    alt_case_types: ["wrongful death", "child abuse", "sexual assault"],
+  };
+  assert.equal(
+    previewStep(step, { vars: { case_type: "car accident" } }).body,
+    "Checking in about your car accident.",
+  );
+  assert.equal(
+    previewStep(step, { vars: { case_type: "sexual assault case" } }).body,
+    "We are so sorry about your sexual assault case.",
+  );
+  assert.equal(previewStep(step, { vars: { case_type: "sexual assault case" } }).usedAlternate, true);
+  assert.equal(
+    previewStep(step, { language: "es", vars: { case_type: "wrongful death" } }).body,
+    "Sentimos lo de su wrongful death.",
+  );
+  assert.equal(
+    previewStep(step, { useAlternate: true, vars: { case_type: "slip and fall" } }).body,
+    "We are so sorry about your slip and fall.",
+  );
+});
+
+test("alternate night wording beats the usual night copy", () => {
+  const step = {
+    body_en: "Day.",
+    body_es: "Dia.",
+    body_en_night: "Night.",
+    body_es_night: "Noche.",
+    body_en_alt: "Alt day.",
+    body_es_alt: "Alt dia.",
+    body_en_alt_night: "Alt night.",
+    alt_case_types: ["child abuse"],
+  };
+  assert.equal(pickStepTemplate(step, { isNight: true, caseType: "child abuse" }).template, "Alt night.");
+  assert.equal(pickStepTemplate(step, { isNight: true, caseType: "child abuse" }).usedAlternate, true);
+  assert.equal(pickStepTemplate(step, { isNight: true, caseType: "car accident" }).template, "Night.");
+  assert.equal(pickStepTemplate(step, { isNight: true, caseType: "wrongful death" }).template, "Night.");
+});
+
+test("case-type phrases match as whole words, not fragments", () => {
+  assert.deepEqual(parseCaseTypePhrases("wrongful death, child abuse"), ["wrongful death", "child abuse"]);
+  assert.equal(caseTypeUsesAlternate("sexual assault case", ["sexual assault"]), true);
+  assert.equal(caseTypeUsesAlternate("Wrongful Death", ["wrongful death"]), true);
+  assert.equal(caseTypeUsesAlternate("car accident", ["sexual assault"]), false);
+  assert.equal(caseTypeUsesAlternate("scar tissue", ["car"]), false);
 });
 
 test("night hours wrap midnight", () => {

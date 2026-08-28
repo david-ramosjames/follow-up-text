@@ -649,6 +649,29 @@ label.checkbox small { display: block; margin-top: 2px; color: var(--muted); fon
 }
 .night-copy summary span { color: var(--muted); font-weight: 400; }
 .night-copy > p { margin: 8px 0 10px; color: var(--muted); font-size: 11px; line-height: 1.6; }
+.night-copy .field-label { display: block; margin: 0 0 6px; }
+.night-copy .body-grid.stacked { margin-top: 10px; }
+
+.phrase-chips {
+  display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+  margin: 0 0 10px;
+}
+.phrase-chips .chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 8px; border-radius: 999px;
+  background: var(--card); border: 1px solid var(--line);
+  color: var(--ink-soft); font-size: 11px;
+}
+.phrase-chips .chip button {
+  border: 0; background: none; padding: 0 0 0 2px; cursor: pointer;
+  color: var(--muted); font-size: 14px; line-height: 1;
+}
+.phrase-chips input {
+  min-width: 160px; flex: 1 1 140px;
+  border: 1px dashed var(--line); background: var(--card);
+  padding: 5px 8px; border-radius: 4px;
+  font: inherit; font-size: 12px; color: var(--ink);
+}
 
 .preview-note { margin: 6px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
 

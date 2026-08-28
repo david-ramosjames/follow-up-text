@@ -2,6 +2,7 @@ import {
   appendOptOutNotice,
   countSegments,
   isNightHour,
+  pickStepTemplate,
   renderBody,
 } from "../../shared/messaging.js";
 import { one } from "../db.js";
@@ -12,7 +13,9 @@ import { currentFirm } from "./firms.js";
 // Used by watch-and-record and by the Leads page when someone switches tracks.
 export async function previewFirstText(slug, { firstName, lastName, caseType, language } = {}) {
   const step = await one(
-    `select s.body_en, s.body_es, s.body_en_night, s.body_es_night, q.append_opt_out_notice,
+    `select s.body_en, s.body_es, s.body_en_night, s.body_es_night,
+            s.body_en_alt, s.body_es_alt, s.body_en_alt_night, s.body_es_alt_night,
+            s.alt_case_types, q.append_opt_out_notice,
             q.slug, q.name, q.timezone, q.quiet_hours_start, q.quiet_hours_end, q.send_days,
             q.night_starts_hour, q.night_ends_hour
      from followup_sequences q
@@ -40,10 +43,8 @@ export async function previewFirstText(slug, { firstName, lastName, caseType, la
   const isNight = isNightHour(hour, nightStart, nightEnd);
 
   const lang = language === "es" ? "es" : "en";
-  const nightBody = lang === "es" ? step.body_es_night : step.body_en_night;
-  const dayBody = lang === "es" ? step.body_es : step.body_en;
-  const template = isNight && nightBody?.trim() ? nightBody : dayBody;
-  const body = renderBody(template, {
+  const picked = pickStepTemplate(step, { language: lang, isNight, caseType });
+  const body = renderBody(picked.template, {
     first_name: firstName,
     last_name: lastName,
     case_type: caseType,

@@ -105,6 +105,8 @@ begin
     claimed ->> 'body_en_night' = 'Night one' and claimed ->> 'body_es_night' = 'Noche uno');
   perform pg_temp.check('and says whether it is night for this client',
     (claimed -> 'is_night') is not null and jsonb_typeof(claimed -> 'is_night') = 'boolean');
+  perform pg_temp.check('the claim carries alternate case-type copy',
+    claimed ? 'body_en_alt' and claimed ? 'alt_case_types');
 
   -- Force the answer both ways by moving the sequence's own night hours rather
   -- than a global setting. 12:00 through 11:00 wraps every hour except 11am.
