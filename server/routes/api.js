@@ -36,6 +36,16 @@ const CONSTRAINT_MESSAGES = {
   followup_sequences_firm_slug_key: "There is already a sequence with that short name.",
   followup_operators_email_key: "Somebody on the list already has that email address.",
   followup_operators_slack_user_id_key: "Somebody on the list already has that Slack member ID.",
+  followup_steps_alt_case_types_len:
+    "A text can list at most 20 case-type phrases for alternate wording.",
+  followup_steps_body_en_alt_length:
+    "The English alternate copy has to be 1,200 characters or fewer, or empty.",
+  followup_steps_body_es_alt_length:
+    "The Spanish alternate copy has to be 1,200 characters or fewer, or empty.",
+  followup_steps_body_en_alt_night_length:
+    "The English night alternate copy has to be 1,200 characters or fewer, or empty.",
+  followup_steps_body_es_alt_night_length:
+    "The Spanish night alternate copy has to be 1,200 characters or fewer, or empty.",
 };
 
 const ok = (handler) => requireSession(async (req, res) => {
@@ -46,6 +56,11 @@ const ok = (handler) => requireSession(async (req, res) => {
     await runWithFirm(firm, () => handler(req, res));
   } catch (error) {
     console.error(`${req.method} ${req.originalUrl} failed`, error);
+    if (error.code === "42703" && /alt_case_types|body_\w+_alt/.test(error.message || "")) {
+      return res.status(500).json({
+        error: "Alternate wording is not in this database yet. Redeploy so migrations run, then try Save again.",
+      });
+    }
     if (!error.code?.startsWith("23")) {
       return res.status(error.status || 500).json({ error: error.message || "Something went wrong." });
     }
@@ -214,7 +229,23 @@ apiRouter.get("/dashboard", ok(async (req, res) => {
 
 const SEQUENCE_SELECT = `
   select q.*, (
-    select coalesce(json_agg(s order by s.position), '[]'::json)
+    select coalesce(json_agg(json_build_object(
+      'id', s.id,
+      'sequence_id', s.sequence_id,
+      'position', s.position,
+      'label', s.label,
+      'delay_minutes', s.delay_minutes,
+      'body_en', s.body_en,
+      'body_es', s.body_es,
+      'body_en_night', s.body_en_night,
+      'body_es_night', s.body_es_night,
+      'alt_case_types', to_jsonb(coalesce(s.alt_case_types, '{}'::text[])),
+      'body_en_alt', s.body_en_alt,
+      'body_es_alt', s.body_es_alt,
+      'body_en_alt_night', s.body_en_alt_night,
+      'body_es_alt_night', s.body_es_alt_night,
+      'is_active', s.is_active
+    ) order by s.position), '[]'::json)
     from followup_steps s where s.sequence_id = q.id
   ) as steps
   from followup_sequences q
@@ -446,13 +477,8 @@ apiRouter.put("/sequences/:id/steps", ok(async (req, res) => {
     if ((altEn || altEs) && !phrases.length) {
       return res.status(400).json({
         error: `Text ${index + 1} has alternate wording but no case types. Add the phrases `
-          + "that should use it — wrongful death, child abuse, sexual assault, for instance.",
-      });
-    }
-    if (phrases.length && (!altEn || !altEs)) {
-      return res.status(400).json({
-        error: `Text ${index + 1} uses alternate wording for some case types but is missing its `
-          + `${!altEn ? "English" : "Spanish"} alternate copy.`,
+          + "that should use it — wrongful death, child abuse, sexual assault, for instance — "
+          + "then press Enter after the last one so it becomes a chip.",
       });
     }
   }
@@ -462,26 +488,35 @@ apiRouter.put("/sequences/:id/steps", ok(async (req, res) => {
     await client.query("begin");
     await client.query("set constraints all deferred");
     for (const [index, step] of steps.entries()) {
-      await client.query(
+      const result = await client.query(
         `update followup_steps
          set position = $2, label = $3, delay_minutes = $4, body_en = $5, body_es = $6, is_active = $7,
              body_en_night = $9, body_es_night = $10,
-             alt_case_types = $11::text[],
+             alt_case_types = coalesce((
+               select array_agg(x) from jsonb_array_elements_text($11::jsonb) as t(x)
+             ), '{}'::text[]),
              body_en_alt = $12, body_es_alt = $13, body_en_alt_night = $14, body_es_alt_night = $15
-         where id = $1 and sequence_id = $8`,
+         where id = $1::uuid and sequence_id = $8::uuid`,
         [
           step.id, index + 1, step.label || null, Math.max(0, Number(step.delay_minutes) || 0),
           step.body_en, step.body_es, Boolean(step.is_active), req.params.id,
           // Empty means "no night variant", not an empty text.
           String(step.body_en_night ?? "").trim() || null,
           String(step.body_es_night ?? "").trim() || null,
-          parseCaseTypePhrases(step.alt_case_types),
+          JSON.stringify(parseCaseTypePhrases(step.alt_case_types)),
           String(step.body_en_alt ?? "").trim() || null,
           String(step.body_es_alt ?? "").trim() || null,
           String(step.body_en_alt_night ?? "").trim() || null,
           String(step.body_es_alt_night ?? "").trim() || null,
         ],
       );
+      if (result.rowCount !== 1) {
+        const missing = new Error(
+          `Could not save text ${index + 1}. Refresh the page and try Save again.`,
+        );
+        missing.status = 400;
+        throw missing;
+      }
     }
     await client.query("commit");
   } catch (error) {

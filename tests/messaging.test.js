@@ -223,6 +223,8 @@ test("alternate night wording beats the usual night copy", () => {
 
 test("case-type phrases match as whole words, not fragments", () => {
   assert.deepEqual(parseCaseTypePhrases("wrongful death, child abuse"), ["wrongful death", "child abuse"]);
+  assert.deepEqual(parseCaseTypePhrases(["wrongful death", "child abuse"]), ["wrongful death", "child abuse"]);
+  assert.deepEqual(parseCaseTypePhrases('["wrongful death","sexual assault"]'), ["wrongful death", "sexual assault"]);
   assert.equal(caseTypeUsesAlternate("sexual assault case", ["sexual assault"]), true);
   assert.equal(caseTypeUsesAlternate("Wrongful Death", ["wrongful death"]), true);
   assert.equal(caseTypeUsesAlternate("car accident", ["sexual assault"]), false);

@@ -48,9 +48,9 @@ const FAQ = [
   {
     q: "Some case types should not get the usual follow-up text. How do I write a different one?",
     a: [
-      "On the text that needs to change — not on every text — open “Different wording for some case types”. Add the phrases that should use it, then write the English and Spanish. Wrongful death, child abuse, and sexual assault are the ones that usually need a different tone; you can add any phrase you use.",
+      "On the text that needs to change — not on every text — open “Different wording for some case types”. Add the phrases that should use it, press Enter after each one, write the English and Spanish, then Save at the top. Closing the section does not keep it. Wrongful death, child abuse, and sexual assault are the ones that usually need a different tone; you can add any phrase you use.",
       "Which wording goes out is decided when the series starts. The classifier writes the case type from the form, and a Slack start uses whatever the paralegal typed. If that case type includes one of your phrases — “sexual assault case” counts for “sexual assault” — that text uses the alternate copy. Other texts in the sequence stay as they are. If you text in Spanish, add the Spanish phrase too, or the usual copy is used.",
-      "Leave the boxes empty on texts that should read the same for every case. Alternate night wording is only offered on a text that can actually go out at night.",
+      "A language left empty uses the usual copy for that language, so fill both if the alternate should go out in English and Spanish. Leave the boxes empty on texts that should read the same for every case. Alternate night wording is only offered on a text that can actually go out at night.",
     ],
   },
   {
@@ -115,7 +115,7 @@ const FAQ = [
   {
     q: "When do texts go out?",
     a: [
-      "Earliest and Latest are the overall clock for later texts, in the client's local time. Tick “First text goes immediately” to override that clock for text 1 only — 2am or 8am, before Earliest send. Unticked, the first text waits too.",
+      "Earliest and Latest are the overall clock for later texts, in the client's local time. Tick “First text goes immediately” to override that clock for text 1 only — 2am or 8am, before Earliest send. Unticked, the first text waits too. Latest only stops later texts. It does not switch text 1 to night copy.",
       "A later text that comes due outside the window waits for the next opening rather than being skipped. Night hours on the sequence only choose which copy text 1 uses. They do not send or hold anything.",
       "The rest of the schedule then follows from that first text rather than from when the series was started, so “+4 hours” means four hours after the client actually heard from you. There is also a floor on how close two texts can land — one hour by default, under Settings. Without it, a series started at 11pm with touches at 0, +4h and +8h would have all three overdue by 9am and send them a dispatch cycle apart: three texts in two minutes. It only ever delays a text, never brings one forward.",
     ],

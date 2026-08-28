@@ -1,5 +1,6 @@
 import { ArrowLeft, ChevronDown, ChevronUp, Copy, Languages, Moon, Plus, Save, Split, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import AppNav from "../components/AppNav";
 import EmojiField from "../components/EmojiField";
@@ -37,19 +38,30 @@ function TranslateFromEnglish({ disabled, busy, title, onClick }) {
   );
 }
 
-function CaseTypePhrases({ value, onChange }) {
+function CaseTypePhrases({ value, onChange, registerFlush, onDraft }) {
   const phrases = parseCaseTypePhrases(value);
   const [draft, setDraft] = useState("");
+  const phrasesRef = useRef(phrases);
+  const draftRef = useRef(draft);
+  phrasesRef.current = phrases;
+  draftRef.current = draft;
 
-  const add = (raw) => {
-    const next = parseCaseTypePhrases([...phrases, raw]);
-    if (next.length === phrases.length) {
-      setDraft("");
-      return;
-    }
-    onChange(next);
+  const add = (raw, current = phrasesRef.current) => {
+    const next = parseCaseTypePhrases([...current, raw]);
     setDraft("");
+    draftRef.current = "";
+    if (next.length === current.length) return;
+    flushSync(() => onChange(next));
   };
+
+  useEffect(() => {
+    if (!registerFlush) return undefined;
+    registerFlush(() => {
+      const raw = draftRef.current;
+      if (String(raw).trim()) add(raw);
+    });
+    return () => registerFlush(null);
+  }, [registerFlush, onChange]);
 
   return (
     <div className="phrase-chips">
@@ -68,7 +80,10 @@ function CaseTypePhrases({ value, onChange }) {
       <input
         value={draft}
         placeholder={phrases.length ? "Add another" : "wrongful death"}
-        onChange={(event) => setDraft(event.target.value)}
+        onChange={(event) => {
+          setDraft(event.target.value);
+          onDraft?.(event.target.value);
+        }}
         onKeyDown={(event) => {
           if (event.key === "Enter" || event.key === ",") {
             event.preventDefault();
@@ -83,7 +98,7 @@ function CaseTypePhrases({ value, onChange }) {
 
 function StepCard({
   step, index, total, sequence, onChange, onMove, onRemove, language,
-  firmName, canTranslate, translating, onTranslate,
+  firmName, canTranslate, translating, onTranslate, registerPhraseFlush, onPhraseDraft,
 }) {
   const [previewNight, setPreviewNight] = useState(false);
   const [previewAlt, setPreviewAlt] = useState(false);
@@ -91,6 +106,13 @@ function StepCard({
   const nightEnd = Number(sequence.night_ends_hour ?? 8);
   const altPhrases = parseCaseTypePhrases(step.alt_case_types);
   const hasAlt = Boolean(step.body_en_alt || step.body_es_alt || altPhrases.length);
+  const [altOpen, setAltOpen] = useState(hasAlt);
+  useEffect(() => {
+    if (hasAlt) setAltOpen(true);
+  }, [hasAlt]);
+  const altMissing = altPhrases.length
+    ? [!String(step.body_en_alt ?? "").trim() && "English", !String(step.body_es_alt ?? "").trim() && "Spanish"].filter(Boolean)
+    : [];
   const hasNight = Boolean(index === 0 || step.body_en_night || step.body_es_night);
   const previewVars = {
     ...sampleVars(firmName),
@@ -252,7 +274,11 @@ function StepCard({
         </details>
       )}
 
-      <details className="night-copy" defaultOpen={hasAlt}>
+      <details
+        className="night-copy"
+        open={altOpen}
+        onToggle={(event) => setAltOpen(event.currentTarget.open)}
+      >
         <summary>
           <Split size={13} /> Different wording for some case types
           {!hasAlt && <span> — optional</span>}
@@ -261,13 +287,22 @@ function StepCard({
           Used instead of the copy above when the client's case type includes one of
           these phrases — decided when the series starts, from the form or from what
           a paralegal typed. Wrongful death, child abuse, and sexual assault are the
-          usual ones. Leave this closed to use the usual wording for every case.
+          usual ones. Press Enter after each phrase, then Save at the top. Leave this
+          closed to use the usual wording for every case.
         </p>
         <span className="field-label">Case types that use this wording</span>
         <CaseTypePhrases
           value={step.alt_case_types}
           onChange={(alt_case_types) => onChange(step, { alt_case_types })}
+          registerFlush={registerPhraseFlush}
+          onDraft={onPhraseDraft}
         />
+        {altMissing.length > 0 && (
+          <p className="preview-note">
+            {altMissing.join(" and ")} alternate copy is empty — that language will
+            keep the usual wording until you fill it in and Save.
+          </p>
+        )}
         <div className="body-grid">
           <label>
             <span>English for these cases</span>
@@ -408,6 +443,10 @@ export default function SequenceEditorPage() {
   const [firmName, setFirmName] = useState("");
   const [canTranslate, setCanTranslate] = useState(false);
   const [translating, setTranslating] = useState("");
+  const stepsRef = useRef([]);
+  const phraseFlushers = useRef(new Map());
+  const errorRef = useRef(null);
+  stepsRef.current = steps;
 
   useEffect(() => {
     setStatus("loading");
@@ -435,6 +474,10 @@ export default function SequenceEditorPage() {
       });
   }, [slug, copied]);
 
+  useEffect(() => {
+    if (error) errorRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [error]);
+
   const totalSpan = useMemo(() => {
     const active = steps.filter((step) => step.is_active);
     return active.length ? describeDelay(active[active.length - 1].delay_minutes) : null;
@@ -447,7 +490,9 @@ export default function SequenceEditorPage() {
   };
 
   const updateStep = (step, values) => {
-    setSteps((current) => current.map((item) => (item.id === step.id ? { ...item, ...values } : item)));
+    setSteps((current) => current.map((item) => (
+      String(item.id) === String(step.id) ? { ...item, ...values } : item
+    )));
     setDirty(true);
     setSaved("");
   };
@@ -523,15 +568,21 @@ export default function SequenceEditorPage() {
   };
 
   const save = async () => {
+    if (typeof document !== "undefined" && document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+    for (const flush of phraseFlushers.current.values()) flush();
+    const toSave = stepsRef.current;
+
     setSaving(true);
     setError("");
     setSaved("");
     try {
-      if (sequence.is_active && !steps.some((step) => step.is_active)) {
+      if (sequence.is_active && !toSave.some((step) => step.is_active)) {
         throw new Error("This sequence is switched on but has no texts in it. Add at least one, or switch it off.");
       }
 
-      const updated = await api.put(`/sequences/${sequence.id}/steps`, { steps });
+      const updated = await api.put(`/sequences/${sequence.id}/steps`, { steps: toSave });
       await api.patch(`/sequences/${sequence.id}`, {
         name: sequence.name,
         description: sequence.description || null,
@@ -548,7 +599,7 @@ export default function SequenceEditorPage() {
         night_ends_hour: Number(sequence.night_ends_hour ?? 8),
       });
 
-      setSteps(updated.steps ?? []);
+      setSteps(updated.steps ?? toSave);
       setDirty(false);
       setSaved("Saved. Changes apply to the next text that goes out, including series already running.");
     } catch (saveError) {
@@ -621,7 +672,7 @@ export default function SequenceEditorPage() {
           </div>
         </header>
 
-        {error && <p className="form-error">{error}</p>}
+        {error && <p className="form-error" ref={errorRef}>{error}</p>}
         {saved && <p className="form-ok">{saved}</p>}
 
         <section className="editor-section">
@@ -769,7 +820,7 @@ export default function SequenceEditorPage() {
                 </strong>
                 {" "}on the days above. Later texts due outside it wait until{" "}
                 {hourLabel(sequence.quiet_hours_start)} the next allowed day. Latest
-                send does not pick night wording.
+                only stops later texts. It does not switch text 1 to night copy.
               </p>
               {sequence.respond_immediately ? (
                 <p>
@@ -908,6 +959,14 @@ export default function SequenceEditorPage() {
                 canTranslate={canTranslate}
                 translating={translating}
                 onTranslate={translateStep}
+                registerPhraseFlush={(flush) => {
+                  if (flush) phraseFlushers.current.set(String(step.id), flush);
+                  else phraseFlushers.current.delete(String(step.id));
+                }}
+                onPhraseDraft={() => {
+                  setDirty(true);
+                  setSaved("");
+                }}
               />
             ))}
 

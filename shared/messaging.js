@@ -174,7 +174,19 @@ export function normalizeCasePhrase(value) {
 }
 
 export function parseCaseTypePhrases(value) {
-  const parts = Array.isArray(value) ? value : String(value ?? "").split(/[,;\n]+/);
+  let source = value;
+  if (typeof source === "string") {
+    const trimmed = source.trim();
+    if (trimmed.startsWith("[")) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) source = parsed;
+      } catch {
+        // Not JSON — split on commas below.
+      }
+    }
+  }
+  const parts = Array.isArray(source) ? source : String(source ?? "").split(/[,;\n]+/);
   const seen = new Set();
   const out = [];
   for (const part of parts) {
