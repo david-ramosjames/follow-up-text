@@ -34,7 +34,7 @@ begin
   values (immediate_seq.id, 1, 0, 'Day one', 'Dia uno', 'Night one', 'Noche uno', true),
          (immediate_seq.id, 2, 240, 'Day two', 'Dia dos', null, null, true);
 
-  -- Same window, but waits its turn.
+  -- Same window, but waits its turn unless the immediate box is ticked.
   insert into followup_sequences (slug, name, is_active, is_default, timezone,
                                   quiet_hours_start, quiet_hours_end, send_days, respond_immediately)
   values ('lead-later', 'Patient', true, false, 'America/Chicago', 12, 13, '{1,2,3,4,5,6,7}', false)

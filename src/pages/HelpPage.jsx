@@ -40,8 +40,8 @@ const FAQ = [
   {
     q: "How do I answer a lead at 3am without it reading strangely?",
     a: [
-      "Two settings that work together. On the sequence, tick “Answer immediately, whatever the hour” — its first text then ignores the sending window, because somebody who filled in a form thirty seconds ago is waiting. Every later text still respects the window, so the sequence does not spend a week texting at odd hours.",
-      "Then give text 1 night wording, under “Different wording at night” in the editor. “We received your message tonight and will call you in the morning” instead of “we just received your message”. When night starts and ends is under Settings, and it is judged on the client's clock, not yours. Leave the night boxes empty and the usual copy is used at every hour.",
+      "Tick “First text goes immediately” on the sequence. That overrides Earliest–Latest for text 1 only, so a form fill at 3am is answered now. Every later text still waits for the sending window.",
+      "Which wording they get is a separate pair of hours, under “Which first text”. From / Until only choose night copy vs usual copy. They do not send or hold the first text. Leave the night boxes empty and the usual copy is used at every hour.",
       "Worth deciding deliberately rather than drifting into: the federal and Texas quiet-hours rules are written about telemarketing, and answering somebody's own form fill is a different thing. Texting back at 3am is defensible and it is what this supports. It is not the cautious choice, and it is the firm's to make.",
     ],
   },
@@ -115,8 +115,8 @@ const FAQ = [
   {
     q: "When do texts go out?",
     a: [
-      "Only inside each sequence's sending window, measured in the client's local time — that is what both the federal TCPA rules and the Texas Business & Commerce Code key off. The default is 9am to 7pm on weekdays and Saturday, deliberately tighter than the legal 8am–9pm.",
-      "A text that comes due outside the window waits for the next opening rather than being skipped. A series started at 11pm sends its first text the following morning.",
+      "Earliest and Latest are the overall clock for later texts, in the client's local time. Tick “First text goes immediately” to override that clock for text 1 only — 2am or 8am, before Earliest send. Unticked, the first text waits too.",
+      "A later text that comes due outside the window waits for the next opening rather than being skipped. Night hours on the sequence only choose which copy text 1 uses. They do not send or hold anything.",
       "The rest of the schedule then follows from that first text rather than from when the series was started, so “+4 hours” means four hours after the client actually heard from you. There is also a floor on how close two texts can land — one hour by default, under Settings. Without it, a series started at 11pm with touches at 0, +4h and +8h would have all three overdue by 9am and send them a dispatch cycle apart: three texts in two minutes. It only ever delays a text, never brings one forward.",
     ],
   },

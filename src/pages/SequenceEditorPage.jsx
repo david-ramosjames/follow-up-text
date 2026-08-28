@@ -215,12 +215,11 @@ function StepCard({
           </summary>
           <p>
             Used instead of the copy above from {hourLabel(nightStart)} to{" "}
-            {hourLabel(nightEnd)} on the client's clock — that range is{" "}
-            <strong>First-text night wording</strong> on this page, not Latest send.
+            {hourLabel(nightEnd)} on the client's clock. Those hours only choose
+            night wording vs usual wording — they do not send or hold the text.
+            Whether text 1 may leave outside Earliest–Latest is{" "}
+            <strong>First text goes immediately</strong> above.
             Leave either box empty to use the usual wording at any hour.
-            {!sequence.respond_immediately && (
-              <> Night copy only goes out if Answer immediately is on, because only then can a text actually leave at night.</>
-            )}
           </p>
           <div className="body-grid">
             <label>
@@ -629,8 +628,8 @@ export default function SequenceEditorPage() {
           <div>
             <h2>Settings</h2>
             <p>
-              Which Quo number the texts come from, the sending window for later texts,
-              and whether the first one may go out at night.
+              Which Quo number the texts come from, when later texts may send, whether
+              the first one goes out immediately, and which copy it uses at night.
             </p>
           </div>
           <div className="editor-fields">
@@ -740,39 +739,91 @@ export default function SequenceEditorPage() {
                 ))}
               </div>
               <p className="field-note">
-                Federal and Texas rules both measure this window against the client's local
-                time, which is why the timezone matters. Times are in 30-minute steps.
+                The overall clock for later texts, in the client's local time. Times are
+                in 30-minute steps. The checkbox below can override this for text 1 only.
               </p>
             </div>
+
+            <label className="checkbox wide">
+              <input
+                type="checkbox"
+                checked={Boolean(sequence.respond_immediately)}
+                onChange={(event) => updateSequence({ respond_immediately: event.target.checked })}
+              />
+              <span>
+                <strong>First text goes immediately</strong>
+                <small>
+                  Overrides Earliest–Latest and the days above for text 1 only. A lead at
+                  11:00 PM or 8:00 AM is texted now, instead of waiting for{" "}
+                  {hourLabel(sequence.quiet_hours_start)}. Every later text still waits
+                  for that window.
+                </small>
+              </span>
+            </label>
 
             <div className="clock-explainer wide">
               <p>
                 <strong>
-                  Sending window — {hourLabel(sequence.quiet_hours_start)} to{" "}
+                  Overall clock — {hourLabel(sequence.quiet_hours_start)} to{" "}
                   {hourLabel(sequence.quiet_hours_end)}
                 </strong>
-                {" "}on the days above. A text due at 11:00 PM waits until{" "}
-                {hourLabel(sequence.quiet_hours_start)} the next allowed day rather than
-                being skipped. Latest is not a switch into night wording.
+                {" "}on the days above. Later texts due outside it wait until{" "}
+                {hourLabel(sequence.quiet_hours_start)} the next allowed day. Latest
+                send does not pick night wording.
               </p>
               {sequence.respond_immediately ? (
                 <p>
-                  <strong>The first text covers the 24-hour clock.</strong>
-                  {" "}Because Answer immediately is on, it can go out at 2:00 AM.
-                  From {hourLabel(Number(sequence.night_starts_hour ?? 21))} to{" "}
-                  {hourLabel(Number(sequence.night_ends_hour ?? 8))} it uses the night copy
-                  on text 1; the rest of the day uses the usual copy. Set that split below.
-                  Later texts still wait for the sending window — a 4-hour gap after 11:00 PM
-                  becomes {hourLabel(sequence.quiet_hours_start)}, not 3:00 AM.
+                  <strong>Text 1 ignores that clock</strong>, because First text goes
+                  immediately is on. From{" "}
+                  {hourLabel(Number(sequence.night_starts_hour ?? 21))} to{" "}
+                  {hourLabel(Number(sequence.night_ends_hour ?? 8))} it uses night copy;
+                  otherwise the usual copy. Set that split below. A 4-hour gap after an
+                  11:00 PM first text still becomes {hourLabel(sequence.quiet_hours_start)},
+                  not 3:00 AM.
                 </p>
               ) : (
                 <p>
-                  <strong>Night wording does not apply while Answer immediately is off</strong>,
-                  because no text can actually leave at night — everything waits for this
-                  window. Turn it on, then set night wording hours below, if the first text
-                  should go out at 2:00 AM.
+                  <strong>Text 1 waits for that clock too</strong>, because First text
+                  goes immediately is off. Night copy below only appears if the first
+                  text actually leaves during those hours — with this window, that
+                  usually never happens.
                 </p>
               )}
+            </div>
+
+            <div className="wide">
+              <span className="field-label">Which first text — night vs usual copy</span>
+              <div className="hours">
+                <label>
+                  <span>Night copy from</span>
+                  <select
+                    value={Number(sequence.night_starts_hour ?? 21)}
+                    onChange={(event) => updateSequence({ night_starts_hour: Number(event.target.value) })}
+                  >
+                    {nightStartHours().map((hour) => (
+                      <option key={hour} value={hour}>{hourLabel(hour)}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  <span>Usual copy from</span>
+                  <select
+                    value={Number(sequence.night_ends_hour ?? 8)}
+                    onChange={(event) => updateSequence({ night_ends_hour: Number(event.target.value) })}
+                  >
+                    {nightEndHours().map((hour) => (
+                      <option key={hour} value={hour}>{hourLabel(hour)}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <p className="field-note">
+                These hours only choose which wording text 1 uses. They do not send or
+                hold anything — that is Earliest–Latest, unless First text goes immediately
+                is on. From {hourLabel(Number(sequence.night_starts_hour ?? 21))} until{" "}
+                {hourLabel(Number(sequence.night_ends_hour ?? 8))} the first text uses night
+                copy; after that it uses the usual copy.
+              </p>
             </div>
 
             <label className="checkbox wide">
@@ -806,59 +857,6 @@ export default function SequenceEditorPage() {
                 </small>
               </span>
             </label>
-
-            <label className="checkbox wide">
-              <input
-                type="checkbox"
-                checked={Boolean(sequence.respond_immediately)}
-                onChange={(event) => updateSequence({ respond_immediately: event.target.checked })}
-              />
-              <span>
-                <strong>Answer immediately, whatever the hour</strong>
-                <small>
-                  For sequences that reply to a form the person filled in seconds ago, where
-                  waiting until 9am is the wrong answer. The <em>first</em> text ignores the
-                  window above; every later text still respects it, so a 4-hour gap after an
-                  11pm first text becomes the next morning, not 3am. Give text 1 night wording
-                  so a 3am reply reads properly.
-                </small>
-              </span>
-            </label>
-
-            <div className="wide">
-              <span className="field-label">First-text night wording</span>
-              <div className="hours">
-                <label>
-                  <span>From</span>
-                  <select
-                    value={Number(sequence.night_starts_hour ?? 21)}
-                    onChange={(event) => updateSequence({ night_starts_hour: Number(event.target.value) })}
-                  >
-                    {nightStartHours().map((hour) => (
-                      <option key={hour} value={hour}>{hourLabel(hour)}</option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  <span>Until</span>
-                  <select
-                    value={Number(sequence.night_ends_hour ?? 8)}
-                    onChange={(event) => updateSequence({ night_ends_hour: Number(event.target.value) })}
-                  >
-                    {nightEndHours().map((hour) => (
-                      <option key={hour} value={hour}>{hourLabel(hour)}</option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-              <p className="field-note">
-                On this sequence, in the client's timezone. From{" "}
-                {hourLabel(Number(sequence.night_starts_hour ?? 21))} to{" "}
-                {hourLabel(Number(sequence.night_ends_hour ?? 8))} the first text uses night
-                copy; the rest of the day uses the usual copy. Together they cover the 24-hour
-                clock. Times are in 30-minute steps. Later texts still wait for Earliest–Latest above.
-              </p>
-            </div>
           </div>
         </section>
 
