@@ -7,6 +7,7 @@ import {
 import { rpc, rpcSet } from "../db.js";
 import { resolveSendingNumber, sendText } from "./quo.js";
 import { retireStartCard } from "./followups.js";
+import { formatSlackMentions } from "../../shared/slackMentions.js";
 import { displayPhone, postToThread } from "./slack.js";
 import { loadSettings } from "./settings.js";
 import { defaultFirm, loadFirm, runWithFirm } from "./firms.js";
@@ -78,14 +79,14 @@ async function sendOne(row, settings) {
       channel: row.slack_channel_id,
       threadTs: row.slack_thread_ts,
       text: `:warning: Follow-up texts to ${who} keep failing, so the series has been stopped. `
-        + `<@${row.assigned_slack_user_id}> may want to try calling. Last error: ${result.error}`,
+        + `${formatSlackMentions(row.assigned_slack_user_id)} may want to try calling. Last error: ${result.error}`,
     });
   } else if (result.ok && recorded?.completed) {
     await postToThread({
       channel: row.slack_channel_id,
       threadTs: row.slack_thread_ts,
       text: `:checkered_flag: The follow-up series for ${who} has finished with no reply. `
-        + `<@${row.assigned_slack_user_id}>`,
+        + formatSlackMentions(row.assigned_slack_user_id),
     });
   }
 

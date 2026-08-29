@@ -8,6 +8,7 @@ import {
 } from "../../shared/messaging.js";
 import { flattenSlackMessage } from "../../shared/leads.js";
 import { parseStartArgs } from "../../shared/startArgs.js";
+import { formatSlackMentions } from "../../shared/slackMentions.js";
 import { one, rows, rpc } from "../db.js";
 import { assessLeadPost } from "../lib/leads.js";
 import { previewFirstText } from "../lib/previewText.js";
@@ -224,7 +225,7 @@ async function doStop({ tokens, operator }) {
 
   if (!result?.ok) {
     if (result?.reason === "not_assigned") {
-      return ephemeral(`:lock: That series is assigned to <@${result.assigned_slack_user_id}>, `
+      return ephemeral(`:lock: That series is assigned to ${formatSlackMentions(result.assigned_slack_user_id)}, `
         + "so only they or a supervisor can stop it.");
     }
     if (result?.reason === "no_active_enrollment") {
@@ -277,7 +278,7 @@ async function doStatus(tokens) {
     const when = row.status === "active"
       ? `next text ${formatWhen(row.next_run_at, row.timezone)}`
       : `${row.status.replace(/_/g, " ")}`;
-    lines.push(`• ${row.sequence_name} — ${when}, ${row.sent} sent, assigned to <@${row.assigned_slack_user_id}>`);
+    lines.push(`• ${row.sequence_name} — ${when}, ${row.sent} sent, assigned to ${formatSlackMentions(row.assigned_slack_user_id)}`);
   }
 
   return ephemeral(lines.join("\n"));
@@ -313,7 +314,7 @@ async function doList(operator) {
     const who = row.first_name ?? await displayPhone(row.phone_e164);
     return `• *${who}* — ${row.sequence_name}, step ${row.next_position} `
       + `${formatWhen(row.next_run_at, row.timezone)}`
-      + (operator.is_supervisor ? ` · <@${row.assigned_slack_user_id}>` : "");
+      + (operator.is_supervisor ? ` · ${formatSlackMentions(row.assigned_slack_user_id)}` : "");
   }));
 
   return ephemeral([
@@ -972,7 +973,7 @@ async function handleStopButton(payload, res) {
 
   if (!result?.ok) {
     const text = result?.reason === "not_assigned"
-      ? `:lock: That series belongs to <@${result.assigned_slack_user_id}>, so only they or a supervisor can stop it.`
+      ? `:lock: That series belongs to ${formatSlackMentions(result.assigned_slack_user_id)}, so only they or a supervisor can stop it.`
       : result?.reason === "not_active"
         ? ":information_source: That series has already stopped."
         : ":warning: The series could not be stopped.";
@@ -1093,7 +1094,7 @@ async function handleReroute(payload, res) {
     });
     if (!stopped?.ok) {
       await say(stopped?.reason === "not_assigned"
-        ? `:lock: That series belongs to <@${stopped.assigned_slack_user_id}>, so only they or a supervisor can move it.`
+        ? `:lock: That series belongs to ${formatSlackMentions(stopped.assigned_slack_user_id)}, so only they or a supervisor can move it.`
         : ":warning: The series could not be stopped, so it has not been moved.");
       return res.status(200).send("");
     }

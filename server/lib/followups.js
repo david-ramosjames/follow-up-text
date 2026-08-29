@@ -1,4 +1,5 @@
 import { one, rows, rpc, query } from "../db.js";
+import { formatSlackMentions, parseSlackUserIds } from "../../shared/slackMentions.js";
 import { displayPhone, enrollmentBlocks, postToThread, slackApi } from "./slack.js";
 import { formatPhone } from "../../shared/messaging.js";
 import { currentFirm } from "./firms.js";
@@ -30,7 +31,7 @@ export function enrollFailureText(result, phone) {
       return `:warning: \`${phone}\` does not read as a mobile number. Try it as 512-555-0123.`;
     case "already_active":
       return `:information_source: That number already has a series running, assigned to `
-        + `<@${result.assigned_slack_user_id}>. Stop that one first if you want to restart it.`;
+        + `${formatSlackMentions(result.assigned_slack_user_id)}. Stop that one first if you want to restart it.`;
     case "opted_out":
       return ":no_entry: That number has opted out of texts, so no series can be started. "
         + "They would need to text START themselves to opt back in.";
@@ -98,6 +99,7 @@ export async function announceEnrollment(result, {
     stepCount: Number(result.step_count ?? 0),
     nextRunAt: result.next_run_at ?? null,
     assignedUserId: String(result.assigned_slack_user_id),
+    assignedUserName: result.assigned_slack_user_name ?? null,
     caseReference: result.case_reference ?? null,
     timezone: result.sequence?.timezone ?? "America/Chicago",
     fromNumber,
@@ -214,7 +216,7 @@ export async function retireStartCard(enrollmentId) {
         elements: [{
           type: "mrkdwn",
           text: `${sent} text${sent === 1 ? "" : "s"} went out · was assigned to `
-            + `<@${row.assigned_slack_user_id}>`,
+            + formatSlackMentions(row.assigned_slack_user_id),
         }],
       },
     ],
@@ -225,7 +227,14 @@ export async function retireStartCard(enrollmentId) {
 // name in the dashboard rather than a raw user ID.
 export async function lookupSlackName(userId) {
   if (!userId) return null;
-  const info = await slackApi("users.info", { user: userId });
-  if (!info?.ok) return null;
-  return info.user?.profile?.display_name || info.user?.real_name || info.user?.name || null;
+  const ids = parseSlackUserIds(userId);
+  const toLookup = ids.length ? ids : [String(userId).trim()].filter(Boolean);
+  const names = [];
+  for (const id of toLookup) {
+    const info = await slackApi("users.info", { user: id });
+    if (!info?.ok) continue;
+    const name = info.user?.profile?.display_name || info.user?.real_name || info.user?.name;
+    if (name) names.push(name);
+  }
+  return names.length ? names.join(", ") : null;
 }

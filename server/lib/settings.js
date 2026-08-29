@@ -132,8 +132,9 @@ export const SETTING_DEFINITIONS = [
     label: "Who owns an automatic lead",
     type: "text",
     default: "",
-    help: "The Slack member ID an automatically started series is assigned to. They can stop "
-      + "it, and anybody can hand it over afterwards.",
+    help: "The Slack member ID (the U… from their profile) an automatically started series "
+      + "is assigned to. Several IDs, separated by commas, each show as a name on the start "
+      + "card. They can stop it, and anybody can hand it over afterwards.",
   },
   {
     key: "night_starts_hour",

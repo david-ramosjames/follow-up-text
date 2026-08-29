@@ -6,6 +6,7 @@ import {
   STOP_CONFIRMATION,
   truncateChars,
 } from "../../shared/messaging.js";
+import { formatSlackMentions } from "../../shared/slackMentions.js";
 import { query, rpc } from "../db.js";
 import { readEvent, readPhone, resolveSendingNumber, sendText } from "../lib/quo.js";
 import { retireStartCard } from "../lib/followups.js";
@@ -80,7 +81,7 @@ async function handleInboundMessage(object) {
   const language = result.language === "es" ? "es" : "en";
   const shown = await displayPhone(from);
   const who = result.first_name ? `${result.first_name} (${shown})` : shown;
-  const assigned = result.assigned_slack_user_id ? ` <@${result.assigned_slack_user_id}>` : "";
+  const assigned = result.assigned_slack_user_id ? ` ${formatSlackMentions(result.assigned_slack_user_id)}` : "";
   const confirm = await confirmTo(from, result.contact_id, to);
 
   // One rule for everything the client sends: Slack is told when a series ended,
@@ -170,7 +171,7 @@ async function handleInboundCall(object) {
     threadTs: result.slack_thread_ts,
     text: `:telephone_receiver: ${who} called back — follow-ups stopped after `
       + `${result.stopped.sent_count ?? 0} text(s).`
-      + (result.assigned_slack_user_id ? ` <@${result.assigned_slack_user_id}>` : ""),
+      + (result.assigned_slack_user_id ? ` ${formatSlackMentions(result.assigned_slack_user_id)}` : ""),
   });
   return { action: "call", stopped: true };
 }
