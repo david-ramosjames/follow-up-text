@@ -288,7 +288,12 @@ export function enrollmentBlocks(card) {
       fields: [
         { type: "mrkdwn", text: `*Sequence*\n${card.sequenceName}` },
         { type: "mrkdwn", text: `*Language*\n${language}` },
-        { type: "mrkdwn", text: `*Assigned*\n${formatSlackMentions(card.assignedUserId, card.assignedUserName)}` },
+        // Auto-started leads skip Assigned: the owner is always the Settings
+        // list, and <@id> pings everyone in it on every form fill.
+        ...(!card.silentAssigned ? [{
+          type: "mrkdwn",
+          text: `*Assigned*\n${formatSlackMentions(card.assignedUserId, card.assignedUserName)}`,
+        }] : []),
         { type: "mrkdwn", text: `*First text*\n${formatWhen(card.nextRunAt, card.timezone)}` },
         { type: "mrkdwn", text: `*Texts queued*\n${card.stepCount}` },
         ...(card.fromNumber ? [{ type: "mrkdwn", text: `*Sending from*\n${card.fromNumber}` }] : []),

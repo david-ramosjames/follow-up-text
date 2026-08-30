@@ -100,6 +100,7 @@ export async function announceEnrollment(result, {
     nextRunAt: result.next_run_at ?? null,
     assignedUserId: String(result.assigned_slack_user_id),
     assignedUserName: result.assigned_slack_user_name ?? null,
+    silentAssigned: Boolean(routing),
     caseReference: result.case_reference ?? null,
     timezone: result.sequence?.timezone ?? "America/Chicago",
     fromNumber,
