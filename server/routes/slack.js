@@ -70,7 +70,7 @@ const HELP = [
     + "channel it was run in but not which thread, so `/followup` always confirms at the top of "
     + "the channel. `@sms-follow-up start …` and the `⋯` menu both keep to the thread.",
   "",
-  "A series stops on its own when the client replies, calls back, or texts STOP — `stop` is "
+  "A series stops on its own when the client replies, calls, is reached by phone, or texts STOP — `stop` is "
     + "for when they re-engage somewhere this cannot see.",
 ].join("\n");
 

@@ -7,6 +7,7 @@ import {
   truncateChars,
 } from "../../shared/messaging.js";
 import { formatSlackMentions } from "../../shared/slackMentions.js";
+import { isAnsweredCall, isIncomingCall, isOutgoingCall } from "../../shared/calls.js";
 import { query, rpc } from "../db.js";
 import { readEvent, readPhone, resolveSendingNumber, sendText } from "../lib/quo.js";
 import { retireStartCard } from "../lib/followups.js";
@@ -142,19 +143,22 @@ async function handleInboundMessage(object) {
   return { action: "reply", stopped: true, announced: true };
 }
 
-async function handleInboundCall(object) {
-  const direction = String(object.direction ?? "");
-  // Only a call *from* the client counts as re-engagement. Our own outbound
-  // attempts, which are the reason the series exists, must not stop it.
-  if (direction && direction !== "incoming" && direction !== "inbound") {
-    return { ignored: "outgoing_call" };
-  }
+async function handleCall(object, type, context = {}) {
+  const incoming = isIncomingCall(object);
+  const outgoing = isOutgoingCall(object);
 
-  const from = readPhone(object.from);
-  if (!from) return { ignored: "no_caller" };
+  // A miss, a ring, or voicemail-without-connect from our side is the series
+  // doing its job. A completed conversation is not.
+  if (outgoing && type === "call.ringing") return { ignored: "outgoing_ringing" };
+  if (outgoing && !isAnsweredCall(object)) return { ignored: "outgoing_unanswered" };
+
+  const fromClient = incoming
+    ? readPhone(object.from) || readPhone(context.participants?.external) || readPhone(object.participants?.external)
+    : readPhone(object.to) || readPhone(context.participants?.external) || readPhone(object.participants?.external);
+  if (!fromClient) return { ignored: "no_caller" };
 
   const result = await rpc("followup_record_inbound", {
-    phone: from,
+    phone: fromClient,
     kind: "call",
     is_stop: false,
     is_start: false,
@@ -164,12 +168,15 @@ async function handleInboundCall(object) {
   if (!result.stopped?.ok) return { action: "call", stopped: false };
   await retireStartCard(result.stopped.enrollment_id);
 
-  const shown = await displayPhone(from);
+  const shown = await displayPhone(fromClient);
   const who = result.first_name ? `${result.first_name} (${shown})` : shown;
+  const how = incoming
+    ? "called back — follow-ups stopped after "
+    : "was reached by phone — follow-ups stopped after ";
   await postToThread({
     channel: result.slack_channel_id,
     threadTs: result.slack_thread_ts,
-    text: `:telephone_receiver: ${who} called back — follow-ups stopped after `
+    text: `:telephone_receiver: ${who} ${how}`
       + `${result.stopped.sent_count ?? 0} text(s).`
       + (result.assigned_slack_user_id ? ` ${formatSlackMentions(result.assigned_slack_user_id)}` : ""),
   });
@@ -200,10 +207,12 @@ webhookRouter.post("/quo", async (req, res) => {
     return res.status(400).json({ error: "Body was not JSON." });
   }
 
-  const { type, object } = readEvent(body);
+  const { type, object, context } = readEvent(body);
   const to = readPhone(object?.to) || readPhone(object?.phoneNumber);
   const firm = await firmForQuoNumber({
-    quoNumberId: object?.phoneNumberId ? String(object.phoneNumberId) : null,
+    quoNumberId: object?.phoneNumberId
+      ? String(object.phoneNumberId)
+      : (context?.phoneNumberId ? String(context.phoneNumberId) : null),
     toNumber: to,
   }) || verified.firm;
 
@@ -222,7 +231,7 @@ webhookRouter.post("/quo", async (req, res) => {
     // not a call, so running them through the caller check would be reading
     // fields that are not there.
     if (type === "call.completed" || type === "call.ringing") {
-      return res.json(await handleInboundCall(object));
+      return res.json(await handleCall(object, type, context));
     }
 
     // Unknown events are acknowledged rather than rejected, so Quo does not keep

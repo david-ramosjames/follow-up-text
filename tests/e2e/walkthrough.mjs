@@ -552,23 +552,51 @@ console.log("\n10. The client calls the office instead");
   const running = await api("/api/enrollments?status=active");
   check("a series is running for the caller", running.data.length === 1);
 
-  // Our own outbound call is the reason the series exists; it must not end it.
+  // An unanswered outbound dial is the reason the series exists; it must not end it.
   const outgoing = await fetch(`${BASE}/webhooks/quo?token=quo-token-abc`, {
     method: "POST", headers: { "content-type": "application/json" },
     body: JSON.stringify({
       type: "call.completed",
-      data: { object: { id: "CALL-OUT", direction: "outgoing", from: "+15125557777", to: "+15125550166" } },
+      data: { object: {
+        id: "CALL-OUT-MISS", direction: "outgoing", status: "unanswered",
+        from: "+15125557777", to: "+15125550166",
+      } },
     }),
   });
-  check("our own outbound call is ignored", (await outgoing.json()).ignored === "outgoing_call");
+  check("an unanswered outbound call is ignored", (await outgoing.json()).ignored === "outgoing_unanswered");
   check("the series is still running",
+    (await api("/api/enrollments?status=active")).data.length === 1);
+
+  const reached = await fetch(`${BASE}/webhooks/quo?token=quo-token-abc`, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      type: "call.completed",
+      data: { object: {
+        id: "CALL-OUT-HIT", direction: "outgoing", status: "completed",
+        answeredAt: "2026-09-01T23:02:00.000Z",
+        from: "+15125557777", to: "+15125550166",
+      } },
+    }),
+  });
+  const reachedBody = await reached.json();
+  check("a completed outbound call stops the series",
+    reached.status === 200 && reachedBody.action === "call" && reachedBody.stopped === true,
+    JSON.stringify(reachedBody));
+  check("nothing is left running after we reached them",
+    (await api("/api/enrollments?status=active")).data.length === 0);
+
+  await slack("/slack/commands", {
+    user_id: "U0PARALEGAL", user_name: "sam", channel_id: "C0INTAKE",
+    text: "start 512-555-0167 Ana", response_url: "http://127.0.0.1:4999/__noop",
+  });
+  check("a fresh series is running for an inbound call",
     (await api("/api/enrollments?status=active")).data.length === 1);
 
   const incoming = await fetch(`${BASE}/webhooks/quo?token=quo-token-abc`, {
     method: "POST", headers: { "content-type": "application/json" },
     body: JSON.stringify({
       type: "call.completed",
-      data: { object: { id: "CALL-IN", direction: "incoming", from: "+15125550166", to: "+15125557777" } },
+      data: { object: { id: "CALL-IN", direction: "incoming", from: "+15125550167", to: "+15125557777" } },
     }),
   });
   const called = await incoming.json();

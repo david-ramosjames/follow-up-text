@@ -308,7 +308,7 @@ export function enrollmentBlocks(card) {
       type: "context",
       elements: [{
         type: "mrkdwn",
-        text: "Stops on its own if they reply or call back, or if they text STOP. "
+        text: "Stops on its own if they reply, call, get reached by phone, or text STOP. "
           + "Replies land in this thread.",
       }],
     },

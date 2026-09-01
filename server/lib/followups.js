@@ -167,7 +167,7 @@ export async function announceStop(result, actorLabel) {
 
 const ENDED_LABELS = {
   reply: "the client replied",
-  call: "the client called back",
+  call: "they spoke with the office",
   opt_out: "the client texted STOP",
   manual: "somebody stopped it",
   sequence_complete: "every text went out with no reply",

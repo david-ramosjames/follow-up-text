@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { query, rows } from "../db.js";
+import { unwrapQuoContext, unwrapQuoObject } from "../../shared/calls.js";
 import { currentFirm, defaultFirm, firmId, listFirms, quoApiKey, quoWebhookSecret } from "./firms.js";
 
 // Quo (formerly OpenPhone). The rebrand kept the API shape, so an account that
@@ -231,9 +232,7 @@ export async function verifyWebhook(req, rawBody) {
 // with the object at data or at the root, so unwrap defensively.
 export function readEvent(body) {
   const type = String(body?.type ?? body?.event ?? "");
-  const data = body?.data ?? {};
-  const object = data?.object ?? (Object.keys(data).length ? data : body);
-  return { type, object: object ?? {} };
+  return { type, object: unwrapQuoObject(body), context: unwrapQuoContext(body) };
 }
 
 export function readPhone(value) {

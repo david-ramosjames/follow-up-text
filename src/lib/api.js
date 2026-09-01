@@ -74,7 +74,7 @@ export const STATUS_LABELS = {
   active: "Running",
   completed: "Finished, no reply",
   stopped_reply: "They replied",
-  stopped_call: "They called back",
+  stopped_call: "They spoke with the office",
   stopped_manual: "Stopped by staff",
   stopped_opt_out: "Opted out",
   failed: "Texts kept failing",

@@ -158,7 +158,7 @@ export default function DashboardPage() {
             <div>
               <h2>How each sequence performs</h2>
               <p>
-                Share of series that ended because the client replied or called back — the only
+                Share of series that ended because the client replied or spoke with the office — the only
                 outcome that matters.
               </p>
             </div>
