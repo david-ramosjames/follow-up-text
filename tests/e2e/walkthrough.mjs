@@ -567,13 +567,31 @@ console.log("\n10. The client calls the office instead");
   check("the series is still running",
     (await api("/api/enrollments?status=active")).data.length === 1);
 
+  const short = await fetch(`${BASE}/webhooks/quo?token=quo-token-abc`, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      type: "call.completed",
+      data: { object: {
+        id: "CALL-OUT-SHORT", direction: "outgoing", status: "answered",
+        answeredAt: "2026-09-01T23:02:00.000Z", duration: 45,
+        from: "+15125557777", to: "+15125550166",
+      } },
+    }),
+  });
+  const shortBody = await short.json();
+  check("a short outbound call asks Slack instead of stopping",
+    short.status === 200 && shortBody.action === "short_call_review" && shortBody.stopped === false,
+    JSON.stringify(shortBody));
+  check("the series is still running after a short call",
+    (await api("/api/enrollments?status=active")).data.length === 1);
+
   const reached = await fetch(`${BASE}/webhooks/quo?token=quo-token-abc`, {
     method: "POST", headers: { "content-type": "application/json" },
     body: JSON.stringify({
       type: "call.completed",
       data: { object: {
-        id: "CALL-OUT-HIT", direction: "outgoing", status: "completed",
-        answeredAt: "2026-09-01T23:02:00.000Z",
+        id: "CALL-OUT-HIT", direction: "outgoing", status: "answered",
+        answeredAt: "2026-09-01T23:00:00.000Z", duration: 180,
         from: "+15125557777", to: "+15125550166",
       } },
     }),

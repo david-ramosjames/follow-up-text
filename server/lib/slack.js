@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { formatPhone, maskPhone } from "../../shared/messaging.js";
 import { formatSlackMentions } from "../../shared/slackMentions.js";
+import { describeCallDuration } from "../../shared/calls.js";
 import { loadSettings } from "./settings.js";
 import { currentFirm, listFirms, slackAppId, slackBotToken, slackSigningSecret } from "./firms.js";
 
@@ -308,11 +309,49 @@ export function enrollmentBlocks(card) {
       type: "context",
       elements: [{
         type: "mrkdwn",
-        text: "Stops on its own if they reply, call, get reached by phone, or text STOP. "
+        text: "Stops on its own if they reply, call, get reached on a call of two minutes or more, or text STOP. "
           + "Replies land in this thread.",
       }],
     },
     { type: "actions", elements: actions },
+  ];
+}
+
+export function shortCallReviewBlocks({
+  enrollmentId, phone, firstName, durationSeconds, assignedUserId,
+}) {
+  const who = firstName ? `*${firstName}* ${phone}` : `*${phone}*`;
+  const length = describeCallDuration(durationSeconds);
+  const mentions = formatSlackMentions(assignedUserId);
+  const ping = mentions ? ` ${mentions}` : "";
+
+  return [
+    {
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `:telephone_receiver: Short call with ${who} — ${length}. The series is still `
+          + `running. Should we keep texting, or was that enough?${ping}`,
+      },
+    },
+    {
+      type: "actions",
+      elements: [
+        {
+          type: "button",
+          action_id: "followup_short_call_keep",
+          text: { type: "plain_text", text: "Keep texting" },
+          value: enrollmentId,
+        },
+        {
+          type: "button",
+          action_id: "followup_short_call_stop",
+          style: "danger",
+          text: { type: "plain_text", text: "Stop follow-ups" },
+          value: enrollmentId,
+        },
+      ],
+    },
   ];
 }
 

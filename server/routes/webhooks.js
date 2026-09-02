@@ -7,11 +7,11 @@ import {
   truncateChars,
 } from "../../shared/messaging.js";
 import { formatSlackMentions } from "../../shared/slackMentions.js";
-import { isAnsweredCall, isIncomingCall, isOutgoingCall } from "../../shared/calls.js";
+import { callDurationSeconds, isAnsweredCall, isIncomingCall, isOutgoingCall, outboundCallOutcome } from "../../shared/calls.js";
 import { query, rpc } from "../db.js";
 import { readEvent, readPhone, resolveSendingNumber, sendText } from "../lib/quo.js";
-import { retireStartCard } from "../lib/followups.js";
-import { displayPhone, postToThread } from "../lib/slack.js";
+import { findActiveEnrollmentByPhone, retireStartCard } from "../lib/followups.js";
+import { displayPhone, postToThread, shortCallReviewBlocks } from "../lib/slack.js";
 import { loadSettings } from "../lib/settings.js";
 import { verifyWebhook } from "../lib/quo.js";
 import { currentFirm, firmForQuoNumber, runWithFirm } from "../lib/firms.js";
@@ -143,12 +143,40 @@ async function handleInboundMessage(object) {
   return { action: "reply", stopped: true, announced: true };
 }
 
+async function reviewShortOutbound(object, fromClient) {
+  const enrollment = await findActiveEnrollmentByPhone(fromClient);
+  if (!enrollment) return { ignored: "no_active_enrollment" };
+
+  const seconds = callDurationSeconds(object);
+  const shown = await displayPhone(fromClient);
+  await postToThread({
+    channel: enrollment.slack_channel_id,
+    threadTs: enrollment.slack_thread_ts,
+    text: `Short call with ${shown} — should we keep texting?`,
+    blocks: shortCallReviewBlocks({
+      enrollmentId: String(enrollment.id),
+      phone: shown,
+      firstName: enrollment.first_name,
+      durationSeconds: seconds,
+      assignedUserId: enrollment.assigned_slack_user_id,
+    }),
+  });
+
+  await query(
+    `insert into followup_events (enrollment_id, contact_id, kind, detail, actor)
+     select e.id, e.contact_id, 'short_call_review',
+            jsonb_build_object('duration_seconds', $2::int), 'system'
+     from followup_enrollments e where e.id = $1`,
+    [enrollment.id, seconds],
+  ).catch((error) => console.error("Could not log short-call review", error));
+
+  return { action: "short_call_review", stopped: false, enrollment_id: enrollment.id };
+}
+
 async function handleCall(object, type, context = {}) {
   const incoming = isIncomingCall(object);
   const outgoing = isOutgoingCall(object);
 
-  // A miss, a ring, or voicemail-without-connect from our side is the series
-  // doing its job. A completed conversation is not.
   if (outgoing && type === "call.ringing") return { ignored: "outgoing_ringing" };
   if (outgoing && !isAnsweredCall(object)) return { ignored: "outgoing_unanswered" };
 
@@ -156,6 +184,10 @@ async function handleCall(object, type, context = {}) {
     ? readPhone(object.from) || readPhone(context.participants?.external) || readPhone(object.participants?.external)
     : readPhone(object.to) || readPhone(context.participants?.external) || readPhone(object.participants?.external);
   if (!fromClient) return { ignored: "no_caller" };
+
+  if (outgoing && outboundCallOutcome(object) === "short") {
+    return reviewShortOutbound(object, fromClient);
+  }
 
   const result = await rpc("followup_record_inbound", {
     phone: fromClient,

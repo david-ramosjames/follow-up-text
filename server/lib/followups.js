@@ -1,7 +1,7 @@
 import { one, rows, rpc, query } from "../db.js";
 import { formatSlackMentions, parseSlackUserIds } from "../../shared/slackMentions.js";
 import { displayPhone, enrollmentBlocks, postToThread, slackApi } from "./slack.js";
-import { formatPhone } from "../../shared/messaging.js";
+import { formatPhone, normalizePhone } from "../../shared/messaging.js";
 import { currentFirm } from "./firms.js";
 
 export async function loadOperator(slackUserId) {
@@ -59,6 +59,30 @@ export const ENROLL_FIELD_ERRORS = {
   sequence_not_found: { field: "sequence", text: "That sequence no longer exists." },
   unknown_quo_number: { field: "send_from", text: "That sending number is not in Quo any more." },
 };
+
+export function canReviewSeries(operator, assignedSlackUserId) {
+  if (!operator) return false;
+  if (operator.is_supervisor || operator.can_admin) return true;
+  const owners = parseSlackUserIds(assignedSlackUserId);
+  if (!owners.length) return true;
+  return owners.includes(operator.slack_user_id);
+}
+
+export async function findActiveEnrollmentByPhone(phone) {
+  const e164 = normalizePhone(phone);
+  if (!e164) return null;
+  return one(
+    `select e.id, e.assigned_slack_user_id, e.slack_channel_id, e.slack_thread_ts,
+            e.status, c.first_name, c.phone_e164
+     from followup_enrollments e
+     join followup_contacts c on c.id = e.contact_id
+     where c.phone_e164 = $1 and e.status = 'active'
+       and ($2::uuid is null or e.firm_id = $2)
+     order by e.started_at desc
+     limit 1`,
+    [e164, currentFirm()?.id ?? null],
+  );
+}
 
 export async function startSeries(payload) {
   return rpc("followup_enroll", { ...payload, firm_id: payload.firm_id ?? currentFirm()?.id ?? null });

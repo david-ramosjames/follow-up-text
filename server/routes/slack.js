@@ -18,6 +18,7 @@ import {
   announceEnrollment,
   announceStop,
   ENROLL_FIELD_ERRORS,
+  canReviewSeries,
   enrollFailureText,
   loadOperator,
   lookupSlackName,
@@ -998,6 +999,98 @@ async function handleStopButton(payload, res) {
   return res.status(200).send("");
 }
 
+async function loadSeriesForReview(enrollmentId) {
+  return one(
+    `select e.id, e.status, e.assigned_slack_user_id, c.phone_e164, c.first_name
+     from followup_enrollments e
+     join followup_contacts c on c.id = e.contact_id
+     where e.id = $1`,
+    [enrollmentId],
+  );
+}
+
+async function handleShortCallReview(payload, res, { stop }) {
+  const operator = await loadOperator(payload.user.id);
+  const responseUrl = payload.response_url;
+  const enrollmentId = payload.actions[0].value;
+
+  if (!operator) {
+    await respondToUrl(responseUrl, {
+      response_type: "ephemeral",
+      replace_original: false,
+      text: ":lock: You are not set up to manage client follow-ups.",
+    });
+    return res.status(200).send("");
+  }
+
+  const enrollment = await loadSeriesForReview(enrollmentId);
+  if (!enrollment) {
+    await respondToUrl(responseUrl, {
+      response_type: "ephemeral",
+      replace_original: false,
+      text: ":warning: That series could not be found.",
+    });
+    return res.status(200).send("");
+  }
+
+  if (!canReviewSeries(operator, enrollment.assigned_slack_user_id)) {
+    await respondToUrl(responseUrl, {
+      response_type: "ephemeral",
+      replace_original: false,
+      text: `:lock: That series belongs to ${formatSlackMentions(enrollment.assigned_slack_user_id)}, `
+        + "so only they or a supervisor can decide.",
+    });
+    return res.status(200).send("");
+  }
+
+  const phone = await displayPhone(String(enrollment.phone_e164));
+  const who = enrollment.first_name ? `*${enrollment.first_name}* ${phone}` : `*${phone}*`;
+
+  if (!stop) {
+    await respondToUrl(responseUrl, {
+      replace_original: true,
+      text: "Keeping the series",
+      blocks: [{
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: `:white_check_mark: Keeping follow-ups for ${who}. Reviewed by <@${operator.slack_user_id}>.`,
+        },
+      }],
+    });
+    return res.status(200).send("");
+  }
+
+  const result = await stopSeries({
+    enrollmentId,
+    actor: operator.slack_user_id,
+    enforceAssignment: false,
+  });
+  if (!result?.ok) {
+    const text = result?.reason === "not_active"
+      ? ":information_source: That series has already stopped."
+      : ":warning: The series could not be stopped.";
+    await respondToUrl(responseUrl, { response_type: "ephemeral", replace_original: false, text });
+    return res.status(200).send("");
+  }
+
+  await retireStartCard(enrollmentId);
+  const sent = Number(result.sent_count ?? 0);
+  await respondToUrl(responseUrl, {
+    replace_original: true,
+    text: "Follow-ups stopped",
+    blocks: [{
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `:octagonal_sign: Follow-ups for ${who} were stopped by <@${operator.slack_user_id}> `
+          + `after a short call · ${sent} text${sent === 1 ? "" : "s"} sent.`,
+      },
+    }],
+  });
+  return res.status(200).send("");
+}
+
 async function handleModalSubmit(payload, res) {
   const operator = await loadOperator(payload.user.id);
   if (!operator) {
@@ -1161,6 +1254,12 @@ slackRouter.post("/interactivity", async (req, res) => {
     }
     if (payload.type === "block_actions" && payload.actions?.[0]?.action_id === "followup_stop") {
       return await handleStopButton(payload, res);
+    }
+    if (payload.type === "block_actions" && payload.actions?.[0]?.action_id === "followup_short_call_keep") {
+      return await handleShortCallReview(payload, res, { stop: false });
+    }
+    if (payload.type === "block_actions" && payload.actions?.[0]?.action_id === "followup_short_call_stop") {
+      return await handleShortCallReview(payload, res, { stop: true });
     }
     if (payload.type === "block_actions" && payload.actions?.[0]?.action_id === "followup_reroute") {
       return await handleReroute(payload, res);
