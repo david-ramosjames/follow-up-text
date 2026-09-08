@@ -22,13 +22,24 @@ export const MERGE_FIELDS = [
   { token: "{{firm_name}}", label: "Firm name" },
 ];
 
+// Website forms use "Other" as a dropdown. That is a file label, not spoken
+// English — "about your other" is nonsense. Blank it so the merge fallback
+// ("case" / "caso") fills in and the text says "your case".
+export function spokenCaseType(value) {
+  const text = String(value ?? "").replace(/\s+/g, " ").trim();
+  if (!text) return "";
+  const key = text.toLowerCase().replace(/[.'"\u201c\u201d]/g, "");
+  if (key === "other" || key === "otro" || key === "otra") return "";
+  return text;
+}
+
 export function renderBody(template, vars = {}, language = "en") {
   const values = {
     first_name: (vars.first_name ?? "").trim(),
     last_name: (vars.last_name ?? "").trim(),
     full_name: (vars.full_name ?? [vars.first_name, vars.last_name].filter(Boolean).join(" ")).trim(),
     case_reference: (vars.case_reference ?? "").trim(),
-    case_type: (vars.case_type ?? "").trim(),
+    case_type: spokenCaseType(vars.case_type),
     assigned_user: (vars.assigned_user ?? "").trim(),
     firm_name: (vars.firm_name ?? "").trim(),
   };

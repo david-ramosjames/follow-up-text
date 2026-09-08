@@ -198,6 +198,9 @@ test("case type for texts is a short phrase, not a file label", () => {
   assert.equal(normalizeCaseType("your car accident"), "car accident");
   assert.equal(normalizeCaseType("su accidente de auto"), "accidente de auto");
   assert.equal(normalizeCaseType("  \"slip and fall\".  "), "slip and fall");
+  assert.equal(normalizeCaseType("other"), null);
+  assert.equal(normalizeCaseType("Other"), null);
+  assert.equal(normalizeCaseType("otro"), null);
   assert.equal(normalizeCaseType(""), null);
 });
 
@@ -212,6 +215,7 @@ test("the classifier is shown the first texts case_type will be pasted into", ()
   assert.match(prompt, /We got your \{\{case_type\}\} tonight/);
   assert.match(prompt, /Thank you for contacting us about your \{\{case_type\}\}/);
   assert.match(prompt, /reads like a text you would send tonight/);
+  assert.match(prompt, /Never write other, otro, or otra/);
   assert.match(prompt, /Kind Clinic, sexual assault/);
   assert.match(prompt, /qualified-lead: Qualified lead/);
 });

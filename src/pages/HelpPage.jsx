@@ -49,7 +49,7 @@ const FAQ = [
     q: "Some case types should not get the usual follow-up text. How do I write a different one?",
     a: [
       "On the text that needs to change — not on every text — open “Different wording for some case types”. Add the phrases that should use it, press Enter after each one, write the English and Spanish, then Save at the top. Closing the section does not keep it. Wrongful death, child abuse, and sexual assault are the ones that usually need a different tone; you can add any phrase you use.",
-      "Which wording goes out is decided when the series starts. The classifier writes the case type from the form, and a Slack start uses whatever the paralegal typed. If that case type includes one of your phrases — “sexual assault case” counts for “sexual assault” — that text uses the alternate copy. Other texts in the sequence stay as they are. If you text in Spanish, add the Spanish phrase too, or the usual copy is used.",
+      "Which wording goes out is decided when the series starts. The classifier writes the case type from the form, and a Slack start uses whatever the paralegal typed. If that case type includes one of your phrases — “sexual assault case” counts for “sexual assault” — that text uses the alternate copy. Other texts in the sequence stay as they are. If you text in Spanish, add the Spanish phrase too, or the usual copy is used. If the form only says Other, the text says “your case”, not “your other”.",
       "A language left empty uses the usual copy for that language, so fill both if the alternate should go out in English and Spanish. Leave the boxes empty on texts that should read the same for every case. Alternate night wording is only offered on a text that can actually go out at night.",
     ],
   },

@@ -3,7 +3,7 @@
 // Kept apart from the classifier on purpose. Everything here is deterministic
 // and testable on its own, and the phone number in particular is never left to
 // a model: being wrong about it means texting a stranger.
-import { extractPhones, parseCaseTypePhrases } from "./messaging.js";
+import { extractPhones, parseCaseTypePhrases, spokenCaseType } from "./messaging.js";
 
 // Slack apps put their content in wildly different places — some in `text`,
 // some only inside block elements, some in legacy attachments. The four sources
@@ -139,7 +139,7 @@ export function normalizeCaseType(value) {
     const cut = text.slice(0, 80);
     text = cut.replace(/\s+\S*$/, "") || cut;
   }
-  return text || null;
+  return spokenCaseType(text) || null;
 }
 
 function firstTextLines(sequence) {
@@ -200,7 +200,7 @@ export function buildClassificationUserPrompt(sequences, text) {
 
   return `Sequences you may choose from:\n${menu}
 
-{{case_type}} is pasted into these first texts. Write case_type so every sentence reads like a text you would send tonight. Clinics, cities, dates, and other parties go in case_detail, never in case_type.
+{{case_type}} is pasted into these first texts. Write case_type so every sentence reads like a text you would send tonight. Never write other, otro, or otra — leave case_type null so the text says "your case". Clinics, cities, dates, and other parties go in case_detail, never in case_type.
 
 ${alternateRule}${firstTexts || "(no first texts on file yet)"}
 

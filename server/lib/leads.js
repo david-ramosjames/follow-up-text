@@ -77,7 +77,8 @@ const CLASSIFICATION_SCHEMA = {
         + "child abuse, sexual assault, or any other phrase you are given), "
         + "use that listed phrase so the alternate texts can fire. "
         + "Not a file note — no clinic, city, date, or 'involving …' clause. "
-        + "Those go in case_detail. Same language as `language`. Null if unknown.",
+        + "Those go in case_detail. Same language as `language`. Null if unknown "
+        + "or the form only says Other — never write 'other'.",
     },
     case_detail: {
       type: ["string", "null"],
@@ -125,10 +126,12 @@ Rules:
   given, not a summary of the post. Read each first text with your phrase in
   the blank. If any sentence sounds like a file note, it is wrong.
   Right: "car accident", "slip and fall", "truck accident", "sexual assault case".
-  Wrong: "sexual assault involving a clinic", "accident at Kind Clinic, South
-  Austin". Put the clinic, city, date, other party, and extra facts in
-  case_detail. Keep case_type to a few spoken words. Do not start it with
-  "your" or "su". Do not use a comma list. Same language as the language field.
+  Wrong: "other", "otro", "sexual assault involving a clinic", "accident at Kind
+  Clinic, South Austin". If the form says Other, or you cannot name the injury
+  in a few spoken words, return null so the text says "your case". Put the
+  clinic, city, date, other party, and extra facts in case_detail. Keep
+  case_type to a few spoken words. Do not start it with "your" or "su". Do not
+  use a comma list. Same language as the language field.
   If writing Spanish, avoid á, í, ó, ú so the text stays one SMS segment.
   If the case is a listed sensitive type — wrongful death, child abuse, sexual
   assault, or another phrase you are given — write case_type as that listed

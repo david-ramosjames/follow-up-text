@@ -44,6 +44,25 @@ test("a missing English name falls back to something sayable", () => {
   assert.equal(renderBody("Hi {{first_name}}, checking in.", {}), "Hi there, checking in.");
 });
 
+test("Other as a case type is said as case, not other", () => {
+  assert.equal(
+    renderBody("Thank you for contacting us about your {{case_type}}.", { case_type: "other" }),
+    "Thank you for contacting us about your case.",
+  );
+  assert.equal(
+    renderBody("Thank you for contacting us about your {{case_type}}.", { case_type: "Other" }),
+    "Thank you for contacting us about your case.",
+  );
+  assert.equal(
+    renderBody("Gracias por contactarnos sobre su {{case_type}}.", { case_type: "otro" }, "es"),
+    "Gracias por contactarnos sobre su caso.",
+  );
+  assert.equal(
+    renderBody("Thank you for contacting us about your {{case_type}}.", { case_type: "car accident" }),
+    "Thank you for contacting us about your car accident.",
+  );
+});
+
 test("a missing Spanish name collapses instead of leaving a gap", () => {
   assert.equal(renderBody("Hola {{first_name}}, le escribimos.", {}, "es"), "Hola, le escribimos.");
 });
