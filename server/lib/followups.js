@@ -1,8 +1,9 @@
 import { one, rows, rpc, query } from "../db.js";
-import { formatSlackMentions, parseSlackUserIds } from "../../shared/slackMentions.js";
+import { assigneeMentionSuffix, formatSlackMentions, parseSlackUserIds } from "../../shared/slackMentions.js";
 import { displayPhone, enrollmentBlocks, postToThread, slackApi } from "./slack.js";
 import { formatPhone, normalizePhone } from "../../shared/messaging.js";
 import { currentFirm } from "./firms.js";
+import { loadSettings } from "./settings.js";
 
 export async function loadOperator(slackUserId) {
   const found = await rows(
@@ -125,6 +126,7 @@ export async function announceEnrollment(result, {
     assignedUserId: String(result.assigned_slack_user_id),
     assignedUserName: result.assigned_slack_user_name ?? null,
     silentAssigned: Boolean(routing),
+    mentionAssignees: Boolean((await loadSettings()).slack_tag_assignees),
     caseReference: result.case_reference ?? null,
     timezone: result.sequence?.timezone ?? "America/Chicago",
     fromNumber,
@@ -223,6 +225,10 @@ export async function retireStartCard(enrollmentId) {
   const who = row.first_name ? `*${row.first_name}* ${phone}` : `*${phone}*`;
   const sent = Number(row.sent_count ?? 0);
   const why = ENDED_LABELS[row.end_reason] ?? String(row.end_reason ?? "it ended").replace(/_/g, " ");
+  const ping = assigneeMentionSuffix(
+    row.assigned_slack_user_id,
+    (await loadSettings()).slack_tag_assignees,
+  );
 
   await slackApi("chat.update", {
     channel: row.slack_channel_id,
@@ -240,8 +246,8 @@ export async function retireStartCard(enrollmentId) {
         type: "context",
         elements: [{
           type: "mrkdwn",
-          text: `${sent} text${sent === 1 ? "" : "s"} went out · was assigned to `
-            + formatSlackMentions(row.assigned_slack_user_id),
+          text: `${sent} text${sent === 1 ? "" : "s"} went out`
+            + (ping ? ` · was assigned to${ping}` : ""),
         }],
       },
     ],

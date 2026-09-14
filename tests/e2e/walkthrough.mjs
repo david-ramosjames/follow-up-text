@@ -350,6 +350,10 @@ console.log("\n6b. Where later updates go");
     JSON.stringify(notice));
   check("and it says the follow-ups stopped", /follow-ups stopped/i.test(notice?.text ?? ""),
     notice?.text);
+  check("the reply notice does not @-mention anyone",
+    !/<@[UW][A-Z0-9]+>/.test(notice?.text ?? "")
+    && !/<@[UW][A-Z0-9]+>/.test(JSON.stringify(notice?.blocks ?? [])),
+    notice?.text);
 
   // The card that offered "Stop follow-ups" is now offering it for a series
   // that has already stopped, so it gets rewritten rather than left standing.
@@ -361,6 +365,9 @@ console.log("\n6b. Where later updates go");
     JSON.stringify(card?.blocks));
   check("and it now says why it ended", /have stopped — the client replied/.test(card?.text ?? "")
     || /the client replied/.test(JSON.stringify(card?.blocks ?? [])),
+    JSON.stringify(card?.blocks));
+  check("the rewritten card does not @-mention anyone",
+    !/<@[UW][A-Z0-9]+>/.test(JSON.stringify(card?.blocks ?? [])),
     JSON.stringify(card?.blocks));
 }
 
@@ -584,6 +591,10 @@ console.log("\n10. The client calls the office instead");
     JSON.stringify(shortBody));
   check("the series is still running after a short call",
     (await api("/api/enrollments?status=active")).data.length === 1);
+  const shortPost = (await slackPosts()).at(-1);
+  check("the short-call review does not @-mention anyone",
+    !/<@[UW][A-Z0-9]+>/.test(JSON.stringify(shortPost ?? {})),
+    JSON.stringify(shortPost));
 
   const reached = await fetch(`${BASE}/webhooks/quo?token=quo-token-abc`, {
     method: "POST", headers: { "content-type": "application/json" },

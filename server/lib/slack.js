@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { formatPhone, maskPhone } from "../../shared/messaging.js";
-import { formatSlackMentions } from "../../shared/slackMentions.js";
+import { assigneeMentionSuffix, formatSlackMentions } from "../../shared/slackMentions.js";
 import { describeCallDuration } from "../../shared/calls.js";
 import { loadSettings } from "./settings.js";
 import { currentFirm, listFirms, slackAppId, slackBotToken, slackSigningSecret } from "./firms.js";
@@ -245,6 +245,14 @@ export function formatWhen(iso, timezone = "America/Chicago") {
 
 const CONFIDENCE_ICON = { high: ":large_green_circle:", medium: ":large_yellow_circle:", low: ":red_circle:" };
 
+function assignedField(card) {
+  const label = card.mentionAssignees
+    ? formatSlackMentions(card.assignedUserId, card.assignedUserName)
+    : String(card.assignedUserName ?? "").trim();
+  if (!label) return [];
+  return [{ type: "mrkdwn", text: `*Assigned*\n${label}` }];
+}
+
 export function enrollmentBlocks(card) {
   const who = card.firstName ? `*${card.firstName}* ` : "";
   const language = card.language === "es" ? "Spanish" : "English";
@@ -290,11 +298,10 @@ export function enrollmentBlocks(card) {
         { type: "mrkdwn", text: `*Sequence*\n${card.sequenceName}` },
         { type: "mrkdwn", text: `*Language*\n${language}` },
         // Auto-started leads skip Assigned: the owner is always the Settings
-        // list, and <@id> pings everyone in it on every form fill.
-        ...(!card.silentAssigned ? [{
-          type: "mrkdwn",
-          text: `*Assigned*\n${formatSlackMentions(card.assignedUserId, card.assignedUserName)}`,
-        }] : []),
+        // list, and <@id> pings everyone in it on every form fill. Manual
+        // starts only mention when Settings turns tagging on; otherwise the
+        // name is shown as plain text so Slack stays quiet.
+        ...(!card.silentAssigned ? assignedField(card) : []),
         { type: "mrkdwn", text: `*First text*\n${formatWhen(card.nextRunAt, card.timezone)}` },
         { type: "mrkdwn", text: `*Texts queued*\n${card.stepCount}` },
         ...(card.fromNumber ? [{ type: "mrkdwn", text: `*Sending from*\n${card.fromNumber}` }] : []),
@@ -318,12 +325,11 @@ export function enrollmentBlocks(card) {
 }
 
 export function shortCallReviewBlocks({
-  enrollmentId, phone, firstName, durationSeconds, assignedUserId,
+  enrollmentId, phone, firstName, durationSeconds, assignedUserId, mentionAssignees,
 }) {
   const who = firstName ? `*${firstName}* ${phone}` : `*${phone}*`;
   const length = describeCallDuration(durationSeconds);
-  const mentions = formatSlackMentions(assignedUserId);
-  const ping = mentions ? ` ${mentions}` : "";
+  const ping = assigneeMentionSuffix(assignedUserId, mentionAssignees);
 
   return [
     {

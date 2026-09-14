@@ -354,9 +354,9 @@ export default function SettingsPage() {
         <section className="editor-section">
           <div>
             <h2>Slack</h2>
-            <p>Where notifications go when a series has no thread of its own.</p>
+            <p>Where notifications go when a series has no thread of its own. Tagging is off so a stop notice does not ping everyone on the series.</p>
           </div>
-          <div className="editor-fields">{group(["slack_alert_channel", "show_full_phone_in_slack"])}</div>
+          <div className="editor-fields">{group(["slack_alert_channel", "show_full_phone_in_slack", "slack_tag_assignees"])}</div>
         </section>
 
         <section className="editor-section">

@@ -22,3 +22,12 @@ export function formatSlackMentions(value, fallback = "") {
   if (ids.length) return ids.map((id) => `<@${id}>`).join(" ");
   return String(fallback || value || "").trim();
 }
+
+// Channel posts used to @-mention whoever owns the series. That is a Slack
+// alert for every stop, short call, and finished drip. Off unless Settings
+// turns it on; the thread still says what happened.
+export function assigneeMentionSuffix(value, mention) {
+  if (!mention) return "";
+  const text = formatSlackMentions(value);
+  return text ? ` ${text}` : "";
+}

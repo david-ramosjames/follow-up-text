@@ -6,7 +6,7 @@ import {
   STOP_CONFIRMATION,
   truncateChars,
 } from "../../shared/messaging.js";
-import { formatSlackMentions } from "../../shared/slackMentions.js";
+import { assigneeMentionSuffix } from "../../shared/slackMentions.js";
 import { callDurationSeconds, isAnsweredCall, isIncomingCall, isOutgoingCall, outboundCallOutcome } from "../../shared/calls.js";
 import { query, rpc } from "../db.js";
 import { readEvent, readPhone, resolveSendingNumber, sendText } from "../lib/quo.js";
@@ -82,7 +82,7 @@ async function handleInboundMessage(object) {
   const language = result.language === "es" ? "es" : "en";
   const shown = await displayPhone(from);
   const who = result.first_name ? `${result.first_name} (${shown})` : shown;
-  const assigned = result.assigned_slack_user_id ? ` ${formatSlackMentions(result.assigned_slack_user_id)}` : "";
+  const assigned = assigneeMentionSuffix(result.assigned_slack_user_id, settings.slack_tag_assignees);
   const confirm = await confirmTo(from, result.contact_id, to);
 
   // One rule for everything the client sends: Slack is told when a series ended,
@@ -149,6 +149,7 @@ async function reviewShortOutbound(object, fromClient) {
 
   const seconds = callDurationSeconds(object);
   const shown = await displayPhone(fromClient);
+  const settings = await loadSettings();
   await postToThread({
     channel: enrollment.slack_channel_id,
     threadTs: enrollment.slack_thread_ts,
@@ -159,6 +160,7 @@ async function reviewShortOutbound(object, fromClient) {
       firstName: enrollment.first_name,
       durationSeconds: seconds,
       assignedUserId: enrollment.assigned_slack_user_id,
+      mentionAssignees: settings.slack_tag_assignees,
     }),
   });
 
@@ -205,12 +207,13 @@ async function handleCall(object, type, context = {}) {
   const how = incoming
     ? "called back — follow-ups stopped after "
     : "was reached by phone — follow-ups stopped after ";
+  const settings = await loadSettings();
   await postToThread({
     channel: result.slack_channel_id,
     threadTs: result.slack_thread_ts,
     text: `:telephone_receiver: ${who} ${how}`
       + `${result.stopped.sent_count ?? 0} text(s).`
-      + (result.assigned_slack_user_id ? ` ${formatSlackMentions(result.assigned_slack_user_id)}` : ""),
+      + assigneeMentionSuffix(result.assigned_slack_user_id, settings.slack_tag_assignees),
   });
   return { action: "call", stopped: true };
 }

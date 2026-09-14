@@ -53,6 +53,15 @@ export const SETTING_DEFINITIONS = [
     help: "Off shows only the last four digits, which suits a wide intake channel.",
   },
   {
+    key: "slack_tag_assignees",
+    label: "Tag assigned people in Slack",
+    type: "boolean",
+    default: false,
+    help: "Off leaves stop notices, short-call reviews, and finished series without "
+      + "@-mentions, so the thread stays readable and Slack stays quiet. On tags "
+      + "whoever owns the series.",
+  },
+  {
     key: "send_stop_confirmation",
     label: "Send our own STOP confirmation",
     type: "boolean",

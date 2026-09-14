@@ -7,7 +7,7 @@ import {
 import { rpc, rpcSet } from "../db.js";
 import { resolveSendingNumber, sendText } from "./quo.js";
 import { retireStartCard } from "./followups.js";
-import { formatSlackMentions } from "../../shared/slackMentions.js";
+import { assigneeMentionSuffix } from "../../shared/slackMentions.js";
 import { displayPhone, postToThread } from "./slack.js";
 import { loadSettings } from "./settings.js";
 import { defaultFirm, loadFirm, runWithFirm } from "./firms.js";
@@ -74,19 +74,22 @@ async function sendOne(row, settings) {
   const shown = await displayPhone(row.to_number);
   const who = row.first_name ? `${row.first_name} (${shown})` : shown;
 
+  const ping = assigneeMentionSuffix(row.assigned_slack_user_id, settings.slack_tag_assignees);
+
   if (!result.ok && recorded?.final) {
     await postToThread({
       channel: row.slack_channel_id,
       threadTs: row.slack_thread_ts,
       text: `:warning: Follow-up texts to ${who} keep failing, so the series has been stopped. `
-        + `${formatSlackMentions(row.assigned_slack_user_id)} may want to try calling. Last error: ${result.error}`,
+        + (ping ? `${ping.trim()} may want to try calling. ` : "")
+        + `Last error: ${result.error}`,
     });
   } else if (result.ok && recorded?.completed) {
     await postToThread({
       channel: row.slack_channel_id,
       threadTs: row.slack_thread_ts,
-      text: `:checkered_flag: The follow-up series for ${who} has finished with no reply. `
-        + formatSlackMentions(row.assigned_slack_user_id),
+      text: `:checkered_flag: The follow-up series for ${who} has finished with no reply.`
+        + ping,
     });
   }
 
