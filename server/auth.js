@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import express from "express";
-import { one, query } from "./db.js";
+import { one, query, rows } from "./db.js";
+import { defaultFirm } from "./lib/firms.js";
 
 // Who can sign in to the dashboard is a single explicit list — the same
 // followup_operators table the Slack side uses. A person may be identified by a
@@ -104,7 +105,8 @@ export async function readSession(req) {
 
   // The password session has no person behind it; that is the point of it.
   if (session.provider !== "password") {
-    if (!session.person_id || !session.can_admin || !session.is_active) {
+    const allowed = await accessibleFirmIds(session);
+    if (!allowed.length) {
       await query("delete from app_sessions where id = $1", [id]).catch(() => {});
       return null;
     }
@@ -130,18 +132,50 @@ async function findPerson({ email, slackUserId }) {
   if (email) {
     return one(
       `select id, display_name, email, slack_user_id, is_supervisor, can_admin, is_active
-       from followup_operators where email = $1`,
+       from followup_operators
+       where email = $1 and is_active and can_admin
+       order by last_seen_at desc nulls last, created_at
+       limit 1`,
       [String(email).trim().toLowerCase()],
     );
   }
   if (slackUserId) {
     return one(
       `select id, display_name, email, slack_user_id, is_supervisor, can_admin, is_active
-       from followup_operators where slack_user_id = $1`,
+       from followup_operators
+       where slack_user_id = $1 and is_active and can_admin
+       order by last_seen_at desc nulls last, created_at
+       limit 1`,
       [slackUserId],
     );
   }
   return null;
+}
+
+// Password sign-in sees every firm. Everyone else only sees firms where they
+// have dashboard access, so Trucking Chicas people cannot open Ramos James.
+export async function accessibleFirmIds(session) {
+  if (!session) return [];
+  if (session.provider === "password") return null;
+  const found = await rows(
+    `select distinct firm_id
+     from followup_operators
+     where is_active and can_admin
+       and (
+         ($1::uuid is not null and id = $1)
+         or ($2::text is not null and email = $2)
+         or ($3::text is not null and slack_user_id = $3)
+       )`,
+    [session.user_id ?? null, session.email ?? null, session.slack_user_id ?? null],
+  );
+  return found.map((row) => String(row.firm_id));
+}
+
+export async function sessionCanUseFirm(session, firm) {
+  if (!session || !firm) return false;
+  if (session.provider === "password") return true;
+  const allowed = await accessibleFirmIds(session);
+  return allowed.includes(String(firm.id));
 }
 
 // A signed OAuth state cookie is what stops somebody handing the user a crafted
@@ -262,8 +296,8 @@ authRouter.get("/google/callback", async (req, res, next) => {
     await query(
       `update followup_operators
        set last_seen_at = now(), display_name = coalesce(display_name, $2)
-       where id = $1`,
-      [person.id, claims.name ?? null],
+       where email = $1 and is_active`,
+      [email, claims.name ?? null],
     );
 
     const id = await createSession({
@@ -331,7 +365,15 @@ authRouter.get("/slack/callback", async (req, res, next) => {
       return res.redirect(`/login?error=not_allowed&slack_id=${encodeURIComponent(slackUserId)}`);
     }
 
-    await query("update followup_operators set last_seen_at = now() where id = $1", [person.id]);
+    await query(
+      `update followup_operators set last_seen_at = now()
+       where is_active and (
+         id = $1
+         or ($2::text is not null and email = $2)
+         or ($3::text is not null and slack_user_id = $3)
+       )`,
+      [person.id, person.email ?? claims.email ?? null, slackUserId],
+    );
 
     const id = await createSession({
       userId: person.id,
@@ -400,7 +442,12 @@ export async function ensureBootstrapAdmins() {
 
     // The unique index on email is partial, so an ON CONFLICT would have to
     // restate its predicate. Reading first is clearer and just as correct.
-    const existing = await one("select id, can_admin, is_active from followup_operators where email = $1", [email]);
+    const firm = await defaultFirm();
+    const existing = await one(
+      `select id, can_admin, is_active from followup_operators
+       where email = $1 and ($2::uuid is null or firm_id = $2)`,
+      [email, firm?.id ?? null],
+    );
     if (existing) {
       if (!existing.can_admin || !existing.is_active) {
         await query("update followup_operators set can_admin = true, is_active = true where id = $1", [existing.id]);
@@ -408,9 +455,9 @@ export async function ensureBootstrapAdmins() {
       }
     } else {
       await query(
-        `insert into followup_operators (email, display_name, can_admin, is_active)
-         values ($1, $2, true, true)`,
-        [email, email.split("@")[0]],
+        `insert into followup_operators (firm_id, email, display_name, can_admin, is_active)
+         values ($1, $2, $3, true, true)`,
+        [firm?.id ?? null, email, email.split("@")[0]],
       );
       granted.push(`${email} (added)`);
     }

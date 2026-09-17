@@ -8,8 +8,10 @@ import { loadSettings } from "./settings.js";
 export async function loadOperator(slackUserId) {
   const found = await rows(
     `select slack_user_id, display_name, email, is_supervisor, can_admin
-     from followup_operators where slack_user_id = $1 and is_active`,
-    [slackUserId],
+     from followup_operators
+     where slack_user_id = $1 and is_active
+       and ($2::uuid is null or firm_id = $2)`,
+    [slackUserId, currentFirm()?.id ?? null],
   );
   return found[0] ?? null;
 }

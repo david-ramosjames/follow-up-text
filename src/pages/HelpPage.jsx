@@ -33,8 +33,8 @@ const FAQ = [
     q: "Can this run follow-ups for more than one firm?",
     a: [
       "Yes. Ramos James is the default firm and can keep using the Slack and Quo keys in Railway. Under Settings, add another firm, switch to it with the Firm menu at the top, and paste that practice's Slack bot token, signing secret, and Quo API key. Refresh numbers, then import sequences from Ramos James on the Sequences page — or write new ones. Sending stays off until you turn a sequence on.",
-      "Each firm has its own sequences, contacts, leads, lead channel and sending numbers, so a text for one practice cannot go out as the other. Incoming Slack events and Quo webhooks are matched to a firm by signing secret, or by Slack workspace ID / the Quo number that received the text.",
-      "The same people on Access can switch firms. There is one dashboard, not a second login.",
+      "Each firm has its own sequences, contacts, leads, lead channel, sending numbers, and Access list, so a text for one practice cannot go out as the other. Incoming Slack events and Quo webhooks are matched to a firm by signing secret, or by Slack workspace ID / the Quo number that received the text.",
+      "Add the people who work that practice under Access after you switch to it. The same email can be on more than one firm if they should see both. Slack IDs are per workspace, so the ID from one Slack does not work in the other.",
     ],
   },
   {
@@ -156,9 +156,9 @@ const FAQ = [
   {
     q: "Who can sign in to this dashboard?",
     a: [
-      "Only the people on the Access list, and only those with dashboard access ticked. Signing in with Google proves who somebody is; the Access list decides whether that person is allowed in. A Google account that is not on the list is refused, whatever domain it is on.",
-      "The list is matched on email address, so it has to be the address they sign in to Google with. Somebody can also be given a Slack member ID, which is what lets them start follow-ups from Slack — the two are separate, and a person can have either or both.",
-      "Turning off Active or Dashboard access ends that person's session on their next click, rather than waiting for their cookie to expire. The system will not let you remove the last account that can sign in.",
+      "Only the people on that firm's Access list, and only those with dashboard access ticked. Signing in with Google proves who somebody is; the Access list for the firm they belong to decides whether they are allowed in. A Google account that is not on any firm's list is refused, whatever domain it is on.",
+      "The list is matched on email address, so it has to be the address they sign in to Google with. Somebody can also be given a Slack member ID, which is what lets them start follow-ups from that firm's Slack — the two are separate, and a person can have either or both.",
+      "Turning off Active or Dashboard access ends that person's session on their next click, rather than waiting for their cookie to expire. The system will not let you remove the last account that can sign in for that firm.",
     ],
   },
   {
@@ -173,7 +173,7 @@ const FAQ = [
   {
     q: "How do I give myself access the first time?",
     a: [
-      "Set BOOTSTRAP_ADMIN_EMAIL in Railway to your work Google address and redeploy. It is applied at every boot, so you can sign in with Google straight away. Comma-separate it for several people. The deploy log says which addresses it granted.",
+      "Set BOOTSTRAP_ADMIN_EMAIL in Railway to your work Google address and redeploy. It is applied at every boot, so you can sign in with Google straight away. Comma-separate it for several people. The deploy log says which addresses it granted. It adds them on the default firm (Ramos James); other practices get their people under Access after you switch to them.",
       "It only ever grants access. Taking an address back out revokes nothing — that is done here under Access, on purpose, so a change in who can see client data is visible in the app rather than buried in an environment variable.",
       "ADMIN_PASSWORD is the alternative if you would rather not put an address in the environment: sign in with it once, add yourself under Access, then remove it.",
     ],

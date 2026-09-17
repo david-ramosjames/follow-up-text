@@ -638,14 +638,14 @@ begin
     insert into followup_operators (email) values ('office@firm.com');
   exception when unique_violation then failed := true;
   end;
-  perform pg_temp.check('the same email cannot be added twice', failed);
+  perform pg_temp.check('the same email cannot be added twice on one firm', failed);
 
   failed := false;
   begin
     insert into followup_operators (slack_user_id) values ('U0PARALEGAL');
   exception when unique_violation then failed := true;
   end;
-  perform pg_temp.check('the same Slack ID cannot be added twice', failed);
+  perform pg_temp.check('the same Slack ID cannot be added twice on one firm', failed);
 
   failed := false;
   begin

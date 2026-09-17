@@ -62,7 +62,7 @@ export default function DashboardPage() {
   if (!health.slackConfigured) warnings.push("No Slack bot token, so the start form and thread notifications are off.");
   if (!health.numbers) warnings.push("No Quo numbers have been synced yet — do it under Settings.");
   if (!health.sequencesReady) warnings.push("No sequence is switched on with at least one text in it.");
-  if (!health.operators) warnings.push("Nobody is on the operator list, so nobody can start a series from Slack.");
+  if (!health.operators) warnings.push("Nobody is on this firm's Access list, so nobody can start a series from Slack.");
 
   return (
     <main className="page">

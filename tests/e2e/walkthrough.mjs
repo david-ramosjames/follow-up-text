@@ -167,6 +167,24 @@ let paralegalId;
 
   const list = await api("/api/operators");
   check("nobody was duplicated", list.data.length === 3, JSON.stringify(list.data.map((p) => p.email)));
+
+  const sister = await api("/api/firms", { method: "POST", body: { name: "Sister PLLC" } });
+  check("a second firm can be added", sister.status === 201 && sister.data?.id, JSON.stringify(sister.data));
+  const otherList = await api("/api/operators", { headers: { "x-firm-id": sister.data.id } });
+  check("the new firm's access list starts empty",
+    otherList.status === 200 && Array.isArray(otherList.data) && otherList.data.length === 0,
+    JSON.stringify(otherList.data));
+  const otherSam = await api("/api/operators", {
+    method: "POST",
+    headers: { "x-firm-id": sister.data.id },
+    body: { email: "sam@firm.com", display_name: "Sam Ortiz", can_admin: true },
+  });
+  check("the same email can be on two firms",
+    otherSam.status === 201 && otherSam.data?.email === "sam@firm.com",
+    JSON.stringify(otherSam.data));
+  const home = await api("/api/operators");
+  check("the original firm's list is unchanged",
+    home.data.length === 3, JSON.stringify(home.data.map((p) => p.email)));
 }
 
 console.log("\n4. Sequence set-up");

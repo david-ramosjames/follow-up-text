@@ -2,7 +2,7 @@ import express from "express";
 import { one, query, rows, withTransaction } from "../db.js";
 import { uniqueCopyIdentity } from "../../shared/sequences.js";
 import { parseCaseTypePhrases } from "../../shared/messaging.js";
-import { googleConfigured, requireSession, slackSignInConfigured } from "../auth.js";
+import { googleConfigured, requireSession, slackSignInConfigured, accessibleFirmIds, sessionCanUseFirm } from "../auth.js";
 import { listQuoNumbers, quoConfigured, syncQuoNumbers } from "../lib/quo.js";
 import { loadSettings, SETTING_DEFINITIONS, saveSettings } from "../lib/settings.js";
 import { announceStop, stopSeries } from "../lib/followups.js";
@@ -34,8 +34,10 @@ const CONSTRAINT_MESSAGES = {
     "A sequence's short name can only use lowercase letters, numbers and hyphens.",
   followup_sequences_slug_key: "There is already a sequence with that short name.",
   followup_sequences_firm_slug_key: "There is already a sequence with that short name.",
-  followup_operators_email_key: "Somebody on the list already has that email address.",
-  followup_operators_slack_user_id_key: "Somebody on the list already has that Slack member ID.",
+  followup_operators_firm_email_key: "Somebody on this firm's list already has that email address.",
+  followup_operators_firm_slack_user_id_key: "Somebody on this firm's list already has that Slack member ID.",
+  followup_operators_email_key: "Somebody on this firm's list already has that email address.",
+  followup_operators_slack_user_id_key: "Somebody on this firm's list already has that Slack member ID.",
   followup_steps_alt_case_types_len:
     "A text can list at most 20 case-type phrases for alternate wording.",
   followup_steps_body_en_alt_length:
@@ -52,6 +54,9 @@ const ok = (handler) => requireSession(async (req, res) => {
   try {
     const firm = await resolveFirm(req);
     if (!firm) return res.status(500).json({ error: "No firm is set up yet." });
+    if (!(await sessionCanUseFirm(req.session, firm))) {
+      return res.status(404).json({ error: "That firm is not available." });
+    }
     req.firm = firm;
     await runWithFirm(firm, () => handler(req, res));
   } catch (error) {
@@ -77,19 +82,50 @@ const ok = (handler) => requireSession(async (req, res) => {
 
 const actor = (req) => req.session.display_name || req.session.email || req.session.slack_user_id || "admin";
 
-apiRouter.get("/firms", ok(async (req, res) => {
+async function grantDashboardOnFirm(session, targetFirmId) {
+  if (!session || session.provider === "password" || !targetFirmId) return;
+  const source = session.user_id
+    ? await one(
+      "select email, display_name, is_supervisor from followup_operators where id = $1",
+      [session.user_id],
+    )
+    : null;
+  const email = source?.email || session.email;
+  if (!email) return;
+  await query(
+    `insert into followup_operators (firm_id, email, display_name, is_supervisor, can_admin, is_active)
+     values ($1, $2, $3, $4, true, true)
+     on conflict (firm_id, email) where email is not null do nothing`,
+    [targetFirmId, email, source?.display_name || session.display_name || email.split("@")[0], Boolean(source?.is_supervisor)],
+  );
+}
+
+apiRouter.get("/firms", requireSession(async (req, res) => {
+  const all = await listFirms();
+  const allowed = await accessibleFirmIds(req.session);
+  const firms = allowed ? all.filter((firm) => allowed.includes(String(firm.id))) : all;
+  const requested = req.get?.("x-firm-id") || req.query?.firmId;
+  const current = firms.find((firm) => String(firm.id) === String(requested))
+    || firms.find((firm) => firm.is_default)
+    || firms[0]
+    || null;
   res.json({
-    firms: (await listFirms()).map(publicFirm),
-    current: publicFirm(req.firm),
+    firms: firms.map(publicFirm),
+    current: publicFirm(current),
   });
 }));
 
 apiRouter.post("/firms", ok(async (req, res) => {
   const firm = await createFirm({ name: req.body?.name, actor: actor(req) });
+  await grantDashboardOnFirm(req.session, firm.id);
   res.status(201).json(publicFirm(firm));
 }));
 
 apiRouter.patch("/firms/:id", ok(async (req, res) => {
+  const target = await loadFirm(req.params.id);
+  if (!target || !(await sessionCanUseFirm(req.session, target))) {
+    return res.status(404).json({ error: "That firm is not available." });
+  }
   if (req.body?.name) await renameFirm(req.params.id, req.body.name);
   if (req.body?.credentials) await saveFirmCredentials(req.params.id, req.body.credentials);
   res.json(publicFirm(await loadFirm(req.params.id)));
@@ -98,6 +134,9 @@ apiRouter.patch("/firms/:id", ok(async (req, res) => {
 apiRouter.get("/firms/:id/sequences", ok(async (req, res) => {
   const firm = await loadFirm(req.params.id);
   if (!firm) return res.status(404).json({ error: "No such firm." });
+  if (!(await sessionCanUseFirm(req.session, firm))) {
+    return res.status(404).json({ error: "That firm is not available." });
+  }
   res.json(await rows(
     `select q.id, q.slug, q.name, q.description, q.is_active, q.auto_routable,
             (select count(*)::int from followup_steps s where s.sequence_id = q.id) as step_count
@@ -212,7 +251,10 @@ apiRouter.get("/dashboard", ok(async (req, res) => {
        where q.firm_id = $1 and q.is_active and exists (select 1 from followup_steps s where s.sequence_id = q.id and s.is_active)`,
       [fid],
     ))?.count ?? 0),
-    operators: Number((await one("select count(*)::int as count from followup_operators where is_active"))?.count ?? 0),
+    operators: Number((await one(
+      "select count(*)::int as count from followup_operators where is_active and firm_id = $1",
+      [fid],
+    ))?.count ?? 0),
     numbers: Number((await one("select count(*)::int as count from quo_numbers where is_active and firm_id = $1", [fid]))?.count ?? 0),
     lastSendAt: (await one(
       `select max(m.sent_at) as at from followup_messages m
@@ -649,7 +691,10 @@ apiRouter.patch("/contacts/:id", ok(async (req, res) => {
 
 apiRouter.get("/operators", ok(async (req, res) => {
   res.json(await rows(
-    "select * from followup_operators order by display_name nulls last, email nulls last, slack_user_id",
+    `select * from followup_operators
+     where firm_id = $1
+     order by display_name nulls last, email nulls last, slack_user_id`,
+    [firmId()],
   ));
 }));
 
@@ -691,10 +736,16 @@ apiRouter.post("/operators", ok(async (req, res) => {
   if (unusable) return res.status(400).json({ error: unusable });
 
   const existing = identity.slackUserId
-    ? await one("select id from followup_operators where slack_user_id = $1", [identity.slackUserId])
+    ? await one(
+      "select id from followup_operators where slack_user_id = $1 and firm_id = $2",
+      [identity.slackUserId, firmId()],
+    )
     : null;
   const byEmail = identity.email
-    ? await one("select id from followup_operators where email = $1", [identity.email])
+    ? await one(
+      "select id from followup_operators where email = $1 and firm_id = $2",
+      [identity.email, firmId()],
+    )
     : null;
 
   if (existing && byEmail && existing.id !== byEmail.id) {
@@ -727,9 +778,9 @@ apiRouter.post("/operators", ok(async (req, res) => {
   }
 
   const created = await one(
-    `insert into followup_operators (slack_user_id, email, display_name, is_supervisor, can_admin)
-     values ($1, $2, $3, $4, $5) returning *`,
-    fields,
+    `insert into followup_operators (firm_id, slack_user_id, email, display_name, is_supervisor, can_admin)
+     values ($1, $2, $3, $4, $5, $6) returning *`,
+    [firmId(), ...fields],
   );
   return res.status(201).json(created);
 }));
@@ -741,19 +792,22 @@ async function wouldLockEveryoneOut(personId, body) {
   if (!losing) return false;
   const remaining = await one(
     `select count(*)::int as count from followup_operators
-     where can_admin and is_active and id <> $1`,
-    [personId],
+     where can_admin and is_active and firm_id = $2 and id <> $1`,
+    [personId, firmId()],
   );
   return (remaining?.count ?? 0) === 0;
 }
 
 apiRouter.patch("/operators/:id", ok(async (req, res) => {
-  const person = await one("select * from followup_operators where id = $1", [req.params.id]);
+  const person = await one(
+    "select * from followup_operators where id = $1 and firm_id = $2",
+    [req.params.id, firmId()],
+  );
   if (!person) return res.status(404).json({ error: "No such person." });
 
   if (await wouldLockEveryoneOut(person.id, req.body)) {
     return res.status(400).json({
-      error: "This is the last account that can sign in. Give somebody else dashboard access first.",
+      error: "This is the last account that can sign in for this firm. Give somebody else dashboard access first.",
     });
   }
 
@@ -785,10 +839,10 @@ apiRouter.patch("/operators/:id", ok(async (req, res) => {
 apiRouter.delete("/operators/:id", ok(async (req, res) => {
   if (await wouldLockEveryoneOut(req.params.id, { can_admin: false })) {
     return res.status(400).json({
-      error: "This is the last account that can sign in. Give somebody else dashboard access first.",
+      error: "This is the last account that can sign in for this firm. Give somebody else dashboard access first.",
     });
   }
-  await query("delete from followup_operators where id = $1", [req.params.id]);
+  await query("delete from followup_operators where id = $1 and firm_id = $2", [req.params.id, firmId()]);
   res.json({ ok: true });
 }));
 

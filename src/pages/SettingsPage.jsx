@@ -198,7 +198,8 @@ export default function SettingsPage() {
               The switcher in the top bar picks which practice you are looking at. Each firm
               has its own sequences, leads, numbers, Slack workspace and sending keys. A new
               firm starts empty, with automatic sending off — import sequences from another
-              firm on the Sequences page if you want the same copy.
+              firm on the Sequences page if you want the same copy. Add its people under
+              Access after you switch to it; they are not copied from this firm.
             </p>
           </div>
           <div className="editor-fields">

@@ -1,6 +1,7 @@
 import { AlertTriangle, Check, Plus, Trash2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import AppNav from "../components/AppNav";
+import { useFirm } from "../components/Firm";
 import { api, formatWhen } from "../lib/api";
 
 const BLANK = { slack_user_id: "", email: "", display_name: "", is_supervisor: false, can_admin: false };
@@ -51,6 +52,7 @@ function abilities(person) {
 }
 
 export default function OperatorsPage() {
+  const firm = useFirm();
   const [people, setPeople] = useState([]);
   const [form, setForm] = useState(BLANK);
   const [status, setStatus] = useState("loading");
@@ -120,15 +122,16 @@ export default function OperatorsPage() {
         <header className="page-heading">
           <div>
             <p className="eyebrow">Access</p>
-            <h1>Who can use this</h1>
+            <h1>Who can use {firm?.current?.name || "this"}</h1>
             <p>
-              Shared across every firm — this is who can sign in, not whose clients
-              they see. A <strong>Slack member ID</strong> lets somebody start and stop
-              follow-ups from Slack, and an <strong>email address</strong> plus dashboard
-              access lets them sign in here with Google. Most people need both; the
-              office manager who never touches Slack needs only the email.
+              This list is only for the firm in the menu at the top. A
+              {" "}<strong>Slack member ID</strong> lets somebody start and stop follow-ups
+              from this firm's Slack, and an <strong>email address</strong> plus dashboard
+              access lets them sign in here and see this firm's clients. Most people need
+              both; the office manager who never touches Slack needs only the email.
               Slack IDs are per workspace, so someone starting <code>/followup</code> in
-              a second Slack needs that workspace's member ID on their row.
+              another practice's Slack needs a row on that firm's Access list with that
+              workspace's member ID.
             </p>
           </div>
         </header>
@@ -286,7 +289,7 @@ export default function OperatorsPage() {
         <p className="inline-note">
           Turning off <strong>Active</strong> or <strong>Dashboard access</strong> ends that
           person's session on their next click — it does not wait for their cookie to expire. The
-          system will not let you remove the last account that can sign in.
+          system will not let you remove the last account that can sign in for this firm.
         </p>
       </div>
     </main>
