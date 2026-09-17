@@ -2,7 +2,7 @@ import express from "express";
 import { one, query, rows, withTransaction } from "../db.js";
 import { uniqueCopyIdentity } from "../../shared/sequences.js";
 import { parseCaseTypePhrases } from "../../shared/messaging.js";
-import { googleConfigured, requireSession, slackSignInConfigured, accessibleFirmIds, sessionCanUseFirm } from "../auth.js";
+import { googleConfigured, requireSession, slackSignInConfigured, accessibleFirmIds, sessionCanUseFirm, sessionSeesAllFirms } from "../auth.js";
 import { listQuoNumbers, quoConfigured, syncQuoNumbers } from "../lib/quo.js";
 import { loadSettings, SETTING_DEFINITIONS, saveSettings } from "../lib/settings.js";
 import { announceStop, stopSeries } from "../lib/followups.js";
@@ -83,7 +83,8 @@ const ok = (handler) => requireSession(async (req, res) => {
 const actor = (req) => req.session.display_name || req.session.email || req.session.slack_user_id || "admin";
 
 async function grantDashboardOnFirm(session, targetFirmId) {
-  if (!session || session.provider === "password" || !targetFirmId) return;
+  if (!session || !targetFirmId) return;
+  if (await sessionSeesAllFirms(session)) return;
   const source = session.user_id
     ? await one(
       "select email, display_name, is_supervisor from followup_operators where id = $1",
@@ -732,6 +733,10 @@ apiRouter.post("/operators", ok(async (req, res) => {
   if (identity.error) return res.status(400).json({ error: identity.error });
 
   const canAdmin = Boolean(req.body.can_admin);
+  const canGrantAllFirms = await sessionSeesAllFirms(req.session);
+  const allFirms = canGrantAllFirms && "can_admin_all_firms" in req.body
+    ? Boolean(req.body.can_admin_all_firms) && canAdmin
+    : null;
   const unusable = accessIsUsable({ email: identity.email, can_admin: canAdmin });
   if (unusable) return res.status(400).json({ error: unusable });
 
@@ -762,6 +767,7 @@ apiRouter.post("/operators", ok(async (req, res) => {
     req.body.display_name?.trim() || null,
     Boolean(req.body.is_supervisor),
     canAdmin,
+    allFirms,
   ];
 
   if (target) {
@@ -770,7 +776,8 @@ apiRouter.post("/operators", ok(async (req, res) => {
        set slack_user_id = coalesce($2, slack_user_id),
            email = coalesce($3, email),
            display_name = coalesce($4, display_name),
-           is_supervisor = $5, can_admin = $6, is_active = true
+           is_supervisor = $5, can_admin = $6, is_active = true,
+           can_admin_all_firms = coalesce($7, can_admin_all_firms)
        where id = $1 returning *`,
       [target.id, ...fields],
     );
@@ -778,9 +785,11 @@ apiRouter.post("/operators", ok(async (req, res) => {
   }
 
   const created = await one(
-    `insert into followup_operators (firm_id, slack_user_id, email, display_name, is_supervisor, can_admin)
-     values ($1, $2, $3, $4, $5, $6) returning *`,
-    [firmId(), ...fields],
+    `insert into followup_operators
+       (firm_id, slack_user_id, email, display_name, is_supervisor, can_admin, can_admin_all_firms)
+     values ($1, $2, $3, $4, $5, $6, $7) returning *`,
+    [firmId(), identity.slackUserId, identity.email, req.body.display_name?.trim() || null,
+      Boolean(req.body.is_supervisor), canAdmin, allFirms ?? false],
   );
   return res.status(201).json(created);
 }));
@@ -820,13 +829,23 @@ apiRouter.patch("/operators/:id", ok(async (req, res) => {
 
   const updates = [];
   const values = [person.id];
-  for (const field of ["display_name", "email", "slack_user_id", "is_supervisor", "can_admin", "is_active"]) {
+  const canGrantAllFirms = await sessionSeesAllFirms(req.session);
+  for (const field of ["display_name", "email", "slack_user_id", "is_supervisor", "can_admin", "is_active", "can_admin_all_firms"]) {
     if (!(field in req.body)) continue;
+    if (field === "can_admin_all_firms" && !canGrantAllFirms) continue;
     let value = req.body[field];
     if (field === "email") value = String(value ?? "").trim().toLowerCase() || null;
     if (field === "slack_user_id") value = String(value ?? "").trim().toUpperCase() || null;
+    if (field === "can_admin_all_firms") {
+      const nextAdmin = "can_admin" in req.body ? req.body.can_admin : person.can_admin;
+      value = Boolean(value) && Boolean(nextAdmin);
+    }
     values.push(value);
     updates.push(`${field} = $${values.length}`);
+  }
+  if ("can_admin" in req.body && req.body.can_admin === false && !("can_admin_all_firms" in req.body)) {
+    values.push(false);
+    updates.push(`can_admin_all_firms = $${values.length}`);
   }
   if (!updates.length) return res.status(400).json({ error: "Nothing to update." });
 

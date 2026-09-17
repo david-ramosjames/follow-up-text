@@ -70,6 +70,7 @@ console.log("\n1. Authentication");
   const me = await api("/auth/me");
   check("the session is live", me.data?.signedIn === true);
   check("the password session is labelled as such", me.data?.user?.provider === "password");
+  check("the password session can see every firm", me.data?.user?.canAdminAllFirms === true);
   check("the sign-in page is told which methods exist",
     typeof me.data?.googleSignInAvailable === "boolean"
     && typeof me.data?.slackSignInAvailable === "boolean");

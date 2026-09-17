@@ -106,7 +106,7 @@ export async function readSession(req) {
   // The password session has no person behind it; that is the point of it.
   if (session.provider !== "password") {
     const allowed = await accessibleFirmIds(session);
-    if (!allowed.length) {
+    if (Array.isArray(allowed) && !allowed.length) {
       await query("delete from app_sessions where id = $1", [id]).catch(() => {});
       return null;
     }
@@ -152,11 +152,29 @@ async function findPerson({ email, slackUserId }) {
   return null;
 }
 
-// Password sign-in sees every firm. Everyone else only sees firms where they
-// have dashboard access, so Trucking Chicas people cannot open Ramos James.
+// Password sign-in and people marked All firms see every practice. Everyone
+// else only sees firms where they have dashboard access, so a Trucking Chicas
+// login cannot open Ramos James.
+export async function sessionSeesAllFirms(session) {
+  if (!session) return false;
+  if (session.provider === "password") return true;
+  const found = await one(
+    `select 1 as ok from followup_operators
+     where is_active and can_admin and can_admin_all_firms
+       and (
+         ($1::uuid is not null and id = $1)
+         or ($2::text is not null and email = $2)
+         or ($3::text is not null and slack_user_id = $3)
+       )
+     limit 1`,
+    [session.user_id ?? null, session.email ?? null, session.slack_user_id ?? null],
+  );
+  return Boolean(found);
+}
+
 export async function accessibleFirmIds(session) {
   if (!session) return [];
-  if (session.provider === "password") return null;
+  if (await sessionSeesAllFirms(session)) return null;
   const found = await rows(
     `select distinct firm_id
      from followup_operators
@@ -173,8 +191,8 @@ export async function accessibleFirmIds(session) {
 
 export async function sessionCanUseFirm(session, firm) {
   if (!session || !firm) return false;
-  if (session.provider === "password") return true;
   const allowed = await accessibleFirmIds(session);
+  if (allowed == null) return true;
   return allowed.includes(String(firm.id));
 }
 
@@ -219,6 +237,7 @@ authRouter.get("/me", async (req, res) => {
         slackUserId: session.slack_user_id,
         isSupervisor: session.is_supervisor,
         provider: session.provider,
+        canAdminAllFirms: await sessionSeesAllFirms(session),
       }
       : null,
     googleSignInAvailable: googleConfigured(),

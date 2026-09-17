@@ -2,9 +2,13 @@ import { AlertTriangle, Check, Plus, Trash2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import AppNav from "../components/AppNav";
 import { useFirm } from "../components/Firm";
+import { useSession } from "../components/Session";
 import { api, formatWhen } from "../lib/api";
 
-const BLANK = { slack_user_id: "", email: "", display_name: "", is_supervisor: false, can_admin: false };
+const BLANK = {
+  slack_user_id: "", email: "", display_name: "",
+  is_supervisor: false, can_admin: false, can_admin_all_firms: false,
+};
 
 // Somebody added by email — which is everybody who arrived through
 // BOOTSTRAP_ADMIN_EMAIL — has no Slack ID, and until they get one the bot will
@@ -47,12 +51,15 @@ function abilities(person) {
   const can = [];
   if (person.slack_user_id) can.push("start follow-ups in Slack");
   if (person.can_admin && person.email) can.push("sign in here");
+  if (person.can_admin_all_firms) can.push("edit every firm");
   if (person.is_supervisor) can.push("stop anyone's series");
   return can.length ? can.join(" · ") : "nothing yet";
 }
 
 export default function OperatorsPage() {
   const firm = useFirm();
+  const session = useSession();
+  const canGrantAllFirms = Boolean(session?.user?.canAdminAllFirms);
   const [people, setPeople] = useState([]);
   const [form, setForm] = useState(BLANK);
   const [status, setStatus] = useState("loading");
@@ -178,6 +185,19 @@ export default function OperatorsPage() {
             />
             <span>Supervisor</span>
           </label>
+          {canGrantAllFirms && (
+            <label className="checkbox">
+              <input
+                type="checkbox"
+                checked={form.can_admin_all_firms}
+                onChange={(event) => {
+                  const on = event.target.checked;
+                  setForm({ ...form, can_admin_all_firms: on, can_admin: on ? true : form.can_admin });
+                }}
+              />
+              <span>All firms</span>
+            </label>
+          )}
           <button
             type="submit"
             className="button primary"
@@ -189,7 +209,10 @@ export default function OperatorsPage() {
         <p className="inline-note">
           The email must be the one they sign in to Google with. Find a Slack member ID by clicking
           the person, View full profile, then the <code>⋯</code> menu, Copy member ID.
-          <strong> Supervisors</strong> can stop anyone's series and see everyone's list.
+          <strong> Supervisors</strong> can stop anyone's series and see everyone's list on this firm.
+          {canGrantAllFirms && (
+            <> <strong> All firms</strong> can switch to every practice and edit it.</>
+          )}
         </p>
 
         {error && <p className="form-error">{error}</p>}
@@ -227,6 +250,7 @@ export default function OperatorsPage() {
                   <th>Can</th>
                   <th>Dashboard</th>
                   <th>Supervisor</th>
+                  {canGrantAllFirms && <th>All firms</th>}
                   <th>Active</th>
                   <th>Last signed in</th>
                   <th aria-label="Actions" />
@@ -255,6 +279,18 @@ export default function OperatorsPage() {
                         onChange={(event) => update(person, { is_supervisor: event.target.checked })}
                       />
                     </td>
+                    {canGrantAllFirms && (
+                      <td>
+                        <input
+                          type="checkbox"
+                          checked={Boolean(person.can_admin_all_firms)}
+                          onChange={(event) => {
+                            const on = event.target.checked;
+                            update(person, { can_admin_all_firms: on, ...(on ? { can_admin: true } : {}) });
+                          }}
+                        />
+                      </td>
+                    )}
                     <td>
                       <input
                         type="checkbox"

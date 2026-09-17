@@ -34,7 +34,7 @@ const FAQ = [
     a: [
       "Yes. Ramos James is the default firm and can keep using the Slack and Quo keys in Railway. Under Settings, add another firm, switch to it with the Firm menu at the top, and paste that practice's Slack bot token, signing secret, and Quo API key. Refresh numbers, then import sequences from Ramos James on the Sequences page — or write new ones. Sending stays off until you turn a sequence on.",
       "Each firm has its own sequences, contacts, leads, lead channel, sending numbers, and Access list, so a text for one practice cannot go out as the other. Incoming Slack events and Quo webhooks are matched to a firm by signing secret, or by Slack workspace ID / the Quo number that received the text.",
-      "Add the people who work that practice under Access after you switch to it. The same email can be on more than one firm if they should see both. Slack IDs are per workspace, so the ID from one Slack does not work in the other.",
+      "Add the people who work that practice under Access after you switch to it. The same email can be on more than one firm if they should see both. Slack IDs are per workspace, so the ID from one Slack does not work in the other. People marked All firms can switch to every practice and edit it from one login.",
     ],
   },
   {
