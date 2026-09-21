@@ -1,11 +1,11 @@
 import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
-import { flattenSlackMessage, isOutboundReferral, kindSlug, normalizeCaseType, pickTrackSlug, readLead, buildClassificationUserPrompt } from "../../shared/leads.js";
+import { flattenSlackMessage, isOutboundReferral, kindSlug, normalizeCaseType, pickTrackSlug, readLead, buildClassificationUserPrompt, formFillIsALead } from "../../shared/leads.js";
 import { missingMergeTokens } from "../../shared/messaging.js";
 import { rows } from "../db.js";
 import { currentFirm } from "./firms.js";
 
-export { flattenSlackMessage, readLead, isOutboundReferral, kindSlug, pickTrackSlug, normalizeCaseType };
+export { flattenSlackMessage, readLead, isOutboundReferral, kindSlug, pickTrackSlug, normalizeCaseType, looksLikeIntakeForm, formFillIsALead };
 
 // Reading a lead out of a Slack post happens in two halves, and the split is
 // deliberate.
@@ -57,8 +57,9 @@ const CLASSIFICATION_SCHEMA = {
     is_lead: {
       type: "boolean",
       description: "True if this is a new prospective client's contact details, including "
-        + "a form marked Referral (this firm will send them to another lawyer). "
-        + "Status updates, internal chatter and bot noise are not leads.",
+        + "a contact-us form, family law, divorce, custody, or a form marked Referral. "
+        + "A form fill with a name and phone is a lead even if they did not describe "
+        + "an injury. Status updates, internal chatter and bot noise are not leads.",
     },
     sequence_slug: {
       type: ["string", "null"],
@@ -115,8 +116,9 @@ Rules:
 - An injured person this firm may represent is the qualified-lead track.
 - The referral track is only for posts that contain the word Referral or Referal
   (the form's own label, including that misspelling). Do not choose referral
-  because the post lacks injury details, is a contact-us request, looks weak, or
-  has low confidence. Those still go on qualified-lead.
+  because the post lacks injury details, is a contact-us request, looks weak,
+  has low confidence, or is family law rather than an injury. Those still go
+  on qualified-lead.
 - If none is a good fit, return null. Do not pick a sequence that is not on the
   list.
 - Judge what happened from what the person actually wrote, not from the ad or
@@ -149,9 +151,11 @@ Rules:
   another lawyer. That is the referral track. It is not another attorney sending
   us a case, and it is not a qualified lead we will represent ourselves. If those
   words are not in the post, never choose referral.
-- is_lead is false for anything that is not a new prospective client: test posts,
-  status updates, staff conversation, an existing client's message. A form marked
-  Referral is still a lead.
+- is_lead is true for every form fill from a person asking this firm for help,
+  including contact-us, family law, divorce, custody, and cases this firm may
+  refer out. Wrong practice area is still a lead. is_lead is false only for
+  test posts, status updates, staff conversation, and an existing client's
+  message. A form marked Referral is still a lead.
 - confidence describes sequence_slug only. Use "low" when the post says nothing
   about what happened to them.`;
 
@@ -374,7 +378,12 @@ export async function assessLeadPost(event) {
     };
   }
 
-  if (!classified.is_lead && !referral) {
+  if (!formFillIsALead({
+    phone: read.phone,
+    referral,
+    isLead: classified.is_lead,
+    text,
+  })) {
     return {
       act: false,
       reason: "not_a_lead",
@@ -391,6 +400,10 @@ export async function assessLeadPost(event) {
       confidence: classified.confidence,
       reasoning: classified.reasoning,
     };
+  }
+
+  if (!classified.is_lead) {
+    reasoning = `A form fill with a number is still contacted. ${classified.reasoning ?? ""}`.trim();
   }
 
   return {

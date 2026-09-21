@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { flattenSlackMessage, readLead, historyMessageToEvent, describeSlackHistoryError, isOutboundReferral, pickTrackSlug, describeTrackKind, kindSlug, normalizeCaseType, buildClassificationUserPrompt } from "../shared/leads.js";
+import { flattenSlackMessage, readLead, historyMessageToEvent, describeSlackHistoryError, isOutboundReferral, pickTrackSlug, describeTrackKind, kindSlug, normalizeCaseType, buildClassificationUserPrompt, looksLikeIntakeForm, formFillIsALead } from "../shared/leads.js";
 
 // The four shapes actually posting into the lead channel. Kept verbatim rather
 // than tidied, because the point of these tests is that real posts parse — a
@@ -37,6 +37,19 @@ const TIKTOK = {
   text: ":rotating_light: New TikTok Lead ... Name: Deborah Vargas ... "
     + "Phone: <tel:+19567133834|+1 956-713-3834> ... Email: vargasdeborah272@gmail.com ... "
     + "Injured: Yes ... When did it happen: Less than 6 months ... TikTok Lead ID: 7668484697474859294",
+};
+
+const FAMILY_LAW_WEBSITE = {
+  text: "WEBSITE LEAD TO CONTACT\nSun, 20 Sep 2026 04:56:55 +0000\nNew Case is Submitted - Ramos James Law",
+  blocks: [{
+    type: "section",
+    fields: [
+      { type: "mrkdwn", text: "*Name*\nNelda" },
+      { type: "mrkdwn", text: "*Email*\n<mailto:neldaybriones@gmail.com|neldaybriones@gmail.com>" },
+      { type: "mrkdwn", text: "*Phone*\n7377037539" },
+      { type: "mrkdwn", text: "*Comments*\nHola buenas noches necesito asesoría legal para Divorcio, custodia legal, manutención y separación de bienes" },
+    ],
+  }],
 };
 
 /* -------------------------------------------------------------- flattening */
@@ -151,6 +164,34 @@ test("an ordinary injury form is not a referral", () => {
   assert.equal(isOutboundReferral(flattenSlackMessage(META_FORM)), false);
   assert.equal(isOutboundReferral(flattenSlackMessage(WEB_CHAT)), false);
   assert.equal(isOutboundReferral("Name: Jo\nPhone: 512-555-0123\nreferred by a friend"), false);
+});
+
+test("every real source is recognised as an intake form", () => {
+  for (const event of [WEBSITE, META_FORM, WEB_CHAT, TIKTOK, FAMILY_LAW_WEBSITE]) {
+    assert.equal(looksLikeIntakeForm(flattenSlackMessage(event)), true);
+  }
+});
+
+test("a family-law website form with a number is still a lead", () => {
+  const text = flattenSlackMessage(FAMILY_LAW_WEBSITE);
+  const phone = readLead(text).phone;
+  assert.equal(phone, "+17377037539");
+  assert.equal(formFillIsALead({ phone, isLead: false, text }), true);
+});
+
+test("the classifier saying not a lead does not drop an intake form with a number", () => {
+  const text = flattenSlackMessage(WEBSITE);
+  assert.equal(formFillIsALead({
+    phone: readLead(text).phone,
+    isLead: false,
+    text,
+  }), true);
+});
+
+test("staff chatter without a form header is not forced onto a sequence", () => {
+  const text = "Jon: that number 512-555-0123 is already a client";
+  assert.equal(looksLikeIntakeForm(text), false);
+  assert.equal(formFillIsALead({ phone: "+15125550123", isLead: false, text }), false);
 });
 
 test("an injury lead with no slug lands on qualified-lead, not the hand-start default", () => {

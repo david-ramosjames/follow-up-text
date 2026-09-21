@@ -95,6 +95,24 @@ export function isOutboundReferral(text) {
   return /\breferr?als?\b/i.test(String(text ?? ""));
 }
 
+// Website, ads, and chatbot forms all carry a header or a Name + Phone pair.
+// The classifier is told this is a PI firm, so it sometimes marks a real form
+// fill (divorce, custody, a contact-us note) as not a lead. Those still asked
+// to be contacted, so a usable number on one of these posts is enough.
+export function looksLikeIntakeForm(text) {
+  const body = String(text ?? "");
+  if (/website lead to contact|meta form lead|new tiktok lead|new facebook lead|priority lead|new case is submitted/i.test(body)) {
+    return true;
+  }
+  return /\bname\b/i.test(body) && /\bphone\b/i.test(body);
+}
+
+export function formFillIsALead({ phone, referral = false, isLead = false, text } = {}) {
+  if (!phone) return false;
+  if (referral || isLead) return true;
+  return looksLikeIntakeForm(text);
+}
+
 // When the model returns no slug, or a slug that is not a router track, pick
 // something the router is allowed to assign. New lead follow-up is the default
 // sequence for hand starts — it is not a track — so an injury form with no slug
