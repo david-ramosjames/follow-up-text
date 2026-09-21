@@ -26,6 +26,9 @@ const MODES = {
 const OUTCOMES = {
   started: { label: "Started", tone: "on" },
   preview_only: { label: "Would have started", tone: "active" },
+  waiting_contract: { label: "Waiting for contract", tone: "active" },
+  contract_sent: { label: "Contract sent, not texted", tone: "completed" },
+  contract_notice: { label: "Signing link posted", tone: "off" },
   ignored_sender: { label: "Skipped — not a lead app", tone: "off" },
   not_a_lead: { label: "Read, not a lead", tone: "off" },
   no_phone: { label: "No usable number", tone: "off" },
@@ -117,7 +120,8 @@ function Observation({ item, tracks, onUpdate }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const outcome = OUTCOMES[item.outcome] ?? { label: item.outcome, tone: "off" };
-  const acted = item.outcome === "started" || item.outcome === "preview_only";
+  const acted = item.outcome === "started" || item.outcome === "preview_only" || item.outcome === "waiting_contract";
+  const showSchedule = item.outcome === "started" || item.outcome === "preview_only";
 
   const changeTrack = async (slug) => {
     if (!slug) return;
@@ -155,7 +159,7 @@ function Observation({ item, tracks, onUpdate }) {
       <Classification item={item} tracks={tracks} onTrackChange={changeTrack} saving={saving} />
       {error && <p className="form-error">{error}</p>}
 
-      {acted && item.sequence_name && (
+      {showSchedule && item.sequence_name && (
         <div className="next-send">
           <Inbox size={15} />
           <div>
@@ -325,7 +329,7 @@ export default function LeadsPage() {
 
         <div className="stat-grid">
           <div className="stat-tile"><p className="stat-label">Would text</p>
-            <p className="stat-value">{Number(counts.started ?? 0) + Number(counts.would_start ?? 0)}</p>
+            <p className="stat-value">{Number(counts.started ?? 0) + Number(counts.would_start ?? 0) + Number(counts.waiting_contract ?? 0)}</p>
             <p className="stat-detail">last 30 days</p></div>
           <div className="stat-tile"><p className="stat-label">Skipped, wrong sender</p>
             <p className="stat-value">{Number(counts.ignored_sender ?? 0)}</p>

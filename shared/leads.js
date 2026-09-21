@@ -113,6 +113,56 @@ export function formFillIsALead({ phone, referral = false, isLead = false, text 
   return looksLikeIntakeForm(text);
 }
 
+// Intake Engine posts `_From Intake Engine landing page_` on every parent, and
+// `📝 *Contract path*` only when the person reached Sign. Sign Flow then replies
+// `📝 *Contract sent to be signed*` (threaded when it can). The SMS wait is
+// keyed off those two Contract lines, not the landing-page footer.
+export const CONTRACT_PATH_WAIT_SECONDS = 5 * 60;
+export const CONTRACT_PATH_MATCH_SECONDS = 30 * 60;
+
+const MEMO = String.raw`(?:📝|:memo:)`;
+const CONTRACT_PATH_RE = new RegExp(`${MEMO}\\s*\\*?contract path\\*?`, "i");
+const CONTRACT_SENT_RE = new RegExp(`${MEMO}\\s*\\*?contract sent to be signed\\*?`, "i");
+
+export function isContractPath(text) {
+  return CONTRACT_PATH_RE.test(String(text ?? ""));
+}
+
+export function isContractSent(text) {
+  return CONTRACT_SENT_RE.test(String(text ?? ""));
+}
+
+export function isMoreDetailsReply(text) {
+  return /more details they added/i.test(String(text ?? ""));
+}
+
+export function isIntakeEngineLanding(text) {
+  return /from intake engine landing page/i.test(String(text ?? ""));
+}
+
+// Prefer the thread parent. A standalone "Contract sent" (no thread_ts) matches
+// by phone, then the most recent waiting parent in that channel.
+export function pickWaitingParent({ waiting = [], threadTs = null, phone = null } = {}) {
+  const rows = Array.isArray(waiting) ? waiting : [];
+  if (threadTs) {
+    const threaded = rows.find((row) => row.slack_ts === threadTs);
+    if (threaded) return threaded;
+  }
+  if (phone) {
+    const matches = rows.filter((row) => row.phone_e164 === phone);
+    if (matches.length === 1) return matches[0];
+    if (matches.length > 1) {
+      return matches.slice().sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0];
+    }
+  }
+  if (threadTs) return null;
+  if (rows.length === 1) return rows[0];
+  if (rows.length > 1) {
+    return rows.slice().sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0];
+  }
+  return null;
+}
+
 // When the model returns no slug, or a slug that is not a router track, pick
 // something the router is allowed to assign. New lead follow-up is the default
 // sequence for hand starts — it is not a track — so an injury form with no slug

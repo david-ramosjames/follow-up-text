@@ -6,7 +6,7 @@ import {
   normalizePhone,
   truncateChars,
 } from "../../shared/messaging.js";
-import { flattenSlackMessage } from "../../shared/leads.js";
+import { flattenSlackMessage, isContractPath, isContractSent, isMoreDetailsReply } from "../../shared/leads.js";
 import { parseStartArgs } from "../../shared/startArgs.js";
 import { formatSlackMentions } from "../../shared/slackMentions.js";
 import { one, rows, rpc } from "../db.js";
@@ -28,6 +28,11 @@ import {
 } from "../lib/followups.js";
 import { listQuoNumbers } from "../lib/quo.js";
 import { currentFirm, runWithFirm, slackAppId, slackBotToken } from "../lib/firms.js";
+import {
+  applyContractSent,
+  contractAlreadyArrived,
+  CONTRACT_PATH_WAIT_SECONDS,
+} from "../lib/contractPath.js";
 import {
   displayPhone,
   formatWhen,
@@ -539,7 +544,6 @@ export async function handleLeadPost(event) {
 
   // Our own posts, edits, deletions and thread replies are not new leads.
   if (event.subtype && event.subtype !== "bot_message") { log(`skipped — message subtype ${event.subtype}`); return { ignored: event.subtype }; }
-  if (event.thread_ts && event.thread_ts !== event.ts) { log("skipped — a thread reply, not a new post"); return { ignored: "thread_reply" }; }
   if (event.app_id && event.app_id === slackAppId()) { log("skipped — our own post"); return { ignored: "self" }; }
 
   // Catch-up and Slack retries both redeliver the same ts. Skip before the
@@ -551,6 +555,40 @@ export async function handleLeadPost(event) {
       [event.channel, event.ts],
     );
     if (seen) return { ignored: "already_recorded" };
+  }
+
+  const text = flattenSlackMessage(event);
+
+  // Sign Flow's "Contract sent" is not a new lead. Match it to the parent that
+  // is waiting (thread first, then a standalone post in this channel).
+  if (isContractSent(text)) {
+    const applied = await applyContractSent(event);
+    log(applied.parent
+      ? "contract sent — skipped abandoned texts"
+      : "contract sent — no waiting parent");
+    await recordObservation({
+      channel: event.channel,
+      ts: event.ts,
+      senderName: (await displaySenderName(event)) || senderName(event) || null,
+      appId: event.app_id ?? null,
+      mode,
+      text,
+      phone: applied.phone ?? null,
+      outcome: "contract_notice",
+      outcomeDetail: applied.parent
+        ? `Matched parent ${applied.parent.slack_ts}`
+        : "No waiting contract-path parent in this channel",
+    });
+    return { contractSent: true, parent: applied.parent?.id ?? null };
+  }
+
+  if (event.thread_ts && event.thread_ts !== event.ts) {
+    if (isMoreDetailsReply(text)) {
+      log("skipped — more details reply");
+      return { ignored: "more_details" };
+    }
+    log("skipped — a thread reply, not a new post");
+    return { ignored: "thread_reply" };
   }
 
   const allowed = String(settings.lead_senders ?? "")
@@ -643,8 +681,43 @@ export async function handleLeadPost(event) {
 
   // Watch and record: decide, write it down, text nobody, post nothing.
   if (mode !== "live") {
-    await recordObservation({ ...observed, outcome: "preview_only" });
+    const waitNote = isContractPath(assessment.text)
+      ? " Contract path — would wait for a signing link before texting, then start only if none arrived."
+      : "";
+    await recordObservation({
+      ...observed,
+      outcome: "preview_only",
+      outcomeDetail: waitNote.trim() || null,
+    });
     return { previewed: true };
+  }
+
+  // Sign Flow owns reminders once a signing link exists. Hold the abandoned
+  // SMS until that reply lands, or until the wait runs out.
+  if (isContractPath(assessment.text)) {
+    if (await contractAlreadyArrived(event, assessment.phone)) {
+      log("contract path — signing link already present, not starting texts");
+      await recordObservation({
+        ...observed,
+        outcome: "contract_sent",
+        outcomeDetail: "A contract was sent to be signed, so abandoned texts were not started.",
+      });
+      await slackApi("chat.postMessage", {
+        channel: event.channel,
+        thread_ts: event.ts,
+        text: ":pencil: No follow-up texts — a signing link was sent.",
+      });
+      return { contractSent: true };
+    }
+
+    const waitMinutes = Math.round(CONTRACT_PATH_WAIT_SECONDS / 60);
+    log(`contract path — waiting ${waitMinutes}m for a signing link`);
+    await recordObservation({
+      ...observed,
+      outcome: "waiting_contract",
+      outcomeDetail: `Waiting up to ${waitMinutes} minutes for “Contract sent to be signed”. If it arrives, no abandoned text. If it does not, the usual series starts.`,
+    });
+    return { waiting: true };
   }
 
   const owner = String(settings.lead_default_owner_slack_id ?? "").trim();

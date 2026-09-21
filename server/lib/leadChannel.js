@@ -156,6 +156,7 @@ export async function catchUpLeadChannel({
   // at parse time — handleLeadPost lives next to the event handler it shares
   // behaviour with.
   const { handleLeadPost } = await import("../routes/slack.js");
+  const { settleContractPathWaits } = await import("./contractPath.js");
   await prefetchBotNames(batch);
   for (const message of batch) {
     await handleLeadPost(historyMessageToEvent(channel, message)).catch((error) => {
@@ -167,6 +168,11 @@ export async function catchUpLeadChannel({
     ? await retryUnresolvedBots(channel, fetched.messages, handleLeadPost)
     : 0;
 
+  const settled = await settleContractPathWaits().catch((error) => {
+    console.error("contract-path wait failed", error);
+    return { waiting: 0, cancelled: 0, started: 0 };
+  });
+
   return remember({
     ok: true,
     channel,
@@ -175,6 +181,7 @@ export async function catchUpLeadChannel({
     processed: batch.length,
     retried,
     remaining: Math.max(0, fresh.length - batch.length),
+    contractPath: settled,
     ms: Date.now() - started,
   });
 }

@@ -109,6 +109,9 @@ export async function runDispatch() {
   const started = Date.now();
 
   try {
+    const { settleContractPathWaits } = await import("./contractPath.js");
+    await settleContractPathWaits().catch((error) => console.error("contract-path wait failed", error));
+
     const settings = await loadSettings();
     const batch = await rpcSet("followup_claim_due", settings.dispatch_batch_size ?? 25);
     if (!batch.length) return { claimed: 0, sent: 0, failed: 0, ms: Date.now() - started };

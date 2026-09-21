@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { flattenSlackMessage, readLead, historyMessageToEvent, describeSlackHistoryError, isOutboundReferral, pickTrackSlug, describeTrackKind, kindSlug, normalizeCaseType, buildClassificationUserPrompt, looksLikeIntakeForm, formFillIsALead } from "../shared/leads.js";
+import { flattenSlackMessage, readLead, historyMessageToEvent, describeSlackHistoryError, isOutboundReferral, pickTrackSlug, describeTrackKind, kindSlug, normalizeCaseType, buildClassificationUserPrompt, looksLikeIntakeForm, formFillIsALead, isContractPath, isContractSent, isMoreDetailsReply, isIntakeEngineLanding, pickWaitingParent, CONTRACT_PATH_WAIT_SECONDS } from "../shared/leads.js";
 
 // The four shapes actually posting into the lead channel. Kept verbatim rather
 // than tidied, because the point of these tests is that real posts parse — a
@@ -271,4 +271,35 @@ test("the classifier is told which phrases switch a text onto alternate copy", (
   }], "Name: Ana\nPhone: 512-555-0100\nwrongful death");
   assert.match(prompt, /wrongful death, sexual assault/);
   assert.match(prompt, /Alternate case types \(English\): We are so sorry about your \{\{case_type\}\}/);
+});
+
+test("Intake Engine contract-path markers are recognised, and ordinary forms are not", () => {
+  const parent = "_From Intake Engine landing page_\n📝 *Contract path*\nName: Jo\nPhone: 512-555-0123";
+  assert.equal(isIntakeEngineLanding(parent), true);
+  assert.equal(isContractPath(parent), true);
+  assert.equal(isContractSent(parent), false);
+  assert.equal(isContractPath(flattenSlackMessage(WEBSITE)), false);
+  assert.equal(isContractPath(":memo: *Contract path*"), true);
+  assert.equal(isContractSent("📝 *Contract sent to be signed*"), true);
+  assert.equal(isContractSent(":memo: *Contract sent to be signed*\nhttps://sign.example/abc"), true);
+  assert.equal(isContractSent(":pencil: No follow-up texts — a signing link was sent."), false);
+  assert.equal(isMoreDetailsReply("More details they added\nHurt my back yesterday"), true);
+  assert.equal(isMoreDetailsReply("📝 *Contract sent to be signed*"), false);
+  assert.equal(CONTRACT_PATH_WAIT_SECONDS, 5 * 60);
+});
+
+test("a Contract sent reply prefers the thread parent, then a matching number", () => {
+  const waiting = [
+    { slack_ts: "111.1", phone_e164: "+15125550111", created_at: "2026-09-21T18:00:00Z" },
+    { slack_ts: "222.2", phone_e164: "+15125550222", created_at: "2026-09-21T18:01:00Z" },
+  ];
+  assert.equal(pickWaitingParent({ waiting, threadTs: "111.1" }).slack_ts, "111.1");
+  assert.equal(pickWaitingParent({ waiting, phone: "+15125550222" }).slack_ts, "222.2");
+  assert.equal(pickWaitingParent({ waiting, threadTs: "999.9", phone: "+15125550111" }).slack_ts, "111.1");
+  assert.equal(pickWaitingParent({ waiting, threadTs: "999.9" }), null);
+  assert.equal(pickWaitingParent({ waiting }).slack_ts, "222.2");
+  assert.equal(pickWaitingParent({
+    waiting: [waiting[1]],
+    phone: null,
+  }).slack_ts, "222.2");
 });

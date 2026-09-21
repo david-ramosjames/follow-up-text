@@ -889,7 +889,7 @@ apiRouter.get("/leads", ok(async (req, res) => {
   // "Only what it would act on" — the view that matters when deciding whether
   // to go live.
   if (req.query.actionable === "true") {
-    conditions.push("outcome in ('started', 'preview_only')");
+    conditions.push("outcome in ('started', 'preview_only', 'waiting_contract')");
   }
 
   const list = await rows(`
@@ -902,6 +902,8 @@ apiRouter.get("/leads", ok(async (req, res) => {
     select
       count(*) filter (where outcome = 'started') as started,
       count(*) filter (where outcome = 'preview_only') as would_start,
+      count(*) filter (where outcome = 'waiting_contract') as waiting_contract,
+      count(*) filter (where outcome = 'contract_sent') as contract_sent,
       count(*) filter (where outcome = 'ignored_sender') as ignored_sender,
       count(*) filter (where outcome = 'not_a_lead') as not_a_lead,
       count(*) filter (where outcome = 'no_phone') as no_phone,
