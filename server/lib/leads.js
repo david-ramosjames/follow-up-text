@@ -5,7 +5,7 @@ import { missingMergeTokens } from "../../shared/messaging.js";
 import { rows } from "../db.js";
 import { currentFirm } from "./firms.js";
 
-export { flattenSlackMessage, readLead, isOutboundReferral, kindSlug, pickTrackSlug, normalizeCaseType, looksLikeIntakeForm, formFillIsALead, isContractPath, isContractSent, pickWaitingParent };
+export { flattenSlackMessage, readLead, isOutboundReferral, kindSlug, pickTrackSlug, normalizeCaseType, formFillIsALead };
 
 // Reading a lead out of a Slack post happens in two halves, and the split is
 // deliberate.
