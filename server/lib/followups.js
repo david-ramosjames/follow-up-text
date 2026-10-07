@@ -88,6 +88,11 @@ export async function findActiveEnrollmentByPhone(phone) {
 }
 
 export async function startSeries(payload) {
+  const { leadAllowsTexts } = await import("./leadDecision.js");
+  const decision = await leadAllowsTexts(payload?.phone);
+  if (!decision.allow) {
+    return { ok: false, reason: `lead_decision:${decision.reason}` };
+  }
   return rpc("followup_enroll", { ...payload, firm_id: payload.firm_id ?? currentFirm()?.id ?? null });
 }
 
