@@ -93,7 +93,10 @@ export async function startSeries(payload) {
   if (!decision.allow) {
     return { ok: false, reason: `lead_decision:${decision.reason}` };
   }
-  return rpc("followup_enroll", { ...payload, firm_id: payload.firm_id ?? currentFirm()?.id ?? null });
+  const enrollment = decision.sequenceSlug
+    ? { ...payload, sequence_slug: decision.sequenceSlug }
+    : payload;
+  return rpc("followup_enroll", { ...enrollment, firm_id: enrollment.firm_id ?? currentFirm()?.id ?? null });
 }
 
 // Posts the confirmation card. When the series came from a message or a thread,

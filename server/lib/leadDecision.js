@@ -34,7 +34,7 @@ export async function leadAllowsTexts(phone) {
   if (!db || !phoneE164) return { allow: true, reason: "no_lead_decision" };
   try {
     const { rows } = await db.query(
-      `select kind, follow_up, signed_case, case_id, lead_status
+      `select kind, follow_up, signed_case, case_id, lead_status, sequence
        from public.leads
        where phone_e164 = $1
        order by created_at desc
@@ -47,8 +47,14 @@ export async function leadAllowsTexts(phone) {
     if (["Lost", "Referred", "Promoted", "Signed"].includes(lead.lead_status)) {
       return { allow: false, reason: lead.lead_status };
     }
-    if (lead.kind === "needs_info") return { allow: false, reason: "needs_info" };
+    if (lead.sequence === "stop" || lead.sequence === "needs_info" || lead.kind === "needs_info") {
+      return { allow: false, reason: lead.sequence || "needs_info" };
+    }
     if (lead.follow_up === false) return { allow: false, reason: "follow_up_off" };
+    if (lead.sequence === "referral") return { allow: true, reason: "referral", sequenceSlug: "referral" };
+    if (lead.sequence === "want_to_sign") {
+      return { allow: true, reason: "want_to_sign", sequenceSlug: "qualified-lead" };
+    }
     return { allow: true, reason: "pursue" };
   } catch (error) {
     console.error("Could not read the lead decision", error);
