@@ -5,7 +5,7 @@ import pg from "pg";
 // follow-up off. With no LEADS_DATABASE_URL, sending stays as it is today.
 let pool = null;
 
-function leadsDb() {
+export function leadsDb() {
   const connectionString = process.env.LEADS_DATABASE_URL;
   if (!connectionString) return null;
   if (!pool) {
