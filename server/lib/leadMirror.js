@@ -16,7 +16,10 @@ const ACTIVE_SQL = `
   limit 1`;
 
 function clientName(row) {
-  const name = [row.first_name, row.last_name].map((part) => String(part || "").trim()).filter(Boolean).join(" ");
+  const name = [row.first_name, row.last_name]
+    .map((part) => String(part || "").trim())
+    .filter((part) => part && !/^(null|undefined)$/i.test(part))
+    .join(" ");
   return name || null;
 }
 
