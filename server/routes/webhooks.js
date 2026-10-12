@@ -11,6 +11,7 @@ import { callDurationSeconds, isAnsweredCall, isIncomingCall, isOutgoingCall, ou
 import { query, rpc } from "../db.js";
 import { readEvent, readPhone, resolveSendingNumber, sendText } from "../lib/quo.js";
 import { findActiveEnrollmentByPhone, retireStartCard } from "../lib/followups.js";
+import { mirrorTextSequence } from "../lib/leadMirror.js";
 import { displayPhone, postToThread, shortCallReviewBlocks } from "../lib/slack.js";
 import { loadSettings } from "../lib/settings.js";
 import { verifyWebhook } from "../lib/quo.js";
@@ -77,6 +78,7 @@ async function handleInboundMessage(object) {
 
   if (result?.duplicate) return { duplicate: true };
   if (!result?.ok) return { ignored: result?.reason };
+  mirrorTextSequence(from).catch((error) => console.error("text sequence mirror failed", error));
 
   const settings = await loadSettings();
   const language = result.language === "es" ? "es" : "en";
@@ -200,6 +202,7 @@ async function handleCall(object, type, context = {}) {
   });
   if (!result?.ok) return { ignored: result?.reason };
   if (!result.stopped?.ok) return { action: "call", stopped: false };
+  mirrorTextSequence(fromClient).catch((error) => console.error("text sequence mirror failed", error));
   await retireStartCard(result.stopped.enrollment_id);
 
   const shown = await displayPhone(fromClient);

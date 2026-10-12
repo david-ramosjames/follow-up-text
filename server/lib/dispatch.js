@@ -7,6 +7,7 @@ import {
 import { rpc, rpcSet } from "../db.js";
 import { resolveSendingNumber, sendText } from "./quo.js";
 import { retireStartCard } from "./followups.js";
+import { mirrorActiveSequences, mirrorTextSequence } from "./leadMirror.js";
 import { assigneeMentionSuffix } from "../../shared/slackMentions.js";
 import { displayPhone, postToThread } from "./slack.js";
 import { loadSettings } from "./settings.js";
@@ -96,6 +97,10 @@ async function sendOne(row, settings) {
   // Both of those end the series, so the start card's Stop button goes too.
   if (recorded?.final || recorded?.completed) await retireStartCard(row.enrollment_id);
 
+  if (row.to_number) {
+    mirrorTextSequence(row.to_number).catch((error) => console.error("text sequence mirror failed", error));
+  }
+
   return { sent: result.ok, error: result.error, segments };
 }
 
@@ -111,6 +116,7 @@ export async function runDispatch() {
   try {
     const { settleContractPathWaits } = await import("./contractPath.js");
     await settleContractPathWaits().catch((error) => console.error("contract-path wait failed", error));
+    await mirrorActiveSequences().catch((error) => console.error("active sequence mirror failed", error));
 
     const settings = await loadSettings();
     const batch = await rpcSet("followup_claim_due", settings.dispatch_batch_size ?? 25);

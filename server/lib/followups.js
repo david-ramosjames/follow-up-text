@@ -4,6 +4,7 @@ import { displayPhone, enrollmentBlocks, postToThread, slackApi } from "./slack.
 import { formatPhone, normalizePhone } from "../../shared/messaging.js";
 import { currentFirm } from "./firms.js";
 import { loadSettings } from "./settings.js";
+import { mirrorTextSequence } from "./leadMirror.js";
 
 export async function loadOperator(slackUserId) {
   const found = await rows(
@@ -96,7 +97,12 @@ export async function startSeries(payload) {
   const enrollment = decision.sequenceSlug
     ? { ...payload, sequence_slug: decision.sequenceSlug }
     : payload;
-  return rpc("followup_enroll", { ...enrollment, firm_id: enrollment.firm_id ?? currentFirm()?.id ?? null });
+  const result = await rpc("followup_enroll", { ...enrollment, firm_id: enrollment.firm_id ?? currentFirm()?.id ?? null });
+  const phone = result?.phone || payload?.phone;
+  if (result?.ok && phone) {
+    mirrorTextSequence(phone).catch((error) => console.error("text sequence mirror failed", error));
+  }
+  return result;
 }
 
 // Posts the confirmation card. When the series came from a message or a thread,
@@ -180,13 +186,18 @@ export async function announceEnrollment(result, {
 }
 
 export async function stopSeries({ enrollmentId, phone, actor, enforceAssignment = false, reason = "manual" }) {
-  return rpc("followup_stop", {
+  const result = await rpc("followup_stop", {
     enrollment_id: enrollmentId ?? null,
     phone: phone ?? null,
     reason,
     actor: actor ?? null,
     enforce_assignment: enforceAssignment,
   });
+  const mirrored = result?.phone || phone;
+  if (mirrored) {
+    mirrorTextSequence(mirrored).catch((error) => console.error("text sequence mirror failed", error));
+  }
+  return result;
 }
 
 export async function announceStop(result, actorLabel) {
