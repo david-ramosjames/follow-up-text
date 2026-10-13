@@ -28,7 +28,42 @@ export function toLeadE164(phone) {
   return null;
 }
 
-export async function leadAllowsTexts(phone) {
+const CLOSED_STATUSES = ["Lost", "Referred", "Promoted", "Signed"];
+
+function needsInfo(lead) {
+  return lead?.sequence === "needs_info" || lead?.kind === "needs_info";
+}
+
+// Automatic intake still honours the cockpit. A person starting texts by
+// hand — @sms-follow-up, the ⋯ menu, /followup, the dashboard — is telling
+// us to text anyway. If Intake Manager only has needs-more-info (no summary,
+// no case yet), that start goes on qualified-lead unless they named a track.
+export function decideLeadTexts(lead, { manual = false, sequenceSlug = null } = {}) {
+  if (!lead) return { allow: true, reason: "no_lead" };
+  if (lead.signed_case || lead.case_id) return { allow: false, reason: "closed" };
+  if (CLOSED_STATUSES.includes(lead.lead_status)) {
+    return { allow: false, reason: lead.lead_status };
+  }
+  if (lead.sequence === "stop") return { allow: false, reason: "stop" };
+  if (needsInfo(lead)) {
+    if (manual) {
+      return {
+        allow: true,
+        reason: "needs_info_manual",
+        sequenceSlug: sequenceSlug || "qualified-lead",
+      };
+    }
+    return { allow: false, reason: "needs_info" };
+  }
+  if (lead.follow_up === false) return { allow: false, reason: "follow_up_off" };
+  if (lead.sequence === "referral") return { allow: true, reason: "referral", sequenceSlug: "referral" };
+  if (lead.sequence === "want_to_sign") {
+    return { allow: true, reason: "want_to_sign", sequenceSlug: "qualified-lead" };
+  }
+  return { allow: true, reason: "pursue" };
+}
+
+export async function leadAllowsTexts(phone, { manual = false, sequenceSlug = null } = {}) {
   const db = leadsDb();
   const phoneE164 = toLeadE164(phone);
   if (!db || !phoneE164) return { allow: true, reason: "no_lead_decision" };
@@ -41,21 +76,7 @@ export async function leadAllowsTexts(phone) {
        limit 1`,
       [phoneE164],
     );
-    const lead = rows[0];
-    if (!lead) return { allow: true, reason: "no_lead" };
-    if (lead.signed_case || lead.case_id) return { allow: false, reason: "closed" };
-    if (["Lost", "Referred", "Promoted", "Signed"].includes(lead.lead_status)) {
-      return { allow: false, reason: lead.lead_status };
-    }
-    if (lead.sequence === "stop" || lead.sequence === "needs_info" || lead.kind === "needs_info") {
-      return { allow: false, reason: lead.sequence || "needs_info" };
-    }
-    if (lead.follow_up === false) return { allow: false, reason: "follow_up_off" };
-    if (lead.sequence === "referral") return { allow: true, reason: "referral", sequenceSlug: "referral" };
-    if (lead.sequence === "want_to_sign") {
-      return { allow: true, reason: "want_to_sign", sequenceSlug: "qualified-lead" };
-    }
-    return { allow: true, reason: "pursue" };
+    return decideLeadTexts(rows[0], { manual, sequenceSlug });
   } catch (error) {
     console.error("Could not read the lead decision", error);
     return { allow: true, reason: "lead_lookup_failed" };
