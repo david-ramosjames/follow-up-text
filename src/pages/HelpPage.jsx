@@ -9,7 +9,7 @@ const FAQ = [
       "Three ways, all in Slack. From any message — hover it, open the ⋯ menu, choose “Start follow-up texts”. The client's number is read out of the message and the form opens with it filled in.",
       "Inside a thread — “@sms-follow-up start 512-555-0123 es Maria”. If the number is already in the message that started the thread, you can leave it out.",
       "Or the slash command — “/followup” on its own opens the form, and “/followup start 512-555-0123” skips it.",
-      "If Intake Manager only has “needs more info” — a missed call with no summary, no case type yet — a manual start still goes. It uses Qualified lead unless you name another sequence. Automatic starts from the lead channel keep waiting until there is something to follow up on.",
+      "If Intake Manager has “needs more info”, Lost, or follow-up off — a missed call, a dead lead, no case type yet — a manual start still goes. It uses New lead follow-up unless you name another sequence. Automatic starts from the lead channel keep waiting. A signed case, or a lead marked stop, still will not start from Slack.",
     ],
   },
   {

@@ -10,10 +10,10 @@ test("automatic intake still skips a needs-more-info lead", () => {
   );
 });
 
-test("a manual start with no case data goes on qualified-lead", () => {
+test("a manual start with no case data goes on new-lead", () => {
   assert.deepEqual(
     decideLeadTexts({ kind: "needs_info", sequence: "needs_info" }, { manual: true }),
-    { allow: true, reason: "needs_info_manual", sequenceSlug: "qualified-lead" },
+    { allow: true, reason: "needs_info_manual", sequenceSlug: "new-lead" },
   );
 });
 
@@ -27,8 +27,22 @@ test("a manual start keeps the sequence the person named", () => {
   );
 });
 
-test("signed and stopped leads stay blocked even from Slack", () => {
+test("a manual start still goes when Intake Manager marked the lead Lost", () => {
+  assert.deepEqual(
+    decideLeadTexts({ lead_status: "Lost" }, { manual: true }),
+    { allow: true, reason: "lost_manual", sequenceSlug: "new-lead" },
+  );
+});
+
+test("signed cases and an explicit stop stay blocked even from Slack", () => {
   assert.equal(decideLeadTexts({ signed_case: true }, { manual: true }).allow, false);
+  assert.equal(decideLeadTexts({ case_id: "C-1" }, { manual: true }).allow, false);
   assert.equal(decideLeadTexts({ sequence: "stop" }, { manual: true }).allow, false);
-  assert.equal(decideLeadTexts({ lead_status: "Lost" }, { manual: true }).allow, false);
+});
+
+test("automatic intake still skips a Lost lead", () => {
+  assert.deepEqual(
+    decideLeadTexts({ lead_status: "Lost" }),
+    { allow: false, reason: "Lost" },
+  );
 });
