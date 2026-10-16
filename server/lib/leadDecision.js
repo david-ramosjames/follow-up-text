@@ -66,7 +66,12 @@ export function decideLeadTexts(lead, { manual = false, sequenceSlug = null } = 
   return { allow: true, reason: "pursue" };
 }
 
+const PRACTICE_TEST_PHONE = "+17654183805";
+
 export async function leadAllowsTexts(phone, { manual = false, sequenceSlug = null } = {}) {
+  if (toLeadE164(phone) === PRACTICE_TEST_PHONE) {
+    return { allow: true, reason: "practice_test", sequenceSlug: sequenceSlug ?? null };
+  }
   const db = leadsDb();
   const phoneE164 = toLeadE164(phone);
   if (!db || !phoneE164) return { allow: true, reason: "no_lead_decision" };
