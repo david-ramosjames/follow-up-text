@@ -5,14 +5,14 @@ import { parseCaseTypePhrases } from "../../shared/messaging.js";
 import { googleConfigured, requireSession, slackSignInConfigured, accessibleFirmIds, sessionCanUseFirm, sessionSeesAllFirms } from "../auth.js";
 import { listQuoNumbers, quoConfigured, syncQuoNumbers } from "../lib/quo.js";
 import { loadSettings, SETTING_DEFINITIONS, saveSettings } from "../lib/settings.js";
-import { announceStop, stopSeries } from "../lib/followups.js";
+import { announceEnrollment, announceStop, startSeries, stopSeries } from "../lib/followups.js";
 import { llmDescription, routableSequences, translateToSpanish } from "../lib/leads.js";
 import { previewFirstText } from "../lib/previewText.js";
 import { catchUpLeadChannel, lastLeadCatchUp } from "../lib/leadChannel.js";
 import { runDispatch } from "../lib/dispatch.js";
 import { slackConfigured } from "../lib/slack.js";
 import {
-  createFirm, firmId, listFirms, loadFirm, publicFirm, renameFirm, resolveFirm, runWithFirm,
+  createFirm, defaultFirm, firmId, listFirms, loadFirm, publicFirm, renameFirm, resolveFirm, runWithFirm,
   saveFirmCredentials,
 } from "../lib/firms.js";
 
@@ -576,6 +576,52 @@ apiRouter.delete("/steps/:id", ok(async (req, res) => {
   await query("delete from followup_steps where id = $1", [req.params.id]);
   res.json({ ok: true });
 }));
+
+// Intake Manager starts a series here. SMS Follow-Up owns the enrollment and
+// the default owner. The shared token is the only auth; the dashboard session
+// is a different app.
+apiRouter.post("/intake/enroll", async (req, res) => {
+  const expected = process.env.INTAKE_ENROLL_TOKEN || "";
+  const header = req.get("authorization") || "";
+  if (!expected || header !== `Bearer ${expected}`) {
+    return res.status(401).json({ ok: false, reason: "unauthorized" });
+  }
+  try {
+    const firm = await defaultFirm();
+    if (!firm) return res.status(500).json({ ok: false, reason: "no_firm" });
+    const body = req.body ?? {};
+    const result = await runWithFirm(firm, async () => {
+      const settings = await loadSettings();
+      const assignee = String(body.assigned_slack_user_id || settings.lead_default_owner_slack_id || "")
+        .split(",")[0]
+        .trim();
+      if (!assignee) return { ok: false, reason: "missing_assignee" };
+      const started = await startSeries({
+        phone: body.phone,
+        sequence_slug: body.sequence_slug,
+        first_name: body.first_name || null,
+        last_name: body.last_name || null,
+        case_type: body.case_type || null,
+        assigned_slack_user_id: assignee,
+        assigned_slack_user_name: body.assigned_slack_user_name || null,
+        slack_channel_id: body.slack_channel_id || null,
+        slack_thread_ts: body.slack_thread_ts || null,
+        source: "dashboard",
+        lead_source: "intake-manager",
+        lead_detail: body.lead_detail || null,
+        case_reference: body.case_type || null,
+      });
+      if (started?.ok) {
+        await announceEnrollment(started).catch((error) => console.error("intake enroll announce failed", error));
+      }
+      return started;
+    });
+    return res.status(result?.ok ? 200 : 400).json(result ?? { ok: false, reason: "unknown" });
+  } catch (error) {
+    console.error("intake enroll failed", error);
+    return res.status(500).json({ ok: false, reason: "error" });
+  }
+});
 
 /* ------------------------------------------------------------- enrollments */
 
