@@ -16,11 +16,13 @@ import {
   clientPhoneFromCallPost,
   firstNameFromCallPost,
   languageFromCallPost,
+  quoRouterCallIsOngoing,
 } from "../../shared/leads.js";
 import { parseStartArgs } from "../../shared/startArgs.js";
 import { formatSlackMentions } from "../../shared/slackMentions.js";
 import { one, rows, rpc } from "../db.js";
 import { assessLeadPost } from "../lib/leads.js";
+import { isExistingLeadContact, lookupLead } from "../lib/leadDecision.js";
 import { previewFirstText } from "../lib/previewText.js";
 import { loadSettings } from "../lib/settings.js";
 import {
@@ -34,6 +36,7 @@ import {
   lookupSlackName,
   retireStartCard,
   findActiveEnrollmentByPhone,
+  findPriorConversation,
   startSeries,
   stopSeries,
 } from "../lib/followups.js";
@@ -819,8 +822,9 @@ export async function handleLeadPost(event) {
 }
 
 // Quo Router missed and Sona posts are not form fills, and Sona often arrives
-// as a thread reply under CallRail. Start New lead follow-up when that number
-// is not already on a series. A human-handled call is left alone.
+// as a thread reply under CallRail. Start New lead follow-up on the first
+// contact only — a return call or a number already in a conversation is left
+// alone. A human-handled call is left alone.
 async function handleQuoRouterCallPost(event, { text, call, mode, log, settings }) {
   const numbers = await listQuoNumbers();
   const phone = clientPhoneFromCallPost(text, numbers.map((row) => row.phone_e164));
@@ -869,6 +873,16 @@ async function handleQuoRouterCallPost(event, { text, call, mode, log, settings 
     return { ignored: "no_phone" };
   }
 
+  if (quoRouterCallIsOngoing(text)) {
+    log(`skipped — ${kindLabel}, already in a conversation`);
+    await recordObservation({
+      ...base,
+      outcome: "not_a_lead",
+      outcomeDetail: `${kindLabel} — not the first contact.`,
+    });
+    return { ignored: "ongoing_conversation" };
+  }
+
   const existing = await findActiveEnrollmentByPhone(phone);
   if (existing) {
     log(`skipped — ${kindLabel}, already on a series`);
@@ -879,6 +893,34 @@ async function handleQuoRouterCallPost(event, { text, call, mode, log, settings 
       enrollmentId: existing.id,
     });
     return { ignored: "already_active" };
+  }
+
+  const prior = await findPriorConversation(phone);
+  if (prior) {
+    log(`skipped — ${kindLabel}, already in a conversation`);
+    await recordObservation({
+      ...base,
+      outcome: "not_a_lead",
+      outcomeDetail: `${kindLabel} — not the first contact.`,
+      enrollmentId: prior.enrollment_id ?? null,
+    });
+    return { ignored: "ongoing_conversation" };
+  }
+
+  let knownLead = null;
+  try {
+    knownLead = await lookupLead(phone);
+  } catch (error) {
+    console.error("Could not read the lead for a call start", error);
+  }
+  if (isExistingLeadContact(knownLead)) {
+    log(`skipped — ${kindLabel}, lead already on file`);
+    await recordObservation({
+      ...base,
+      outcome: "not_a_lead",
+      outcomeDetail: `${kindLabel} — not the first contact.`,
+    });
+    return { ignored: "ongoing_conversation" };
   }
 
   if (mode !== "live") {

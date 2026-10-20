@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { flattenSlackMessage, readLead, historyMessageToEvent, describeSlackHistoryError, isOutboundReferral, pickTrackSlug, describeTrackKind, kindSlug, normalizeCaseType, buildClassificationUserPrompt, looksLikeIntakeForm, formFillIsALead, isContractPath, isContractSent, isMoreDetailsReply, isIntakeEngineLanding, pickWaitingParent, CONTRACT_PATH_WAIT_SECONDS, readQuoRouterCall, isHumanHandledCall, clientPhoneFromCallPost, firstNameFromCallPost, languageFromCallPost } from "../shared/leads.js";
+import { flattenSlackMessage, readLead, historyMessageToEvent, describeSlackHistoryError, isOutboundReferral, pickTrackSlug, describeTrackKind, kindSlug, normalizeCaseType, buildClassificationUserPrompt, looksLikeIntakeForm, formFillIsALead, isContractPath, isContractSent, isMoreDetailsReply, isIntakeEngineLanding, pickWaitingParent, CONTRACT_PATH_WAIT_SECONDS, readQuoRouterCall, isHumanHandledCall, clientPhoneFromCallPost, firstNameFromCallPost, languageFromCallPost, quoRouterCallIsOngoing } from "../shared/leads.js";
 
 // The four shapes actually posting into the lead channel. Kept verbatim rather
 // than tidied, because the point of these tests is that real posts parse — a
@@ -334,4 +334,13 @@ test("an outbound Sona post uses the To number when From is the firm line", () =
   const outbound = "🤖 *Sona Call Completed*\nFrom: Leads +15127643037\nTo: Ana Perez +15125550888";
   assert.equal(clientPhoneFromCallPost(outbound, FIRM_LINES), "+15125550888");
   assert.equal(firstNameFromCallPost(outbound), null);
+});
+
+test("Quo Router return calls and closed clients are already in a conversation", () => {
+  assert.equal(quoRouterCallIsOngoing(`${SONA_THREAD}\nLead: Return call`), true);
+  assert.equal(quoRouterCallIsOngoing("🤖 *Sona Call Completed*\nLead: *Return call*"), true);
+  assert.equal(quoRouterCallIsOngoing("🔁 *Closed Client Message*\n📞 *Missed Call*\nFrom: +15125550111"), true);
+  assert.equal(quoRouterCallIsOngoing("🤖 *Sona Call Completed*\nLead: Excluded · Existing client"), true);
+  assert.equal(quoRouterCallIsOngoing(`${SONA_LEAD}\nSummary: rear-ended yesterday`), false);
+  assert.equal(quoRouterCallIsOngoing(MISSED_CALL), false);
 });

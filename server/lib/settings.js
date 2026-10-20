@@ -133,7 +133,8 @@ export const SETTING_DEFINITIONS = [
     help: "Comma-separated names of the apps that post form fills — for example "
       + "Web Leads, RJL, rj-tiktok-leads. The name Slack shows on the post. Only "
       + "posts from these are considered as form fills. Missed-call and Sona posts "
-      + "from Quo Router are read on their own, even if this app is not on the list. "
+      + "from Quo Router are read on their own for a first contact, even if this app "
+      + "is not on the list. "
       + "Leave empty to accept any app, but never a person: a colleague pasting a "
       + "client's number into the channel is not a form fill and is always ignored.",
   },

@@ -195,6 +195,16 @@ export function languageFromCallPost(text) {
   return /\b(español|spanish|language:\s*es)\b/i.test(String(text ?? "")) ? "es" : "en";
 }
 
+// Quo Router labels a return call or an existing/closed client. Those are
+// already in a conversation — first-contact texts would land on top of it.
+export function quoRouterCallIsOngoing(text) {
+  const body = String(text ?? "");
+  if (/lead:\s*\*?return call\b/i.test(body)) return true;
+  if (/excluded\s*·\s*existing client/i.test(body)) return true;
+  if (/closed client message/i.test(body)) return true;
+  return false;
+}
+
 // Prefer the thread parent. A standalone "Contract sent" (no thread_ts) matches
 // by phone, then the most recent waiting parent in that channel.
 export function pickWaitingParent({ waiting = [], threadTs = null, phone = null } = {}) {

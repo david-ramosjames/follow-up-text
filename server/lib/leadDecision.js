@@ -68,6 +68,33 @@ export function decideLeadTexts(lead, { manual = false, sequenceSlug = null } = 
 
 const PRACTICE_TEST_PHONE = "+17654183805";
 
+export const INITIAL_CONTACT_GRACE_MS = 15 * 60 * 1000;
+
+// A lead that has been on file for more than a few minutes is already in the
+// cockpit. The grace window covers the same Sona or missed call that just
+// created the row, so first contact still starts.
+export function isExistingLeadContact(lead, now = Date.now()) {
+  if (!lead) return false;
+  const created = lead.created_at ? new Date(lead.created_at).getTime() : NaN;
+  if (!Number.isFinite(created)) return true;
+  return now - created > INITIAL_CONTACT_GRACE_MS;
+}
+
+export async function lookupLead(phone) {
+  const db = leadsDb();
+  const phoneE164 = toLeadE164(phone);
+  if (!db || !phoneE164) return null;
+  const { rows } = await db.query(
+    `select kind, follow_up, signed_case, case_id, lead_status, sequence, created_at
+     from public.leads
+     where phone_e164 = $1
+     order by created_at desc
+     limit 1`,
+    [phoneE164],
+  );
+  return rows[0] ?? null;
+}
+
 export async function leadAllowsTexts(phone, { manual = false, sequenceSlug = null } = {}) {
   if (toLeadE164(phone) === PRACTICE_TEST_PHONE) {
     return { allow: true, reason: "practice_test", sequenceSlug: sequenceSlug ?? null };
@@ -76,15 +103,8 @@ export async function leadAllowsTexts(phone, { manual = false, sequenceSlug = nu
   const phoneE164 = toLeadE164(phone);
   if (!db || !phoneE164) return { allow: true, reason: "no_lead_decision" };
   try {
-    const { rows } = await db.query(
-      `select kind, follow_up, signed_case, case_id, lead_status, sequence
-       from public.leads
-       where phone_e164 = $1
-       order by created_at desc
-       limit 1`,
-      [phoneE164],
-    );
-    return decideLeadTexts(rows[0], { manual, sequenceSlug });
+    const lead = await lookupLead(phone);
+    return decideLeadTexts(lead, { manual, sequenceSlug });
   } catch (error) {
     console.error("Could not read the lead decision", error);
     return { allow: true, reason: "lead_lookup_failed" };

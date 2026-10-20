@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { decideLeadTexts } from "../server/lib/leadDecision.js";
+import { decideLeadTexts, isExistingLeadContact, INITIAL_CONTACT_GRACE_MS } from "../server/lib/leadDecision.js";
 
 test("automatic intake still skips a needs-more-info lead", () => {
   assert.deepEqual(
@@ -44,5 +44,15 @@ test("automatic intake still skips a Lost lead", () => {
   assert.deepEqual(
     decideLeadTexts({ lead_status: "Lost" }),
     { allow: false, reason: "Lost" },
+  );
+});
+
+test("a lead just created by this call is still first contact", () => {
+  const now = Date.parse("2026-10-20T18:00:00Z");
+  assert.equal(isExistingLeadContact(null), false);
+  assert.equal(isExistingLeadContact({ created_at: "2026-10-20T17:50:00Z" }, now), false);
+  assert.equal(
+    isExistingLeadContact({ created_at: new Date(now - INITIAL_CONTACT_GRACE_MS - 1000).toISOString() }, now),
+    true,
   );
 });

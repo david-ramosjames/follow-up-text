@@ -88,6 +88,30 @@ export async function findActiveEnrollmentByPhone(phone) {
   );
 }
 
+// A missed or Sona call should only open texts on the first contact. A number
+// that already has a series, or any texts in or out, is already in a thread.
+export async function findPriorConversation(phone) {
+  const e164 = normalizePhone(phone);
+  if (!e164) return null;
+  const row = await one(
+    `select c.id, c.last_inbound_at, c.last_outbound_at,
+            (select e.id from followup_enrollments e
+              where e.contact_id = c.id
+              order by e.started_at desc
+              limit 1) as enrollment_id,
+            exists (select 1 from followup_messages m where m.contact_id = c.id) as has_messages
+     from followup_contacts c
+     where c.phone_e164 = $1 and ($2::uuid is null or c.firm_id = $2)
+     limit 1`,
+    [e164, currentFirm()?.id ?? null],
+  );
+  if (!row) return null;
+  if (row.enrollment_id || row.has_messages || row.last_inbound_at || row.last_outbound_at) {
+    return row;
+  }
+  return null;
+}
+
 export async function startSeries(payload) {
   const { leadAllowsTexts } = await import("./leadDecision.js");
   const decision = await leadAllowsTexts(payload?.phone, {
