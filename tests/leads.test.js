@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { flattenSlackMessage, readLead, historyMessageToEvent, describeSlackHistoryError, isOutboundReferral, pickTrackSlug, describeTrackKind, kindSlug, normalizeCaseType, buildClassificationUserPrompt, looksLikeIntakeForm, formFillIsALead, isContractPath, isContractSent, isMoreDetailsReply, isIntakeEngineLanding, pickWaitingParent, CONTRACT_PATH_WAIT_SECONDS } from "../shared/leads.js";
+import { flattenSlackMessage, readLead, historyMessageToEvent, describeSlackHistoryError, isOutboundReferral, pickTrackSlug, describeTrackKind, kindSlug, normalizeCaseType, buildClassificationUserPrompt, looksLikeIntakeForm, formFillIsALead, isContractPath, isContractSent, isMoreDetailsReply, isIntakeEngineLanding, pickWaitingParent, CONTRACT_PATH_WAIT_SECONDS, readQuoRouterCall, isHumanHandledCall, clientPhoneFromCallPost, firstNameFromCallPost, languageFromCallPost } from "../shared/leads.js";
 
 // The four shapes actually posting into the lead channel. Kept verbatim rather
 // than tidied, because the point of these tests is that real posts parse — a
@@ -302,4 +302,36 @@ test("a Contract sent reply prefers the thread parent, then a matching number", 
     waiting: [waiting[1]],
     phone: null,
   }).slack_ts, "222.2");
+});
+
+const MISSED_CALL = "📞 *Missed Call*\nFrom: Wireless Caller +17374192596\nTo: Website Pool +19562532287";
+const SONA_LEAD = "📋 *Lead Call*\nHandled By: Sona\nFrom: Wizard Herrera +15125550123\nTo: Leads (+15127643037)";
+const SONA_THREAD = "🤖 *Sona Call Completed*\nFrom: Jackie +17374190011\nTo: Leads +15127643037";
+const HUMAN_LEAD = "🧑 *Human Call Completed*\nHandled By: Legal Assistant\nFrom: Jo Diaz +15125550999\nTo: Leads +15127643037";
+const FIRM_LINES = ["+19562532287", "+15127643037"];
+
+test("Quo Router missed and Sona posts are recognised, human-handled calls are not", () => {
+  assert.deepEqual(readQuoRouterCall(MISSED_CALL), { kind: "missed" });
+  assert.deepEqual(readQuoRouterCall("☎️ *HUNG UP AT PHONE MENU URGENT* ☎️\nFrom: +15125550000"), { kind: "missed" });
+  assert.deepEqual(readQuoRouterCall(SONA_LEAD), { kind: "sona" });
+  assert.deepEqual(readQuoRouterCall(SONA_THREAD), { kind: "sona" });
+  assert.deepEqual(readQuoRouterCall("*Handled By:* Sona\nFrom: +15125550111"), { kind: "sona" });
+  assert.equal(readQuoRouterCall(HUMAN_LEAD), null);
+  assert.equal(isHumanHandledCall(HUMAN_LEAD), true);
+  assert.equal(isHumanHandledCall(SONA_LEAD), false);
+  assert.equal(readQuoRouterCall(flattenSlackMessage(WEBSITE)), null);
+});
+
+test("the client number is the From line, not a firm Quo line", () => {
+  assert.equal(clientPhoneFromCallPost(MISSED_CALL, FIRM_LINES), "+17374192596");
+  assert.equal(clientPhoneFromCallPost(SONA_LEAD, FIRM_LINES), "+15125550123");
+  assert.equal(firstNameFromCallPost(SONA_LEAD), "Wizard");
+  assert.equal(firstNameFromCallPost(MISSED_CALL), null);
+  assert.equal(languageFromCallPost("Language: Spanish\nFrom: Ana +15125550100"), "es");
+});
+
+test("an outbound Sona post uses the To number when From is the firm line", () => {
+  const outbound = "🤖 *Sona Call Completed*\nFrom: Leads +15127643037\nTo: Ana Perez +15125550888";
+  assert.equal(clientPhoneFromCallPost(outbound, FIRM_LINES), "+15125550888");
+  assert.equal(firstNameFromCallPost(outbound), null);
 });

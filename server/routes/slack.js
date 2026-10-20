@@ -6,7 +6,17 @@ import {
   normalizePhone,
   truncateChars,
 } from "../../shared/messaging.js";
-import { flattenSlackMessage, isContractPath, isContractSent, isMoreDetailsReply } from "../../shared/leads.js";
+import {
+  flattenSlackMessage,
+  isContractPath,
+  isContractSent,
+  isMoreDetailsReply,
+  readQuoRouterCall,
+  isHumanHandledCall,
+  clientPhoneFromCallPost,
+  firstNameFromCallPost,
+  languageFromCallPost,
+} from "../../shared/leads.js";
 import { parseStartArgs } from "../../shared/startArgs.js";
 import { formatSlackMentions } from "../../shared/slackMentions.js";
 import { one, rows, rpc } from "../db.js";
@@ -23,6 +33,7 @@ import {
   loadOperator,
   lookupSlackName,
   retireStartCard,
+  findActiveEnrollmentByPhone,
   startSeries,
   stopSeries,
 } from "../lib/followups.js";
@@ -582,6 +593,27 @@ export async function handleLeadPost(event) {
     return { contractSent: true, parent: applied.parent?.id ?? null };
   }
 
+  const call = readQuoRouterCall(text);
+  const botPost = Boolean(event.bot_id || event.app_id || event.subtype === "bot_message");
+  if (call && botPost) {
+    return handleQuoRouterCallPost(event, { text, call, mode, log, settings });
+  }
+  if (botPost && isHumanHandledCall(text)) {
+    log("skipped — human-handled call");
+    await recordObservation({
+      channel: event.channel,
+      ts: event.ts,
+      senderName: (await displaySenderName(event)) || senderName(event) || null,
+      appId: event.app_id ?? null,
+      mode,
+      text,
+      phone: clientPhoneFromCallPost(text, (await listQuoNumbers()).map((row) => row.phone_e164)),
+      outcome: "not_a_lead",
+      outcomeDetail: "Human-handled call — not started.",
+    });
+    return { ignored: "human_call" };
+  }
+
   if (event.thread_ts && event.thread_ts !== event.ts) {
     if (isMoreDetailsReply(text)) {
       log("skipped — more details reply");
@@ -783,6 +815,132 @@ export async function handleLeadPost(event) {
     },
   });
 
+  return { started: true, enrollment_id: result.enrollment_id };
+}
+
+// Quo Router missed and Sona posts are not form fills, and Sona often arrives
+// as a thread reply under CallRail. Start New lead follow-up when that number
+// is not already on a series. A human-handled call is left alone.
+async function handleQuoRouterCallPost(event, { text, call, mode, log, settings }) {
+  const numbers = await listQuoNumbers();
+  const phone = clientPhoneFromCallPost(text, numbers.map((row) => row.phone_e164));
+  const firstName = firstNameFromCallPost(text);
+  const language = languageFromCallPost(text);
+  const sequenceSlug = "new-lead";
+  const leadSource = call.kind === "sona" ? "sona" : "missed_call";
+  const kindLabel = call.kind === "sona" ? "Sona call" : "Missed call";
+
+  const sequence = (await rows(
+    "select name from followup_sequences where slug = $1 and ($2::uuid is null or firm_id = $2)",
+    [sequenceSlug, currentFirm()?.id ?? null],
+  ))[0];
+
+  const preview = phone
+    ? await previewFirstText(sequenceSlug, { firstName, language })
+    : null;
+
+  const base = {
+    channel: event.channel,
+    ts: event.ts,
+    senderName: (await displaySenderName(event)) || senderName(event) || null,
+    appId: event.app_id ?? null,
+    mode,
+    text,
+    phone,
+    firstName,
+    language,
+    isLead: Boolean(phone),
+    sequenceSlug,
+    sequenceName: sequence?.name ?? "New lead follow-up",
+    leadSource,
+    previewBody: preview?.body ?? null,
+    previewSegments: preview?.segments ?? null,
+    previewIsNight: preview?.isNight ?? null,
+    previewNextAt: preview?.nextAt ?? null,
+  };
+
+  if (!phone) {
+    log(`skipped — ${kindLabel}, no client number`);
+    await recordObservation({
+      ...base,
+      outcome: "no_phone",
+      outcomeDetail: `${kindLabel} — no client number`,
+    });
+    return { ignored: "no_phone" };
+  }
+
+  const existing = await findActiveEnrollmentByPhone(phone);
+  if (existing) {
+    log(`skipped — ${kindLabel}, already on a series`);
+    await recordObservation({
+      ...base,
+      outcome: "enroll_failed",
+      outcomeDetail: "Already has a series running.",
+      enrollmentId: existing.id,
+    });
+    return { ignored: "already_active" };
+  }
+
+  if (mode !== "live") {
+    log(`recorded ${kindLabel} — would start new-lead`);
+    await recordObservation({
+      ...base,
+      outcome: "preview_only",
+      outcomeDetail: `${kindLabel} — would start New lead follow-up.`,
+    });
+    return { previewed: true };
+  }
+
+  const owner = String(settings.lead_default_owner_slack_id ?? "").trim();
+  if (!owner) {
+    await recordObservation({
+      ...base,
+      outcome: "no_owner",
+      outcomeDetail: "No default owner is set under Settings, so nothing was started.",
+    });
+    return { ignored: "no_owner" };
+  }
+
+  const threadTs = event.thread_ts ?? event.ts;
+  const result = await startSeries({
+    phone,
+    language,
+    first_name: firstName,
+    sequence_slug: sequenceSlug,
+    assigned_slack_user_id: owner,
+    assigned_slack_user_name: await lookupSlackName(owner),
+    started_by_slack_user_id: owner,
+    slack_channel_id: event.channel,
+    slack_thread_ts: threadTs,
+    source: "lead",
+    callStart: true,
+    lead_source: leadSource,
+    lead_detail: { call_kind: call.kind },
+  });
+
+  if (!result?.ok) {
+    await recordObservation({
+      ...base,
+      outcome: "enroll_failed",
+      outcomeDetail: result?.reason ?? "unknown",
+    });
+    if (result?.reason !== "already_active") {
+      await slackApi("chat.postMessage", {
+        channel: event.channel,
+        thread_ts: threadTs,
+        text: `:warning: No follow-ups started for this ${kindLabel.toLowerCase()} — ${enrollFailureText(result, phone)}`,
+      });
+    }
+    return { ignored: result?.reason ?? "enroll_failed" };
+  }
+
+  log(`started ${kindLabel} on new-lead`);
+  await recordObservation({ ...base, outcome: "started", enrollmentId: result.enrollment_id });
+  await announceEnrollment(result, {
+    channel: event.channel,
+    threadTs,
+    routing: { reasoning: `${kindLabel} — New lead follow-up` },
+  });
   return { started: true, enrollment_id: result.enrollment_id };
 }
 

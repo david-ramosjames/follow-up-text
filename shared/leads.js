@@ -3,7 +3,7 @@
 // Kept apart from the classifier on purpose. Everything here is deterministic
 // and testable on its own, and the phone number in particular is never left to
 // a model: being wrong about it means texting a stranger.
-import { extractPhones, parseCaseTypePhrases, spokenCaseType } from "./messaging.js";
+import { extractPhones, normalizePhone, parseCaseTypePhrases, spokenCaseType } from "./messaging.js";
 
 // Slack apps put their content in wildly different places — some in `text`,
 // some only inside block elements, some in legacy attachments. The four sources
@@ -138,6 +138,61 @@ export function isMoreDetailsReply(text) {
 
 export function isIntakeEngineLanding(text) {
   return /from intake engine landing page/i.test(String(text ?? ""));
+}
+
+// Quo Router writes whether the call was missed or Sona answered. Those
+// numbers go on New lead follow-up when they are not already in a series.
+// A human-handled lead call is left alone — someone at the firm already spoke.
+export function isHumanHandledCall(text) {
+  const body = String(text ?? "");
+  if (/\bsona\b/i.test(body)) return false;
+  return /\bhuman call completed\b/i.test(body)
+    || /handled\s*by:\*?\s*\*?legal assistant/i.test(body);
+}
+
+export function readQuoRouterCall(text) {
+  const body = String(text ?? "");
+  if (isHumanHandledCall(body)) return null;
+  if (/\bmissed call\b/i.test(body) || /hung up at phone menu/i.test(body)) {
+    return { kind: "missed" };
+  }
+  if (/\bsona call completed\b/i.test(body) || /\bsona completed\b/i.test(body)) {
+    return { kind: "sona" };
+  }
+  if (/handled\s*by:\*?\s*\*?sona\b/i.test(body)) return { kind: "sona" };
+  return null;
+}
+
+export function clientPhoneFromCallPost(text, firmPhones = []) {
+  const ours = new Set(
+    (Array.isArray(firmPhones) ? firmPhones : [])
+      .map((phone) => normalizePhone(phone))
+      .filter(Boolean),
+  );
+  const from = String(text ?? "").match(/from:\s*[^\n]*?(\+?1?[\d\s().-]{8,}\d)/i);
+  const to = String(text ?? "").match(/to:\s*[^\n]*?(\+?1?[\d\s().-]{8,}\d)/i);
+  const fromE164 = from ? normalizePhone(from[1]) : null;
+  const toE164 = to ? normalizePhone(to[1]) : null;
+  if (fromE164 && !ours.has(fromE164)) return fromE164;
+  if (toE164 && !ours.has(toE164)) return toE164;
+  return extractPhones(text).find((phone) => !ours.has(phone)) ?? null;
+}
+
+export function firstNameFromCallPost(text) {
+  const line = String(text ?? "").match(/from:\s*([^\n]+)/i)?.[1] ?? "";
+  const name = line
+    .replace(/<tel:[^|>]+\|([^>]+)>/gi, "$1")
+    .replace(/\+?1?[\d\s().-]{8,}\d/g, "")
+    .replace(/wireless caller/i, "")
+    .replace(/\bunknown\b/i, "")
+    .replace(/[()]/g, "")
+    .trim();
+  if (!name || /^(leads?|website|pool|n\/a|null)$/i.test(name)) return null;
+  return name.split(/\s+/)[0] || null;
+}
+
+export function languageFromCallPost(text) {
+  return /\b(español|spanish|language:\s*es)\b/i.test(String(text ?? "")) ? "es" : "en";
 }
 
 // Prefer the thread parent. A standalone "Contract sent" (no thread_ts) matches

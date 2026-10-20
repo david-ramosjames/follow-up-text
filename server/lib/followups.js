@@ -91,7 +91,7 @@ export async function findActiveEnrollmentByPhone(phone) {
 export async function startSeries(payload) {
   const { leadAllowsTexts } = await import("./leadDecision.js");
   const decision = await leadAllowsTexts(payload?.phone, {
-    manual: payload?.source !== "lead",
+    manual: payload?.source !== "lead" || Boolean(payload?.callStart),
     sequenceSlug: payload?.sequence_slug ?? null,
   });
   if (!decision.allow) {

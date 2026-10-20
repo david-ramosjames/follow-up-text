@@ -38,6 +38,8 @@ const OUTCOMES = {
 };
 
 function classifierKind(item) {
+  if (item.lead_source === "sona") return "Sona call";
+  if (item.lead_source === "missed_call") return "Missed call";
   if (isOutboundReferral(item.post_text)) return "Referral";
   const label = describeTrackKind(item.classifier_slug)
     || describeTrackKind(item.sequence_slug);
