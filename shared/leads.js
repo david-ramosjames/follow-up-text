@@ -195,6 +195,29 @@ export function languageFromCallPost(text) {
   return /\b(español|spanish|language:\s*es)\b/i.test(String(text ?? "")) ? "es" : "en";
 }
 
+// Missed and Sona texts only start for inbound calls to the public lead lines.
+const LEAD_CALL_LINE = /^(leads?|rgv(?:\s+number)?|intake(?:\s+line)?)\b/i;
+
+export function calledLineFromCallPost(text, numbers = []) {
+  const toRaw = String(text ?? "").match(/to:\s*([^\n]+)/i)?.[1] ?? "";
+  const label = toRaw
+    .replace(/<tel:[^|>]+\|([^>]+)>/gi, "$1")
+    .replace(/\+?1?[\d\s().-]{8,}\d/g, "")
+    .replace(/[()]/g, "")
+    .trim();
+  const digits = toRaw.match(/(\+?1?[\d\s().-]{8,}\d)/);
+  const phone = digits ? normalizePhone(digits[1]) : null;
+  const listed = (Array.isArray(numbers) ? numbers : []).find((row) => {
+    const listedPhone = normalizePhone(row?.phone_e164 ?? row);
+    return listedPhone && listedPhone === phone;
+  });
+  return { phone, label: listed?.label || label || null };
+}
+
+export function isLeadIntakeCallLine(label) {
+  return LEAD_CALL_LINE.test(String(label ?? "").trim());
+}
+
 // Quo Router labels a return call or an existing/closed client. Those are
 // already in a conversation — first-contact texts would land on top of it.
 export function quoRouterCallIsOngoing(text) {

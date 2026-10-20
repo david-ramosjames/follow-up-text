@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { flattenSlackMessage, readLead, historyMessageToEvent, describeSlackHistoryError, isOutboundReferral, pickTrackSlug, describeTrackKind, kindSlug, normalizeCaseType, buildClassificationUserPrompt, looksLikeIntakeForm, formFillIsALead, isContractPath, isContractSent, isMoreDetailsReply, isIntakeEngineLanding, pickWaitingParent, CONTRACT_PATH_WAIT_SECONDS, readQuoRouterCall, isHumanHandledCall, clientPhoneFromCallPost, firstNameFromCallPost, languageFromCallPost, quoRouterCallIsOngoing } from "../shared/leads.js";
+import { flattenSlackMessage, readLead, historyMessageToEvent, describeSlackHistoryError, isOutboundReferral, pickTrackSlug, describeTrackKind, kindSlug, normalizeCaseType, buildClassificationUserPrompt, looksLikeIntakeForm, formFillIsALead, isContractPath, isContractSent, isMoreDetailsReply, isIntakeEngineLanding, pickWaitingParent, CONTRACT_PATH_WAIT_SECONDS, readQuoRouterCall, isHumanHandledCall, clientPhoneFromCallPost, firstNameFromCallPost, languageFromCallPost, quoRouterCallIsOngoing, calledLineFromCallPost, isLeadIntakeCallLine } from "../shared/leads.js";
 
 // The four shapes actually posting into the lead channel. Kept verbatim rather
 // than tidied, because the point of these tests is that real posts parse — a
@@ -334,6 +334,14 @@ test("an outbound Sona post uses the To number when From is the firm line", () =
   const outbound = "🤖 *Sona Call Completed*\nFrom: Leads +15127643037\nTo: Ana Perez +15125550888";
   assert.equal(clientPhoneFromCallPost(outbound, FIRM_LINES), "+15125550888");
   assert.equal(firstNameFromCallPost(outbound), null);
+});
+
+test("missed and Sona texts only start for calls to Leads, RGV, or Intake", () => {
+  assert.equal(isLeadIntakeCallLine(calledLineFromCallPost(SONA_LEAD).label), true);
+  assert.equal(isLeadIntakeCallLine(calledLineFromCallPost("📞 *Missed Call*\nTo: RGV Number +19563137771").label), true);
+  assert.equal(isLeadIntakeCallLine(calledLineFromCallPost("📞 *Missed Call*\nTo: Intake +15126010647").label), true);
+  assert.equal(isLeadIntakeCallLine(calledLineFromCallPost(MISSED_CALL).label), false);
+  assert.equal(isLeadIntakeCallLine(calledLineFromCallPost("📞 *Missed Call*\nTo: RJL Main Line +15125373369").label), false);
 });
 
 test("Quo Router return calls and closed clients are already in a conversation", () => {

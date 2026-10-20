@@ -17,6 +17,8 @@ import {
   firstNameFromCallPost,
   languageFromCallPost,
   quoRouterCallIsOngoing,
+  calledLineFromCallPost,
+  isLeadIntakeCallLine,
 } from "../../shared/leads.js";
 import { parseStartArgs } from "../../shared/startArgs.js";
 import { formatSlackMentions } from "../../shared/slackMentions.js";
@@ -871,6 +873,17 @@ async function handleQuoRouterCallPost(event, { text, call, mode, log, settings 
       outcomeDetail: `${kindLabel} — no client number`,
     });
     return { ignored: "no_phone" };
+  }
+
+  const called = calledLineFromCallPost(text, numbers);
+  if (!isLeadIntakeCallLine(called.label)) {
+    log(`skipped — ${kindLabel}, ${called.label || "that line"} is not Leads, RGV, or Intake`);
+    await recordObservation({
+      ...base,
+      outcome: "not_a_lead",
+      outcomeDetail: `${kindLabel} — not a call to Leads, RGV, or Intake.`,
+    });
+    return { ignored: "other_line" };
   }
 
   if (quoRouterCallIsOngoing(text)) {
