@@ -40,12 +40,12 @@ const OUTCOMES = {
 function classifierKind(item) {
   if (item.lead_source === "sona") return "Sona call";
   if (item.lead_source === "missed_call") return "Missed call";
-  if (isOutboundReferral(item.post_text)) return "Referral";
+  if (isOutboundReferral(item.post_text)) return "Web Referral";
   const label = describeTrackKind(item.classifier_slug)
     || describeTrackKind(item.sequence_slug);
   if (label) return label;
   if (item.classifier_error) return "Could not decide";
-  if (item.is_lead) return "Qualified lead";
+  if (item.is_lead) return "Web Qualified";
   return null;
 }
 
@@ -306,14 +306,14 @@ export default function LeadsPage() {
           {data && !data.routable?.length && (
             <p>
               <strong>No sequence is offered to the router yet.</strong> Tick “Offer this
-              sequence to the lead router” on Qualified lead and Referral. Sequence is on
+              sequence to the lead router” on Web Qualified and Web Referral. Sequence is on
               only controls whether texts go out — it does not make a track.
             </p>
           )}
           {data?.routable?.length > 0 && (
             <p>
-              Each form is assigned to one track: Referral if the Slack post is marked
-              Referral or Referal, otherwise Qualified lead. Tracks:{" "}
+              Each form is assigned to one track: Web Referral if the Slack post is marked
+              Referral or Referal, otherwise Web Qualified. Tracks:{" "}
               {data.routable.map((item) => item.name).join(", ")}.
             </p>
           )}

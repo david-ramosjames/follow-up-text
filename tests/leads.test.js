@@ -225,10 +225,9 @@ test("the model cannot put a lead on referral unless the post says referral", ()
 });
 
 test("the gray facts label qualified vs referral from the classifier slug", () => {
-  assert.equal(describeTrackKind("qualified-lead"), "Qualified lead");
-  assert.equal(describeTrackKind("referral"), "Referral");
-  // The old fall-through, not a third kind.
-  assert.equal(describeTrackKind("new-lead"), "Qualified lead");
+  assert.equal(describeTrackKind("qualified-lead"), "Web Qualified");
+  assert.equal(describeTrackKind("referral"), "Web Referral");
+  assert.equal(describeTrackKind("new-lead"), "Missed Call");
   assert.equal(describeTrackKind(null), null);
   assert.equal(kindSlug({ preferred: "new-lead" }), "qualified-lead");
   assert.equal(kindSlug({ preferred: "qualified-lead", referral: true }), "referral");
@@ -248,7 +247,7 @@ test("case type for texts is a short phrase, not a file label", () => {
 test("the classifier is shown the first texts case_type will be pasted into", () => {
   const prompt = buildClassificationUserPrompt([{
     slug: "qualified-lead",
-    name: "Qualified lead",
+    name: "Web Qualified",
     description: "Injured person this firm may represent",
     body_en: "Thank you for contacting us about your {{case_type}}.",
     body_en_night: "We got your {{case_type}} tonight. Could you tell us a little more about when and where it happened?",
@@ -258,7 +257,7 @@ test("the classifier is shown the first texts case_type will be pasted into", ()
   assert.match(prompt, /reads like a text you would send tonight/);
   assert.match(prompt, /Never write other, otro, or otra/);
   assert.match(prompt, /Kind Clinic, sexual assault/);
-  assert.match(prompt, /qualified-lead: Qualified lead/);
+  assert.match(prompt, /qualified-lead: Web Qualified/);
 });
 
 test("the classifier is told which phrases switch a text onto alternate copy", () => {

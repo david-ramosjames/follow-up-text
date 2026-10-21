@@ -276,12 +276,15 @@ export function kindSlug({ preferred, referral = false } = {}) {
   return "qualified-lead";
 }
 
-// The two labels the Leads page shows in the gray facts, before a track is
-// assigned. A stored new-lead slug is the old fall-through, not a third option.
+// Titles shown for a sequence slug. Slugs stay put so a running series and the
+// router keep working when the staff-facing name changes.
 export function describeTrackKind(slug) {
   if (!slug) return null;
-  if (slug === "referral") return "Referral";
-  if (slug === "qualified-lead" || slug === "new-lead") return "Qualified lead";
+  if (slug === "referral" || slug === "qualified-lead-copy") return "Web Referral";
+  if (slug === "qualified-lead") return "Web Qualified";
+  if (slug === "new-lead") return "Missed Call";
+  if (slug === "more-info" || slug === "more_info") return "More Info";
+  if (slug === "contract" || slug === "contract-follow-up" || slug === "contract-followup") return "Contract";
   return null;
 }
 

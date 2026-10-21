@@ -898,7 +898,7 @@ export default function SequenceEditorPage() {
               <span>
                 <strong>Offer this sequence to the lead router</strong>
                 <small>
-                  This is the switch that makes Qualified vs Referral a track. The router
+                  This is the switch that makes Web Qualified vs Web Referral a track. The router
                   still assigns forms here even when the sequence is switched off — Sequence
                   is on (above) only holds sending. The name and description above are what
                   the classifier reads. A form marked Referral or Referal is parsed in code
