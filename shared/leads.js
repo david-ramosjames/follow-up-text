@@ -196,7 +196,11 @@ export function languageFromCallPost(text) {
 }
 
 // Missed and Sona texts only start for inbound calls to the public lead lines.
-const LEAD_CALL_LINE = /^(leads?|rgv(?:\s+number)?|intake(?:\s+line)?)\b/i;
+const LEAD_CALL_LINE = /^(leads?|rgv(?:\s+number)?|intake(?:\s+line)?|website(?:\s+pool)?)\b/i;
+
+export function isQuoRouterLeadCall(text) {
+  return /(?:qualified\s+)?lead call|lead\s*·\s*outside practice/i.test(String(text ?? ""));
+}
 
 export function calledLineFromCallPost(text, numbers = []) {
   const toRaw = String(text ?? "").match(/to:\s*([^\n]+)/i)?.[1] ?? "";

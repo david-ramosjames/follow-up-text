@@ -19,12 +19,12 @@ import {
   quoRouterCallIsOngoing,
   calledLineFromCallPost,
   isLeadIntakeCallLine,
+  isQuoRouterLeadCall,
 } from "../../shared/leads.js";
 import { parseStartArgs } from "../../shared/startArgs.js";
 import { formatSlackMentions } from "../../shared/slackMentions.js";
 import { one, rows, rpc } from "../db.js";
 import { assessLeadPost } from "../lib/leads.js";
-import { isExistingLeadContact, lookupLead } from "../lib/leadDecision.js";
 import { previewFirstText } from "../lib/previewText.js";
 import { loadSettings } from "../lib/settings.js";
 import {
@@ -878,12 +878,12 @@ async function handleQuoRouterCallPost(event, { text, call, mode, log, settings 
   }
 
   const called = calledLineFromCallPost(text, numbers);
-  if (!isLeadIntakeCallLine(called.label)) {
-    log(`skipped — ${kindLabel}, ${called.label || "that line"} is not Leads, RGV, or Intake`);
+  if (!isLeadIntakeCallLine(called.label) && !isQuoRouterLeadCall(text)) {
+    log(`skipped — ${kindLabel}, ${called.label || "that line"} is not a lead line`);
     await recordObservation({
       ...base,
       outcome: "not_a_lead",
-      outcomeDetail: `${kindLabel} — not a call to Leads, RGV, or Intake.`,
+      outcomeDetail: `${kindLabel} — not a call to Leads, RGV, Intake, or Website Pool.`,
     });
     return { ignored: "other_line" };
   }
@@ -918,22 +918,6 @@ async function handleQuoRouterCallPost(event, { text, call, mode, log, settings 
       outcome: "not_a_lead",
       outcomeDetail: `${kindLabel} — not the first contact.`,
       enrollmentId: prior.enrollment_id ?? null,
-    });
-    return { ignored: "ongoing_conversation" };
-  }
-
-  let knownLead = null;
-  try {
-    knownLead = await lookupLead(phone);
-  } catch (error) {
-    console.error("Could not read the lead for a call start", error);
-  }
-  if (isExistingLeadContact(knownLead)) {
-    log(`skipped — ${kindLabel}, lead already on file`);
-    await recordObservation({
-      ...base,
-      outcome: "not_a_lead",
-      outcomeDetail: `${kindLabel} — not the first contact.`,
     });
     return { ignored: "ongoing_conversation" };
   }
