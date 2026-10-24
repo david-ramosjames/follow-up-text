@@ -39,6 +39,7 @@ import {
   retireStartCard,
   findActiveEnrollmentByPhone,
   findPriorConversation,
+  resolveSlackDefaultSequence,
   startSeries,
   stopSeries,
 } from "../lib/followups.js";
@@ -357,6 +358,7 @@ async function openStartModal({ triggerId, userId, channelId, threadTs, sourceTe
     view: startModal({
       sequences,
       ...(await sendingOptions()),
+      defaultSlug: (await resolveSlackDefaultSequence()).slug,
       context: { channel_id: channelId ?? "", thread_ts: threadTs ?? "" },
       invokingUserId: userId,
       prefill: {
@@ -832,7 +834,7 @@ async function handleQuoRouterCallPost(event, { text, call, mode, log, settings 
   const phone = clientPhoneFromCallPost(text, numbers.map((row) => row.phone_e164));
   const firstName = firstNameFromCallPost(text);
   const language = languageFromCallPost(text);
-  const sequenceSlug = "new-lead";
+  const sequenceSlug = (await resolveSlackDefaultSequence()).slug;
   const leadSource = call.kind === "sona" ? "sona" : "missed_call";
   const kindLabel = call.kind === "sona" ? "Sona call" : "Missed call";
 
@@ -937,7 +939,7 @@ async function handleQuoRouterCallPost(event, { text, call, mode, log, settings 
   }
 
   if (mode !== "live") {
-    log(`recorded ${kindLabel} — would start new-lead`);
+    log(`recorded ${kindLabel} — would start ${sequenceSlug}`);
     await recordObservation({
       ...base,
       outcome: "preview_only",
@@ -989,7 +991,7 @@ async function handleQuoRouterCallPost(event, { text, call, mode, log, settings 
     return { ignored: result?.reason ?? "enroll_failed" };
   }
 
-  log(`started ${kindLabel} on new-lead`);
+  log(`started ${kindLabel} on ${sequenceSlug}`);
   await recordObservation({ ...base, outcome: "started", enrollmentId: result.enrollment_id });
   await announceEnrollment(result, {
     channel: event.channel,
@@ -1226,6 +1228,7 @@ async function handleMessageShortcut(payload, res) {
     view: startModal({
       sequences,
       ...(await sendingOptions()),
+      defaultSlug: (await resolveSlackDefaultSequence()).slug,
       // Anchor to the thread the message belongs to; a top-level message becomes
       // the start of its own thread.
       context: {

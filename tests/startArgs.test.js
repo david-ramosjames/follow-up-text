@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { parseStartArgs } from "../shared/startArgs.js";
+import { parseStartArgs, slackDefaultSequenceSlug } from "../shared/startArgs.js";
 
 const numbers = [
   { id: "PNINTAKE", phone_e164: "+15125557777", label: "Intake line" },
@@ -52,4 +52,17 @@ test("an unmatched from is not treated as a first name", () => {
   assert.equal(parsed.quoNumberId, undefined);
   assert.equal(parsed.fromUnmatched, "nope");
   assert.equal(parsed.firstName, "Maria");
+});
+
+test("Slack starts use the sequence chosen under Settings", () => {
+  const sequences = [
+    { slug: "new-lead", name: "New lead follow-up", is_default: true },
+    { slug: "qualified-lead", name: "Qualified lead" },
+  ];
+  assert.equal(slackDefaultSequenceSlug({ slack_default_sequence_slug: "qualified-lead" }, sequences), "qualified-lead");
+  assert.equal(slackDefaultSequenceSlug({}, sequences), "new-lead");
+  assert.equal(
+    slackDefaultSequenceSlug({ slack_default_sequence_slug: "gone" }, sequences),
+    "new-lead",
+  );
 });

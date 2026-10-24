@@ -70,3 +70,13 @@ export function parseStartArgs(tokens, { sequenceSlugs = [], sendingNumbers = []
   if (nameParts.length) parsed.firstName = nameParts.join(" ");
   return parsed;
 }
+
+export function slackDefaultSequenceSlug(settings, sequences = []) {
+  const wanted = String(settings?.slack_default_sequence_slug ?? "").trim() || "new-lead";
+  const list = Array.isArray(sequences) ? sequences : [];
+  if (list.some((sequence) => sequence.slug === wanted)) return wanted;
+  if (list.some((sequence) => sequence.slug === "new-lead")) return "new-lead";
+  return list.find((sequence) => sequence.is_default)?.slug
+    ?? list[0]?.slug
+    ?? wanted;
+}

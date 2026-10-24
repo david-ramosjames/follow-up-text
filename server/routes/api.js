@@ -4,7 +4,7 @@ import { uniqueCopyIdentity } from "../../shared/sequences.js";
 import { parseCaseTypePhrases } from "../../shared/messaging.js";
 import { googleConfigured, requireSession, slackSignInConfigured, accessibleFirmIds, sessionCanUseFirm, sessionSeesAllFirms } from "../auth.js";
 import { listQuoNumbers, quoConfigured, syncQuoNumbers } from "../lib/quo.js";
-import { loadSettings, SETTING_DEFINITIONS, saveSettings } from "../lib/settings.js";
+import { loadSettings, SETTING_DEFINITIONS, saveSettings, settingsDefinitions } from "../lib/settings.js";
 import { announceEnrollment, announceStop, startSeries, stopSeries } from "../lib/followups.js";
 import { llmDescription, routableSequences, translateToSpanish } from "../lib/leads.js";
 import { previewFirstText } from "../lib/previewText.js";
@@ -1052,7 +1052,7 @@ apiRouter.post("/translate", ok(async (req, res) => {
 
 apiRouter.get("/settings", ok(async (req, res) => {
   res.json({
-    definitions: SETTING_DEFINITIONS,
+    definitions: await settingsDefinitions(),
     values: await loadSettings({ fresh: true }),
     numbers: await listQuoNumbers(),
     firm: publicFirm(req.firm),

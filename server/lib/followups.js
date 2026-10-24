@@ -3,7 +3,7 @@ import { assigneeMentionSuffix, formatSlackMentions, parseSlackUserIds } from ".
 import { displayPhone, enrollmentBlocks, postToThread, slackApi } from "./slack.js";
 import { formatPhone, normalizePhone } from "../../shared/messaging.js";
 import { currentFirm } from "./firms.js";
-import { loadSettings } from "./settings.js";
+import { loadSettings, slackDefaultSequenceSlug } from "./settings.js";
 import { mirrorTextSequence } from "./leadMirror.js";
 
 export async function loadOperator(slackUserId) {
@@ -112,18 +112,35 @@ export async function findPriorConversation(phone) {
   return null;
 }
 
+export async function resolveSlackDefaultSequence() {
+  const [settings, sequences] = await Promise.all([loadSettings(), activeSequences()]);
+  const slug = slackDefaultSequenceSlug(settings, sequences);
+  return {
+    slug,
+    sequence: sequences.find((sequence) => sequence.slug === slug) ?? null,
+    sequences,
+    settings,
+  };
+}
+
 export async function startSeries(payload) {
   const { leadAllowsTexts } = await import("./leadDecision.js");
+  const fromSlack = payload?.source !== "lead" || Boolean(payload?.callStart);
+  let sequenceSlug = payload?.sequence_slug ?? null;
+  if (fromSlack && !sequenceSlug) {
+    sequenceSlug = (await resolveSlackDefaultSequence()).slug;
+  }
   const decision = await leadAllowsTexts(payload?.phone, {
-    manual: payload?.source !== "lead" || Boolean(payload?.callStart),
-    sequenceSlug: payload?.sequence_slug ?? null,
+    manual: fromSlack,
+    sequenceSlug,
   });
   if (!decision.allow) {
     return { ok: false, reason: `lead_decision:${decision.reason}` };
   }
-  const enrollment = decision.sequenceSlug
-    ? { ...payload, sequence_slug: decision.sequenceSlug }
-    : payload;
+  const enrollment = {
+    ...payload,
+    sequence_slug: decision.sequenceSlug || sequenceSlug || payload?.sequence_slug || null,
+  };
   const result = await rpc("followup_enroll", { ...enrollment, firm_id: enrollment.firm_id ?? currentFirm()?.id ?? null });
   const phone = result?.phone || payload?.phone;
   if (result?.ok && phone) {

@@ -363,12 +363,17 @@ export function shortCallReviewBlocks({
 
 // The start form. `context` carries the channel and thread this was launched
 // from, so the confirmation and every later update go back to the same place.
-export function startModal({ sequences, numbers = [], secondaryNumberId = null, context, invokingUserId, prefill = {} }) {
+export function startModal({ sequences, numbers = [], secondaryNumberId = null, context, invokingUserId, prefill = {}, defaultSlug = null }) {
   const options = sequences.map((sequence) => ({
     text: { type: "plain_text", text: sequence.name.slice(0, 75) },
     value: sequence.slug,
   }));
-  const defaultIndex = sequences.findIndex((sequence) => sequence.is_default);
+  const preferred = defaultSlug
+    ? options.findIndex((option) => option.value === defaultSlug)
+    : -1;
+  const defaultIndex = preferred >= 0
+    ? preferred
+    : sequences.findIndex((sequence) => sequence.is_default);
   const initialSequence = options[defaultIndex >= 0 ? defaultIndex : 0];
 
   const languageOption = (value) => ({

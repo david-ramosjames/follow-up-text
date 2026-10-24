@@ -62,6 +62,15 @@ export const SETTING_DEFINITIONS = [
       + "whoever owns the series.",
   },
   {
+    key: "slack_default_sequence_slug",
+    label: "Default Slack sequence",
+    type: "sequence",
+    default: "new-lead",
+    help: "Used when a Slack start does not name a sequence — @mention, /followup, "
+      + "the ⋯ form, and first-contact missed or Sona calls. Form fills still pick "
+      + "a track from the post.",
+  },
+  {
     key: "send_stop_confirmation",
     label: "Send our own STOP confirmation",
     type: "boolean",
@@ -190,6 +199,28 @@ async function settingsFirmId() {
   return currentFirm()?.id ?? (await defaultFirm())?.id ?? null;
 }
 
+export async function settingsDefinitions() {
+  const id = await settingsFirmId();
+  const sequences = id
+    ? await rows(
+      `select slug, name, is_active from followup_sequences
+       where firm_id = $1 order by is_active desc, name`,
+      [id],
+    )
+    : [];
+  return SETTING_DEFINITIONS.map((definition) => {
+    if (definition.type !== "sequence") return definition;
+    return {
+      ...definition,
+      type: "select",
+      options: sequences.map((sequence) => ({
+        value: sequence.slug,
+        label: sequence.is_active ? sequence.name : `${sequence.name} (off)`,
+      })),
+    };
+  });
+}
+
 export async function loadSettings({ fresh = false } = {}) {
   const id = await settingsFirmId();
   const cacheKey = id ?? "none";
@@ -240,10 +271,16 @@ function coerce(definition, raw) {
     }
     case "quo_number":
       return raw ? String(raw) : null;
+    case "sequence": {
+      const value = String(raw ?? "").trim();
+      return value || "new-lead";
+    }
     default:
       return raw === null || raw === undefined ? "" : String(raw);
   }
 }
+
+export { slackDefaultSequenceSlug } from "../../shared/startArgs.js";
 
 export async function saveSettings(values, actor) {
   const id = await settingsFirmId();

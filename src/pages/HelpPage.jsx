@@ -9,7 +9,7 @@ const FAQ = [
       "Three ways, all in Slack. From any message — hover it, open the ⋯ menu, choose “Start follow-up texts”. The client's number is read out of the message and the form opens with it filled in.",
       "Inside a thread — “@sms-follow-up start 512-555-0123 es Maria”. If the number is already in the message that started the thread, you can leave it out.",
       "Or the slash command — “/followup” on its own opens the form, and “/followup start 512-555-0123” skips it.",
-      "If Intake Manager has “needs more info”, Lost, or follow-up off — a missed call, a dead lead, no case type yet — a manual start still goes. It uses Missed Call unless you name another sequence. Automatic starts from the lead channel keep waiting. A signed case, or a lead marked stop, still will not start from Slack.",
+      "If Intake Manager has “needs more info”, Lost, or follow-up off — a missed call, a dead lead, no case type yet — a manual start still goes. It uses the Default Slack sequence under Settings unless you name another sequence. Automatic starts from the lead channel keep waiting. A signed case, or a lead marked stop, still will not start from Slack.",
     ],
   },
   {
@@ -27,7 +27,7 @@ const FAQ = [
       "The app then reads that one channel — and only that one — and for each new post: flattens it, finds the phone number and email in code, asks the model which of your sequences fits and in which language, starts the series, and posts one confirmation into that lead's Slack thread: sequence, language, when the first text goes, a Stop button, and a Wrong track menu. It does not @-mention the default owner — that ping on every form fill is noise. Stop notices and short-call reviews stay quiet the same way unless you turn on Tag assigned people in Slack.",
       "The phone number is never left to the model. It is read by the same parser the Slack shorthand uses, and a post without a usable one is not acted on — being wrong about a number means texting a stranger. Being wrong about a track is visible in the thread, and one click moves them before the second text goes out. A website, ads, or chat form with a number still starts even if they asked about divorce, custody, or something this firm may not take — they asked to be contacted. A post already recorded as not a lead is not restarted; use the Slack ⋯ menu on that message.",
       "A parent post marked 📝 Contract path is different: do not text off that post alone. Wait a few minutes for a thread (or matching) reply 📝 Contract sent to be signed. If that reply arrives, Sign Flow owns reminders and this app does not send the abandoned series. If it never arrives, treat it as abandoned on the contract path and start the usual texts. “More details they added” replies are ignored for timing.",
-      "Missed calls and Sona-handled calls that Quo Router posts into the lead channel also start Missed Call — but only on the first contact to the Leads, RGV, or Intake lines, so that first reply is fast. A call to another firm line, a return call, a closed-client ping, or a number that already has a series or texts is left alone. A human-handled lead call is left alone.",
+      "Missed calls and Sona-handled calls that Quo Router posts into the lead channel also start the Default Slack sequence under Settings — but only on the first contact to the Leads, RGV, or Intake lines, so that first reply is fast. A call to another firm line, a return call, a closed-client ping, or a number that already has a series or texts is left alone. A human-handled lead call is left alone.",
       "The tracks are simply your active sequences. Claude chooses among them by short name and reads the name and description you wrote, so adding a track is something you do on the Sequences page — there is no list in the code to keep in step. A short name it invents is discarded rather than used.",
       "A routing key is what pays for the classification — OPENAI_API_KEY or ANTHROPIC_API_KEY, whichever you set. Without one, leads still start on the default sequence and the Leads page and the thread say why, so a missing key degrades the service rather than silencing it. The Leads page shows which provider and model is doing the routing.",
     ],
@@ -267,7 +267,7 @@ const COMMAND_PARTS = [
   [
     "The sequence",
     "no-contact — the short name shown under each one on the Sequences page",
-    "Optional. Leave it out and the default sequence is used.",
+    "Optional. Leave it out and Settings → Default Slack sequence is used.",
   ],
   [
     "Which Quo number",
