@@ -623,6 +623,41 @@ apiRouter.post("/intake/enroll", async (req, res) => {
   }
 });
 
+// Intake Manager stops every live series for a number. One lead can have more
+// than one enrollment, and Stop SMS means all of them.
+apiRouter.post("/intake/stop", async (req, res) => {
+  const expected = process.env.INTAKE_ENROLL_TOKEN || "";
+  const header = req.get("authorization") || "";
+  if (!expected || header !== `Bearer ${expected}`) {
+    return res.status(401).json({ ok: false, reason: "unauthorized" });
+  }
+  try {
+    const firm = await defaultFirm();
+    if (!firm) return res.status(500).json({ ok: false, reason: "no_firm" });
+    const phone = req.body?.phone;
+    const actor = String(req.body?.actor || "intake-manager");
+    const result = await runWithFirm(firm, async () => {
+      let stopped = 0;
+      let last = null;
+      for (let i = 0; i < 10; i += 1) {
+        const step = await stopSeries({ phone, actor, reason: "manual" });
+        if (!step?.ok) {
+          if (stopped === 0) return step ?? { ok: false, reason: "unknown" };
+          break;
+        }
+        stopped += 1;
+        last = step;
+        await announceStop(step, actor).catch((error) => console.error("intake stop announce failed", error));
+      }
+      return { ok: true, stopped, phone: last?.phone ?? phone };
+    });
+    return res.status(result?.ok ? 200 : 400).json(result ?? { ok: false, reason: "unknown" });
+  } catch (error) {
+    console.error("intake stop failed", error);
+    return res.status(500).json({ ok: false, reason: "error" });
+  }
+});
+
 /* ------------------------------------------------------------- enrollments */
 
 apiRouter.get("/enrollments", ok(async (req, res) => {

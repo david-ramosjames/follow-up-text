@@ -40,6 +40,33 @@ test("signed cases and an explicit stop stay blocked even from Slack", () => {
   assert.equal(decideLeadTexts({ sequence: "stop" }, { manual: true }).allow, false);
 });
 
+test("a manual more-info start is not replaced by the contract sequence", () => {
+  assert.deepEqual(
+    decideLeadTexts(
+      { sequence: "want_to_sign" },
+      { manual: true, sequenceSlug: "more-info" },
+    ),
+    { allow: true, reason: "named_sequence", sequenceSlug: "more-info" },
+  );
+});
+
+test("a manual missed-call start is not replaced by web qualified", () => {
+  assert.deepEqual(
+    decideLeadTexts(
+      { sequence: "want_to_sign", follow_up: true },
+      { manual: true, sequenceSlug: "new-lead" },
+    ),
+    { allow: true, reason: "named_sequence", sequenceSlug: "new-lead" },
+  );
+});
+
+test("automatic contract follow-up still uses web qualified", () => {
+  assert.deepEqual(
+    decideLeadTexts({ sequence: "want_to_sign" }),
+    { allow: true, reason: "want_to_sign", sequenceSlug: "qualified-lead" },
+  );
+});
+
 test("automatic intake still skips a Lost lead", () => {
   assert.deepEqual(
     decideLeadTexts({ lead_status: "Lost" }),

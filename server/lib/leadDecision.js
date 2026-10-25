@@ -59,6 +59,9 @@ export function decideLeadTexts(lead, { manual = false, sequenceSlug = null } = 
     if (manual) return manualFallback("follow_up_off_manual", sequenceSlug);
     return { allow: false, reason: "follow_up_off" };
   }
+  // A person who named a sequence is choosing that track. The call cadence
+  // (contract follow-up, referral) must not swap it for Web Qualified.
+  if (manual && sequenceSlug) return { allow: true, reason: "named_sequence", sequenceSlug };
   if (lead.sequence === "referral") return { allow: true, reason: "referral", sequenceSlug: "referral" };
   if (lead.sequence === "want_to_sign") {
     return { allow: true, reason: "want_to_sign", sequenceSlug: "qualified-lead" };
