@@ -882,7 +882,7 @@ async function handleQuoRouterCallPost(event, { text, call, mode, log, settings 
     log(`skipped — ${kindLabel}, ${called.label || "that line"} is not a lead line`);
     await recordObservation({
       ...base,
-      outcome: "not_a_lead",
+      outcome: "enroll_failed",
       outcomeDetail: `${kindLabel} — not a call to Leads, RGV, Intake, or Website Pool.`,
     });
     return { ignored: "other_line" };
@@ -892,8 +892,8 @@ async function handleQuoRouterCallPost(event, { text, call, mode, log, settings 
     log(`skipped — ${kindLabel}, already in a conversation`);
     await recordObservation({
       ...base,
-      outcome: "not_a_lead",
-      outcomeDetail: `${kindLabel} — not the first contact.`,
+      outcome: "enroll_failed",
+      outcomeDetail: `${kindLabel} — already in a conversation.`,
     });
     return { ignored: "ongoing_conversation" };
   }
@@ -915,8 +915,8 @@ async function handleQuoRouterCallPost(event, { text, call, mode, log, settings 
     log(`skipped — ${kindLabel}, already in a conversation`);
     await recordObservation({
       ...base,
-      outcome: "not_a_lead",
-      outcomeDetail: `${kindLabel} — not the first contact.`,
+      outcome: "enroll_failed",
+      outcomeDetail: `${kindLabel} — already has texts.`,
       enrollmentId: prior.enrollment_id ?? null,
     });
     return { ignored: "ongoing_conversation" };

@@ -88,13 +88,14 @@ export async function findActiveEnrollmentByPhone(phone) {
   );
 }
 
-// A missed or Sona call should only open texts on the first contact. A number
-// that already has a series, or any texts in or out, is already in a thread.
+// A missed or Sona call should only open texts on the first contact. Quo
+// records this same call as inbound before Slack posts, so last_inbound_at
+// alone is not a thread — only a series or actual texts are.
 export async function findPriorConversation(phone) {
   const e164 = normalizePhone(phone);
   if (!e164) return null;
   const row = await one(
-    `select c.id, c.last_inbound_at, c.last_outbound_at,
+    `select c.id, c.last_outbound_at,
             (select e.id from followup_enrollments e
               where e.contact_id = c.id
               order by e.started_at desc
@@ -106,7 +107,7 @@ export async function findPriorConversation(phone) {
     [e164, currentFirm()?.id ?? null],
   );
   if (!row) return null;
-  if (row.enrollment_id || row.has_messages || row.last_inbound_at || row.last_outbound_at) {
+  if (row.enrollment_id || row.has_messages || row.last_outbound_at) {
     return row;
   }
   return null;

@@ -37,6 +37,24 @@ const OUTCOMES = {
   classifier_failed: { label: "Routing failed", tone: "stopped_manual" },
 };
 
+function observationOutcome(item) {
+  const call = item.lead_source === "sona" || item.lead_source === "missed_call";
+  if (call && (item.outcome === "not_a_lead" || item.outcome === "enroll_failed")) {
+    const detail = String(item.outcome_detail ?? "");
+    if (/already has a series/i.test(detail)) {
+      return { label: "Already on a series", tone: "off" };
+    }
+    if (/not the first contact|already in a conversation/i.test(detail)) {
+      return { label: "Already has texts", tone: "off" };
+    }
+    if (/not a call to/i.test(detail)) {
+      return { label: "Other firm line", tone: "off" };
+    }
+    return { label: detail || "Call not started", tone: "off" };
+  }
+  return OUTCOMES[item.outcome] ?? { label: item.outcome, tone: "off" };
+}
+
 function classifierKind(item) {
   if (item.lead_source === "sona") return "Sona call";
   if (item.lead_source === "missed_call") return "Missed call";
@@ -121,7 +139,7 @@ function Observation({ item, tracks, onUpdate }) {
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const outcome = OUTCOMES[item.outcome] ?? { label: item.outcome, tone: "off" };
+  const outcome = observationOutcome(item);
   const acted = item.outcome === "started" || item.outcome === "preview_only" || item.outcome === "waiting_contract";
   const showSchedule = item.outcome === "started" || item.outcome === "preview_only";
 
