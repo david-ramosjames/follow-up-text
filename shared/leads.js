@@ -191,8 +191,41 @@ export function firstNameFromCallPost(text) {
   return name.split(/\s+/)[0] || null;
 }
 
+// Sona writes the Slack summary in English even when the caller spoke Spanish.
+// An explicit "spoke Spanish" note or Language: line is a real signal. The
+// English word "Spanish" inside a summary is not. CallRail does not label
+// language on these posts.
 export function languageFromCallPost(text) {
-  return /\b(español|spanish|language:\s*es)\b/i.test(String(text ?? "")) ? "es" : "en";
+  const body = String(text ?? "");
+  const labeled = body.match(/\blanguage:\s*([^\n]+)/i)?.[1] ?? "";
+  if (/\b(spanish|español|espanol)\b/i.test(labeled) || /^\s*es\b/i.test(labeled)) return "es";
+  if (/\b(english|inglés|ingles)\b/i.test(labeled) || /^\s*en\b/i.test(labeled)) return "en";
+  if (/\b(spoke|speaking|spoken)\s+(in\s+)?spanish\b|\bin spanish\b/i.test(body)) return "es";
+  if (/🌐\s*translation:/i.test(body)) return "es";
+  return "en";
+}
+
+export function callIdFromCallPost(text) {
+  return String(text ?? "").match(/\b(AC[a-zA-Z0-9]{12,})\b/)?.[1] ?? null;
+}
+
+const SPANISH_CUES = [
+  "hola", "gracias", "por favor", "buenos", "buenas", "días", "tardes", "noches",
+  "cómo", "está", "estoy", "llamar", "llamando", "accidente", "abogado", "número",
+  "necesito", "ayuda", "puede", "quiero", "tiene", "cuando", "donde", "porque",
+  "también", "pero", "usted", "nosotros", "ellos", "mensaje", "teléfono",
+  "oficina", "caso", "español",
+];
+
+// What they actually said on the call, not the English Sona write-up. A couple
+// of IVR words ("para español") are not enough — a Spanish conversation is.
+export function languageFromSpokenText(text) {
+  const lower = String(text ?? "").toLowerCase();
+  if (!lower.trim()) return null;
+  const cues = SPANISH_CUES.filter((word) => lower.includes(word)).length;
+  const marks = (lower.match(/[áéíóúñ¿¡ü]/g) || []).length;
+  if (cues >= 4 || (cues >= 2 && marks >= 3)) return "es";
+  return "en";
 }
 
 // Missed and Sona texts only start for inbound calls to the public lead lines.

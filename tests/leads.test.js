@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { flattenSlackMessage, readLead, historyMessageToEvent, describeSlackHistoryError, isOutboundReferral, pickTrackSlug, describeTrackKind, kindSlug, normalizeCaseType, buildClassificationUserPrompt, looksLikeIntakeForm, formFillIsALead, isContractPath, isContractSent, isMoreDetailsReply, isIntakeEngineLanding, pickWaitingParent, CONTRACT_PATH_WAIT_SECONDS, readQuoRouterCall, isHumanHandledCall, clientPhoneFromCallPost, firstNameFromCallPost, languageFromCallPost, quoRouterCallIsOngoing, calledLineFromCallPost, isLeadIntakeCallLine, isQuoRouterLeadCall } from "../shared/leads.js";
+import { flattenSlackMessage, readLead, historyMessageToEvent, describeSlackHistoryError, isOutboundReferral, pickTrackSlug, describeTrackKind, kindSlug, normalizeCaseType, buildClassificationUserPrompt, looksLikeIntakeForm, formFillIsALead, isContractPath, isContractSent, isMoreDetailsReply, isIntakeEngineLanding, pickWaitingParent, CONTRACT_PATH_WAIT_SECONDS, readQuoRouterCall, isHumanHandledCall, clientPhoneFromCallPost, firstNameFromCallPost, languageFromCallPost, callIdFromCallPost, languageFromSpokenText, quoRouterCallIsOngoing, calledLineFromCallPost, isLeadIntakeCallLine, isQuoRouterLeadCall } from "../shared/leads.js";
 
 // The four shapes actually posting into the lead channel. Kept verbatim rather
 // than tidied, because the point of these tests is that real posts parse — a
@@ -327,6 +327,21 @@ test("the client number is the From line, not a firm Quo line", () => {
   assert.equal(firstNameFromCallPost(SONA_LEAD), "Wizard");
   assert.equal(firstNameFromCallPost(MISSED_CALL), null);
   assert.equal(languageFromCallPost("Language: Spanish\nFrom: Ana +15125550100"), "es");
+  assert.equal(languageFromCallPost(SONA_THREAD), "en");
+  assert.equal(
+    languageFromCallPost("🤖 *Sona Call Completed*\nSummary:\n• Caller asked about a Spanish-speaking doctor"),
+    "en",
+  );
+  assert.equal(callIdFromCallPost("View in Quo (https://my.quo.com/inbox?call=ACea724hac8c30465bcbcff0b76e4c1c7b)"), "ACea724hac8c30465bcbcff0b76e4c1c7b");
+  assert.equal(languageFromSpokenText(""), null);
+  assert.equal(
+    languageFromSpokenText("Caller reported a car accident and asked to speak with an attorney."),
+    "en",
+  );
+  assert.equal(
+    languageFromSpokenText("Hola, necesito ayuda, tuve un accidente y quiero un abogado por favor."),
+    "es",
+  );
 });
 
 test("an outbound Sona post uses the To number when From is the firm line", () => {

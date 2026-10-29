@@ -80,6 +80,25 @@ export async function syncQuoNumbers() {
   return listQuoNumbers();
 }
 
+// Sona's Slack summary is always English. The transcript is what they said.
+export async function fetchCallTranscript(callId) {
+  const id = String(callId ?? "").trim();
+  if (!id || !quoApiKey()) return null;
+  try {
+    const { response, parsed } = await quoFetch(`/call-transcripts/${encodeURIComponent(id)}`);
+    if (!response.ok) return null;
+    const data = parsed?.data ?? parsed;
+    const dialogue = data?.dialogue ?? data?.segments ?? [];
+    if (!Array.isArray(dialogue) || !dialogue.length) return null;
+    const lines = dialogue
+      .map((seg) => String(seg?.content ?? seg?.text ?? "").trim())
+      .filter(Boolean);
+    return lines.join("\n") || null;
+  } catch {
+    return null;
+  }
+}
+
 export async function listQuoNumbers() {
   const id = currentFirm()?.id;
   if (!id) return [];

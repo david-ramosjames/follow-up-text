@@ -16,6 +16,8 @@ import {
   clientPhoneFromCallPost,
   firstNameFromCallPost,
   languageFromCallPost,
+  callIdFromCallPost,
+  languageFromSpokenText,
   quoRouterCallIsOngoing,
   calledLineFromCallPost,
   isLeadIntakeCallLine,
@@ -43,7 +45,7 @@ import {
   startSeries,
   stopSeries,
 } from "../lib/followups.js";
-import { listQuoNumbers } from "../lib/quo.js";
+import { fetchCallTranscript, listQuoNumbers } from "../lib/quo.js";
 import { currentFirm, runWithFirm, slackAppId, slackBotToken } from "../lib/firms.js";
 import {
   applyContractSent,
@@ -825,6 +827,17 @@ export async function handleLeadPost(event) {
   return { started: true, enrollment_id: result.enrollment_id };
 }
 
+// Sona's Slack card is an English summary. Language is what they said on the
+// call, from the Quo transcript. CallRail does not put language on the post.
+async function languageForCallPost(_event, text, call) {
+  const labeled = languageFromCallPost(text);
+  if (call?.kind !== "sona") return labeled;
+  const callId = callIdFromCallPost(text);
+  if (!callId) return labeled;
+  const spoken = languageFromSpokenText(await fetchCallTranscript(callId));
+  return spoken ?? labeled;
+}
+
 // Quo Router missed and Sona posts are not form fills, and Sona often arrives
 // as a thread reply under CallRail. Start New lead follow-up on the first
 // contact only — a return call or a number already in a conversation is left
@@ -833,7 +846,7 @@ async function handleQuoRouterCallPost(event, { text, call, mode, log, settings 
   const numbers = await listQuoNumbers();
   const phone = clientPhoneFromCallPost(text, numbers.map((row) => row.phone_e164));
   const firstName = firstNameFromCallPost(text);
-  const language = languageFromCallPost(text);
+  const language = await languageForCallPost(event, text, call);
   const sequenceSlug = (await resolveSlackDefaultSequence()).slug;
   const leadSource = call.kind === "sona" ? "sona" : "missed_call";
   const kindLabel = call.kind === "sona" ? "Sona call" : "Missed call";
