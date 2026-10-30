@@ -42,6 +42,12 @@ test("merge fields are filled from the contact", () => {
 
 test("a missing English name falls back to something sayable", () => {
   assert.equal(renderBody("Hi {{first_name}}, checking in.", {}), "Hi there, checking in.");
+  assert.equal(renderBody("Hi {{first_name}}, checking in.", { first_name: "N/A" }), "Hi there, checking in.");
+  assert.equal(renderBody("Hi {{first_name}}, checking in.", { first_name: "unknown" }), "Hi there, checking in.");
+  assert.equal(
+    renderBody("Hi {{first_name}}, checking in.", { first_name: "It's was my brother that got bie" }),
+    "Hi there, checking in.",
+  );
 });
 
 test("Other as a case type is said as case, not other", () => {

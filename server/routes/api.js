@@ -1,7 +1,7 @@
 import express from "express";
 import { one, query, rows, withTransaction } from "../db.js";
 import { uniqueCopyIdentity } from "../../shared/sequences.js";
-import { parseCaseTypePhrases } from "../../shared/messaging.js";
+import { normalizePhone, parseCaseTypePhrases } from "../../shared/messaging.js";
 import { googleConfigured, requireSession, slackSignInConfigured, accessibleFirmIds, sessionCanUseFirm, sessionSeesAllFirms } from "../auth.js";
 import { listQuoNumbers, quoConfigured, syncQuoNumbers } from "../lib/quo.js";
 import { loadSettings, SETTING_DEFINITIONS, saveSettings, settingsDefinitions } from "../lib/settings.js";
@@ -300,12 +300,14 @@ async function copySequence({ sourceId, sourceFirmId, destFirmId, slug, name, ke
       `insert into followup_sequences (
          firm_id, slug, name, description, is_active, is_default, quo_number_id, timezone,
          quiet_hours_start, quiet_hours_end, send_days, append_opt_out_notice,
-         respond_immediately, auto_routable, night_starts_hour, night_ends_hour
+         respond_immediately, auto_routable, night_starts_hour, night_ends_hour,
+         weekend_slack_alerts
        )
        select $1::uuid, $2, $3, description, false, false,
               case when $6::boolean then quo_number_id else null end,
               timezone, quiet_hours_start, quiet_hours_end, send_days, append_opt_out_notice,
-              respond_immediately, false, night_starts_hour, night_ends_hour
+              respond_immediately, false, night_starts_hour, night_ends_hour,
+              weekend_slack_alerts
        from followup_sequences
        where id = $4 and firm_id = $5
        returning id`,
@@ -419,6 +421,7 @@ const SEQUENCE_FIELDS = [
   "name", "description", "is_active", "quo_number_id", "timezone",
   "quiet_hours_start", "quiet_hours_end", "send_days", "append_opt_out_notice",
   "respond_immediately", "auto_routable", "night_starts_hour", "night_ends_hour",
+  "weekend_slack_alerts",
 ];
 
 apiRouter.patch("/sequences/:id", ok(async (req, res) => {
@@ -619,6 +622,59 @@ apiRouter.post("/intake/enroll", async (req, res) => {
     return res.status(result?.ok ? 200 : 400).json(result ?? { ok: false, reason: "unknown" });
   } catch (error) {
     console.error("intake enroll failed", error);
+    return res.status(500).json({ ok: false, reason: "error" });
+  }
+});
+
+// Intake Manager pushes a staff-edited name onto the Follow-Up contact so the
+// next text does not keep using the old form answer.
+apiRouter.post("/intake/contact", async (req, res) => {
+  const expected = process.env.INTAKE_ENROLL_TOKEN || "";
+  const header = req.get("authorization") || "";
+  if (!expected || header !== `Bearer ${expected}`) {
+    return res.status(401).json({ ok: false, reason: "unauthorized" });
+  }
+  try {
+    const firm = await defaultFirm();
+    if (!firm) return res.status(500).json({ ok: false, reason: "no_firm" });
+    const body = req.body ?? {};
+    const phone = String(body.phone || "").trim();
+    if (!phone) return res.status(400).json({ ok: false, reason: "invalid_phone" });
+    const result = await runWithFirm(firm, async () => {
+      const phoneE164 = normalizePhone(phone);
+      if (!phoneE164) return { ok: false, reason: "invalid_phone" };
+      const firstName = body.first_name === undefined
+        ? undefined
+        : (String(body.first_name || "").trim() || null);
+      const lastName = body.last_name === undefined
+        ? undefined
+        : (String(body.last_name || "").trim() || null);
+      if (firstName === undefined && lastName === undefined) {
+        return { ok: false, reason: "nothing_to_update" };
+      }
+      const updates = [];
+      const values = [firm.id, phoneE164];
+      if (firstName !== undefined) {
+        values.push(firstName);
+        updates.push(`first_name = $${values.length}`);
+      }
+      if (lastName !== undefined) {
+        values.push(lastName);
+        updates.push(`last_name = $${values.length}`);
+      }
+      const contact = await one(
+        `update followup_contacts
+         set ${updates.join(", ")}
+         where firm_id = $1 and phone_e164 = $2
+         returning id, phone_e164, first_name, last_name`,
+        values,
+      );
+      if (!contact) return { ok: false, reason: "not_found" };
+      return { ok: true, contact };
+    });
+    return res.status(result?.ok ? 200 : 400).json(result ?? { ok: false, reason: "unknown" });
+  } catch (error) {
+    console.error("intake contact update failed", error);
     return res.status(500).json({ ok: false, reason: "error" });
   }
 });

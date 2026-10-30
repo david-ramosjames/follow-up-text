@@ -10,6 +10,7 @@ import { retireStartCard } from "./followups.js";
 import { mirrorActiveSequences, mirrorTextSequence } from "./leadMirror.js";
 import { assigneeMentionSuffix } from "../../shared/slackMentions.js";
 import { displayPhone, postToThread } from "./slack.js";
+import { shouldPostSlackAlert } from "./slackAlerts.js";
 import { loadSettings } from "./settings.js";
 import { defaultFirm, loadFirm, runWithFirm } from "./firms.js";
 
@@ -76,8 +77,9 @@ async function sendOne(row, settings) {
   const who = row.first_name ? `${row.first_name} (${shown})` : shown;
 
   const ping = assigneeMentionSuffix(row.assigned_slack_user_id, settings.slack_tag_assignees);
+  const alertSlack = shouldPostSlackAlert(row);
 
-  if (!result.ok && recorded?.final) {
+  if (alertSlack && !result.ok && recorded?.final) {
     await postToThread({
       channel: row.slack_channel_id,
       threadTs: row.slack_thread_ts,
@@ -85,7 +87,7 @@ async function sendOne(row, settings) {
         + (ping ? `${ping.trim()} may want to try calling. ` : "")
         + `Last error: ${result.error}`,
     });
-  } else if (result.ok && recorded?.completed) {
+  } else if (alertSlack && result.ok && recorded?.completed) {
     await postToThread({
       channel: row.slack_channel_id,
       threadTs: row.slack_thread_ts,

@@ -25,6 +25,20 @@ export const MERGE_FIELDS = [
 // Website forms use "Other" as a dropdown. That is a file label, not spoken
 // English — "about your other" is nonsense. Blank it so the merge fallback
 // ("case" / "caso") fills in and the text says "your case".
+const PLACEHOLDER_NAME = /^(n\/a|n\.a\.?|na|none|unknown|no name)$/i;
+const SENTENCE_NAME =
+  /\b(it'?s|its|was|were|that|got|get|my|his|her|their|brother|sister|called|about|because|who|when|where|what)\b/i;
+
+/** N/A and form blurbs are not something to say in a text. */
+export function spokenName(value) {
+  const text = String(value ?? "").replace(/\s+/g, " ").trim();
+  if (!text || PLACEHOLDER_NAME.test(text)) return "";
+  if (text.length > 60 || /[.!?…]/.test(text) || SENTENCE_NAME.test(text)) return "";
+  const words = text.split(/\s+/);
+  if (words.length > 5) return "";
+  return text;
+}
+
 export function spokenCaseType(value) {
   const text = String(value ?? "").replace(/\s+/g, " ").trim();
   if (!text) return "";
@@ -34,10 +48,12 @@ export function spokenCaseType(value) {
 }
 
 export function renderBody(template, vars = {}, language = "en") {
+  const firstName = spokenName(vars.first_name);
+  const lastName = spokenName(vars.last_name);
   const values = {
-    first_name: (vars.first_name ?? "").trim(),
-    last_name: (vars.last_name ?? "").trim(),
-    full_name: (vars.full_name ?? [vars.first_name, vars.last_name].filter(Boolean).join(" ")).trim(),
+    first_name: firstName,
+    last_name: lastName,
+    full_name: spokenName(vars.full_name) || [firstName, lastName].filter(Boolean).join(" "),
     case_reference: (vars.case_reference ?? "").trim(),
     case_type: spokenCaseType(vars.case_type),
     assigned_user: (vars.assigned_user ?? "").trim(),

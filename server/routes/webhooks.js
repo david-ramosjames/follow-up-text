@@ -12,6 +12,7 @@ import { query, rpc } from "../db.js";
 import { readEvent, readPhone, resolveSendingNumber, sendText } from "../lib/quo.js";
 import { findActiveEnrollmentByPhone, retireStartCard } from "../lib/followups.js";
 import { mirrorTextSequence } from "../lib/leadMirror.js";
+import { sequenceAllowsSlackAlert, shouldPostSlackAlert } from "../lib/slackAlerts.js";
 import { displayPhone, postToThread, shortCallReviewBlocks } from "../lib/slack.js";
 import { loadSettings } from "../lib/settings.js";
 import { verifyWebhook } from "../lib/quo.js";
@@ -98,6 +99,10 @@ async function handleInboundMessage(object) {
   // has a live Stop button to offer.
   if (stoppedSomething) await retireStartCard(result.stopped.enrollment_id);
 
+  const alertSlack = await sequenceAllowsSlackAlert(
+    result.enrollment_id || result.stopped?.enrollment_id,
+  );
+
   if (result.action === "opt_out") {
     // Carriers registered for A2P 10DLC usually auto-reply to STOP themselves. A
     // duplicate confirmation is noise; a missing one is a compliance problem, so
@@ -105,13 +110,15 @@ async function handleInboundMessage(object) {
     if (settings.send_stop_confirmation) await confirm(STOP_CONFIRMATION[language]);
     if (!stoppedSomething) return { action: "opt_out", stopped: false, announced: false };
 
-    await postToThread({
-      channel: result.slack_channel_id,
-      threadTs: result.slack_thread_ts,
-      text: `:no_entry: ${who} texted STOP — follow-ups stopped ${textsPhrase}. `
-        + `They are also unsubscribed from every sequence.${assigned}`,
-    });
-    return { action: "opt_out", stopped: true, announced: true };
+    if (alertSlack) {
+      await postToThread({
+        channel: result.slack_channel_id,
+        threadTs: result.slack_thread_ts,
+        text: `:no_entry: ${who} texted STOP — follow-ups stopped ${textsPhrase}. `
+          + `They are also unsubscribed from every sequence.${assigned}`,
+      });
+    }
+    return { action: "opt_out", stopped: true, announced: alertSlack };
   }
 
   if (result.action === "opt_in") {
@@ -127,22 +134,24 @@ async function handleInboundMessage(object) {
   // up under Activity.
   if (!stoppedSomething) return { action: "reply", stopped: false, announced: false };
 
-  await postToThread({
-    channel: result.slack_channel_id,
-    threadTs: result.slack_thread_ts,
-    text: `:tada: ${who} replied — follow-ups stopped.${assigned}`,
-    blocks: [
-      {
-        type: "section",
-        text: {
-          type: "mrkdwn",
-          text: `:tada: *${who} replied — follow-ups stopped* ${textsPhrase}.${assigned}`,
+  if (alertSlack) {
+    await postToThread({
+      channel: result.slack_channel_id,
+      threadTs: result.slack_thread_ts,
+      text: `:tada: ${who} replied — follow-ups stopped.${assigned}`,
+      blocks: [
+        {
+          type: "section",
+          text: {
+            type: "mrkdwn",
+            text: `:tada: *${who} replied — follow-ups stopped* ${textsPhrase}.${assigned}`,
+          },
         },
-      },
-      { type: "section", text: { type: "mrkdwn", text: `>${truncateChars(body, 2500).replace(/\n/g, "\n>")}` } },
-    ],
-  });
-  return { action: "reply", stopped: true, announced: true };
+        { type: "section", text: { type: "mrkdwn", text: `>${truncateChars(body, 2500).replace(/\n/g, "\n>")}` } },
+      ],
+    });
+  }
+  return { action: "reply", stopped: true, announced: alertSlack };
 }
 
 async function reviewShortOutbound(object, fromClient) {
@@ -152,19 +161,21 @@ async function reviewShortOutbound(object, fromClient) {
   const seconds = callDurationSeconds(object);
   const shown = await displayPhone(fromClient);
   const settings = await loadSettings();
-  await postToThread({
-    channel: enrollment.slack_channel_id,
-    threadTs: enrollment.slack_thread_ts,
-    text: `Short call with ${shown} — should we keep texting?`,
-    blocks: shortCallReviewBlocks({
-      enrollmentId: String(enrollment.id),
-      phone: shown,
-      firstName: enrollment.first_name,
-      durationSeconds: seconds,
-      assignedUserId: enrollment.assigned_slack_user_id,
-      mentionAssignees: settings.slack_tag_assignees,
-    }),
-  });
+  if (shouldPostSlackAlert(enrollment)) {
+    await postToThread({
+      channel: enrollment.slack_channel_id,
+      threadTs: enrollment.slack_thread_ts,
+      text: `Short call with ${shown} — should we keep texting?`,
+      blocks: shortCallReviewBlocks({
+        enrollmentId: String(enrollment.id),
+        phone: shown,
+        firstName: enrollment.first_name,
+        durationSeconds: seconds,
+        assignedUserId: enrollment.assigned_slack_user_id,
+        mentionAssignees: settings.slack_tag_assignees,
+      }),
+    });
+  }
 
   await query(
     `insert into followup_events (enrollment_id, contact_id, kind, detail, actor)
@@ -209,19 +220,21 @@ async function handleCall(object, type, context = {}) {
   mirrorTextSequence(fromClient).catch((error) => console.error("text sequence mirror failed", error));
   await retireStartCard(result.stopped.enrollment_id);
 
-  const shown = await displayPhone(fromClient);
-  const who = result.first_name ? `${result.first_name} (${shown})` : shown;
-  const how = incoming
-    ? "called back — follow-ups stopped after "
-    : "was reached by phone — follow-ups stopped after ";
-  const settings = await loadSettings();
-  await postToThread({
-    channel: result.slack_channel_id,
-    threadTs: result.slack_thread_ts,
-    text: `:telephone_receiver: ${who} ${how}`
-      + `${result.stopped.sent_count ?? 0} text(s).`
-      + assigneeMentionSuffix(result.assigned_slack_user_id, settings.slack_tag_assignees),
-  });
+  if (await sequenceAllowsSlackAlert(result.stopped.enrollment_id || result.enrollment_id)) {
+    const shown = await displayPhone(fromClient);
+    const who = result.first_name ? `${result.first_name} (${shown})` : shown;
+    const how = incoming
+      ? "called back — follow-ups stopped after "
+      : "was reached by phone — follow-ups stopped after ";
+    const settings = await loadSettings();
+    await postToThread({
+      channel: result.slack_channel_id,
+      threadTs: result.slack_thread_ts,
+      text: `:telephone_receiver: ${who} ${how}`
+        + `${result.stopped.sent_count ?? 0} text(s).`
+        + assigneeMentionSuffix(result.assigned_slack_user_id, settings.slack_tag_assignees),
+    });
+  }
   return { action: "call", stopped: true };
 }
 
