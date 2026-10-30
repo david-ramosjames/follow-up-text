@@ -144,8 +144,29 @@ export async function startSeries(payload) {
   };
   const result = await rpc("followup_enroll", { ...enrollment, firm_id: enrollment.firm_id ?? currentFirm()?.id ?? null });
   const phone = result?.phone || payload?.phone;
-  if (result?.ok && phone) {
+  // Remirror on a fresh start and on already_active. Intake Manager only shows
+  // Stop SMS from the lead row; if that row missed the first mirror, a later
+  // Start click still needs the live series written onto the lead.
+  if (phone && (result?.ok || result?.reason === "already_active")) {
     mirrorTextSequence(phone).catch((error) => console.error("text sequence mirror failed", error));
+  }
+  if (result?.reason === "already_active" && result.enrollment_id) {
+    const row = await one(
+      `select s.slug, e.next_run_at, e.status
+       from followup_enrollments e
+       join followup_sequences s on s.id = e.sequence_id
+       where e.id = $1`,
+      [result.enrollment_id],
+    );
+    if (row) {
+      return {
+        ...result,
+        phone: phone || result.phone || null,
+        next_run_at: row.next_run_at,
+        sequence: { slug: row.slug },
+        status: row.status,
+      };
+    }
   }
   return result;
 }

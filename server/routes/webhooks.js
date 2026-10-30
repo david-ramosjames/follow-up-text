@@ -174,6 +174,10 @@ async function reviewShortOutbound(object, fromClient) {
     [enrollment.id, seconds],
   ).catch((error) => console.error("Could not log short-call review", error));
 
+  // Short connects leave the series running. Remirror so Intake Manager keeps
+  // showing Stop SMS even when the lead row never picked up the first enroll.
+  mirrorTextSequence(fromClient).catch((error) => console.error("text sequence mirror failed", error));
+
   return { action: "short_call_review", stopped: false, enrollment_id: enrollment.id };
 }
 

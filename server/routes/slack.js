@@ -46,6 +46,7 @@ import {
   stopSeries,
 } from "../lib/followups.js";
 import { fetchCallTranscript, listQuoNumbers } from "../lib/quo.js";
+import { mirrorTextSequence } from "../lib/leadMirror.js";
 import { currentFirm, runWithFirm, slackAppId, slackBotToken } from "../lib/firms.js";
 import {
   applyContractSent,
@@ -1344,6 +1345,7 @@ async function handleShortCallReview(payload, res, { stop }) {
         },
       }],
     });
+    mirrorTextSequence(enrollment.phone_e164).catch((error) => console.error("text sequence mirror failed", error));
     return res.status(200).send("");
   }
 
