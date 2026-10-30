@@ -300,14 +300,12 @@ async function copySequence({ sourceId, sourceFirmId, destFirmId, slug, name, ke
       `insert into followup_sequences (
          firm_id, slug, name, description, is_active, is_default, quo_number_id, timezone,
          quiet_hours_start, quiet_hours_end, send_days, append_opt_out_notice,
-         respond_immediately, auto_routable, night_starts_hour, night_ends_hour,
-         weekend_slack_alerts
+         respond_immediately, auto_routable, night_starts_hour, night_ends_hour
        )
        select $1::uuid, $2, $3, description, false, false,
               case when $6::boolean then quo_number_id else null end,
               timezone, quiet_hours_start, quiet_hours_end, send_days, append_opt_out_notice,
-              respond_immediately, false, night_starts_hour, night_ends_hour,
-              weekend_slack_alerts
+              respond_immediately, false, night_starts_hour, night_ends_hour
        from followup_sequences
        where id = $4 and firm_id = $5
        returning id`,
@@ -421,7 +419,6 @@ const SEQUENCE_FIELDS = [
   "name", "description", "is_active", "quo_number_id", "timezone",
   "quiet_hours_start", "quiet_hours_end", "send_days", "append_opt_out_notice",
   "respond_immediately", "auto_routable", "night_starts_hour", "night_ends_hour",
-  "weekend_slack_alerts",
 ];
 
 apiRouter.patch("/sequences/:id", ok(async (req, res) => {

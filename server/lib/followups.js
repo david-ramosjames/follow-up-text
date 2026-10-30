@@ -5,7 +5,6 @@ import { formatPhone, normalizePhone } from "../../shared/messaging.js";
 import { currentFirm } from "./firms.js";
 import { loadSettings, slackDefaultSequenceSlug } from "./settings.js";
 import { mirrorTextSequence } from "./leadMirror.js";
-import { sequenceAllowsSlackAlert } from "./slackAlerts.js";
 
 export async function loadOperator(slackUserId) {
   const found = await rows(
@@ -78,11 +77,9 @@ export async function findActiveEnrollmentByPhone(phone) {
   if (!e164) return null;
   return one(
     `select e.id, e.assigned_slack_user_id, e.slack_channel_id, e.slack_thread_ts,
-            e.status, c.first_name, c.phone_e164,
-            q.weekend_slack_alerts, q.timezone
+            e.status, c.first_name, c.phone_e164
      from followup_enrollments e
      join followup_contacts c on c.id = e.contact_id
-     join followup_sequences q on q.id = e.sequence_id
      where c.phone_e164 = $1 and e.status = 'active'
        and ($2::uuid is null or e.firm_id = $2)
      order by e.started_at desc
@@ -183,9 +180,6 @@ export async function announceEnrollment(result, {
   threadTs = null,
   routing = null,
 } = {}) {
-  if (!(await sequenceAllowsSlackAlert(result.enrollment_id))) {
-    return { ok: true, skipped: "weekend_quiet" };
-  }
   const phone = await displayPhone(String(result.phone));
   let fromNumber = null;
   if (result.quo_number_id) {
@@ -273,16 +267,14 @@ export async function stopSeries({ enrollmentId, phone, actor, enforceAssignment
 }
 
 export async function announceStop(result, actorLabel) {
-  if (await sequenceAllowsSlackAlert(result.enrollment_id)) {
-    const phone = await displayPhone(String(result.phone));
-    const sent = Number(result.sent_count ?? 0);
-    await postToThread({
-      channel: result.slack_channel_id,
-      threadTs: result.slack_thread_ts,
-      text: `:octagonal_sign: ${actorLabel} stopped follow-ups for ${phone} after ${sent} `
-        + `text${sent === 1 ? "" : "s"}.`,
-    });
-  }
+  const phone = await displayPhone(String(result.phone));
+  const sent = Number(result.sent_count ?? 0);
+  await postToThread({
+    channel: result.slack_channel_id,
+    threadTs: result.slack_thread_ts,
+    text: `:octagonal_sign: ${actorLabel} stopped follow-ups for ${phone} after ${sent} `
+      + `text${sent === 1 ? "" : "s"}.`,
+  });
   await retireStartCard(result.enrollment_id);
 }
 

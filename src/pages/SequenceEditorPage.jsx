@@ -597,7 +597,6 @@ export default function SequenceEditorPage() {
         auto_routable: Boolean(sequence.auto_routable),
         night_starts_hour: Number(sequence.night_starts_hour ?? 21),
         night_ends_hour: Number(sequence.night_ends_hour ?? 8),
-        weekend_slack_alerts: sequence.weekend_slack_alerts !== false,
       });
 
       setSteps(updated.steps ?? toSave);
@@ -887,22 +886,6 @@ export default function SequenceEditorPage() {
               <span>
                 <strong>Add the opt-out line to the first text</strong>
                 <small>Appends “Reply STOP to opt out.” (or the Spanish version) to the first text only.</small>
-              </span>
-            </label>
-
-            <label className="checkbox wide">
-              <input
-                type="checkbox"
-                checked={sequence.weekend_slack_alerts !== false}
-                onChange={(event) => updateSequence({ weekend_slack_alerts: event.target.checked })}
-              />
-              <span>
-                <strong>Slack alerts on weekends</strong>
-                <small>
-                  On posts start cards, stops, short-call reviews, and finished-series notices
-                  on Saturday and Sunday in this sequence’s timezone. Off keeps Slack quiet those
-                  days; texts still follow the days and hours above.
-                </small>
               </span>
             </label>
 
