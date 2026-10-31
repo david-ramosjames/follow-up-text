@@ -4,8 +4,10 @@ import {
   flattenSlackMessage,
   isContractPath,
   isContractSent,
+  isContractTextSlug,
+  isPreContractTextSlug,
+  phoneFromContractNotice,
   pickWaitingParent,
-  readLead,
 } from "../../shared/leads.js";
 import { one, rows } from "../db.js";
 import { currentFirm, listFirms, runWithFirm } from "./firms.js";
@@ -134,9 +136,77 @@ export async function cancelContractWait(observation, { detail, stopIfStarted = 
   return observation;
 }
 
+/**
+ * Stop Missed Call / Web Qualified (etc.) when a signing link goes out.
+ * Contract follow-up is started elsewhere — do not enroll it here. Leave an
+ * already-running Contract series alone.
+ */
+export async function stopActiveSeriesOnSigningLink(phone, event, { parent = null } = {}) {
+  if (!phone) return { stopped: false, reason: "no_phone" };
+  const { findActiveEnrollmentByPhone, stopSeries, retireStartCard } = await followupTools();
+  const active = await findActiveEnrollmentByPhone(phone);
+  if (!active) return { stopped: false, reason: "no_active" };
+  if (isContractTextSlug(active.sequence_slug)) {
+    return { stopped: false, reason: "already_contract", enrollment_id: active.id };
+  }
+
+  await stopSeries({
+    enrollmentId: active.id,
+    actor: "contract-path",
+    reason: "manual",
+  });
+  await retireStartCard(active.id);
+  const channel = active.slack_channel_id || event?.channel || parent?.slack_channel_id;
+  const threadTs = active.slack_thread_ts || parentTs(event) || parent?.slack_ts || event?.ts;
+  if (channel && threadTs) {
+    const label = isPreContractTextSlug(active.sequence_slug)
+      ? (active.sequence_name || active.sequence_slug)
+      : (active.sequence_name || "prior");
+    await noteInThread(
+      { slack_channel_id: channel, slack_ts: threadTs },
+      `:pencil: Stopped the ${label} series — a signing link was sent.`,
+    );
+  }
+  return {
+    stopped: true,
+    stopped_slug: active.sequence_slug,
+    enrollment_id: active.id,
+  };
+}
+
+/** Human spoke with the lead — stop any active follow-up series for that number. */
+export async function stopActiveSeriesOnHumanCall(phone, event) {
+  if (!phone) return { stopped: false, reason: "no_phone" };
+  const { findActiveEnrollmentByPhone, stopSeries, retireStartCard } = await followupTools();
+  const active = await findActiveEnrollmentByPhone(phone);
+  if (!active) return { stopped: false, reason: "no_active" };
+
+  await stopSeries({
+    enrollmentId: active.id,
+    actor: "human-call",
+    reason: "call",
+  });
+  await retireStartCard(active.id);
+  const channel = active.slack_channel_id || event?.channel;
+  const threadTs = active.slack_thread_ts || parentTs(event) || event?.ts;
+  if (channel && threadTs) {
+    await noteInThread(
+      { slack_channel_id: channel, slack_ts: threadTs },
+      `:pencil: Follow-up texts stopped — someone at the office spoke with them.`,
+    );
+  }
+  return {
+    stopped: true,
+    stopped_slug: active.sequence_slug,
+    enrollment_id: active.id,
+  };
+}
+
 export async function applyContractSent(event) {
   const text = flattenSlackMessage(event);
-  const phone = readLead(text).phone;
+  const { listQuoNumbers } = await import("./quo.js");
+  const firmPhones = (await listQuoNumbers().catch(() => [])).map((row) => row.phone_e164);
+  const phone = phoneFromContractNotice(text, firmPhones);
   const parent = await findContractParent(event, phone);
   if (parent) {
     await cancelContractWait(parent, {
@@ -145,7 +215,11 @@ export async function applyContractSent(event) {
         : "A contract was sent after texts had already started, so the series was stopped.",
     });
   }
-  return { parent, phone, text };
+  const e164 = phone || parent?.phone_e164 || null;
+  const moved = e164
+    ? await stopActiveSeriesOnSigningLink(e164, event, { parent })
+    : { stopped: false, reason: "no_phone" };
+  return { parent, phone: e164, text, moved };
 }
 
 export async function startWaitedLead(observation) {

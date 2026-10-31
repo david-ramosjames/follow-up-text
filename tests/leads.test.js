@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { flattenSlackMessage, readLead, historyMessageToEvent, describeSlackHistoryError, isOutboundReferral, pickTrackSlug, describeTrackKind, kindSlug, normalizeCaseType, buildClassificationUserPrompt, looksLikeIntakeForm, formFillIsALead, isContractPath, isContractSent, isMoreDetailsReply, isIntakeEngineLanding, pickWaitingParent, CONTRACT_PATH_WAIT_SECONDS, readQuoRouterCall, isHumanHandledCall, clientPhoneFromCallPost, firstNameFromCallPost, languageFromCallPost, callIdFromCallPost, languageFromSpokenText, quoRouterCallIsOngoing, calledLineFromCallPost, isLeadIntakeCallLine, isQuoRouterLeadCall } from "../shared/leads.js";
+import { flattenSlackMessage, readLead, historyMessageToEvent, describeSlackHistoryError, isOutboundReferral, pickTrackSlug, describeTrackKind, kindSlug, normalizeCaseType, buildClassificationUserPrompt, looksLikeIntakeForm, formFillIsALead, isContractPath, isContractSent, phoneFromContractNotice, isMoreDetailsReply, isIntakeEngineLanding, pickWaitingParent, CONTRACT_PATH_WAIT_SECONDS, readQuoRouterCall, isHumanHandledCall, clientPhoneFromCallPost, firstNameFromCallPost, languageFromCallPost, callIdFromCallPost, languageFromSpokenText, quoRouterCallIsOngoing, calledLineFromCallPost, isLeadIntakeCallLine, isQuoRouterLeadCall } from "../shared/leads.js";
 
 // The four shapes actually posting into the lead channel. Kept verbatim rather
 // than tidied, because the point of these tests is that real posts parse — a
@@ -281,7 +281,34 @@ test("Intake Engine contract-path markers are recognised, and ordinary forms are
   assert.equal(isContractPath(":memo: *Contract path*"), true);
   assert.equal(isContractSent("📝 *Contract sent to be signed*"), true);
   assert.equal(isContractSent(":memo: *Contract sent to be signed*\nhttps://sign.example/abc"), true);
+  assert.equal(isContractSent("*Contract sent* to *Señor Serna*\n• Phone: +15124399196"), true);
+  assert.equal(isContractSent("📝 *Contract sent to be signed*\nto *Ana*\n• Phone: 512-555-0100"), true);
   assert.equal(isContractSent(":pencil: No follow-up texts — a signing link was sent."), false);
+  assert.equal(isContractSent("Contract path"), false);
+  const quoSigning = [
+    "📤 *Outbound Text Message*",
+    "From: Leads (+15127643037)",
+    "To: +15124399196",
+    "Message: Hola Obed, complete aquí:",
+    "https://ramos-james-law-document.up.railway.app/s/aKZuX1p9jxhKBk",
+  ].join("\n");
+  assert.equal(isContractSent(quoSigning), true);
+  assert.equal(
+    phoneFromContractNotice(quoSigning, ["+15127643037"]),
+    "+15124399196",
+  );
+  assert.equal(
+    isContractSent("📤 *Outbound Text Message*\nFrom: Leads (+15127643037)\nTo: +15124399196\nMessage: Thanks for calling."),
+    false,
+  );
+  assert.equal(
+    isContractSent("💬 *New Text Message*\nFrom: +15124399196\nTo: Leads\nMessage: https://ramos-james-law-document.up.railway.app/s/aKZuX1p9jxhKBk"),
+    false,
+  );
+  assert.equal(
+    phoneFromContractNotice("📝 *Contract sent to be signed*\nto *Ana*\n• Phone: +15125550100"),
+    "+15125550100",
+  );
   assert.equal(isMoreDetailsReply("More details they added\nHurt my back yesterday"), true);
   assert.equal(isMoreDetailsReply("📝 *Contract sent to be signed*"), false);
   assert.equal(CONTRACT_PATH_WAIT_SECONDS, 5 * 60);

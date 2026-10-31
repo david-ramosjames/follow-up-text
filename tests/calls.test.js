@@ -7,6 +7,7 @@ import {
   isIncomingCall,
   isOutgoingCall,
   outboundCallOutcome,
+  pickClientPhone,
   unwrapQuoContext,
   unwrapQuoObject,
 } from "../shared/calls.js";
@@ -42,6 +43,27 @@ test("outbound length splits miss / short review / long stop", () => {
   assert.equal(describeCallDuration(45), "45 seconds");
   assert.equal(describeCallDuration(120), "2 minutes");
   assert.equal(describeCallDuration(135), "2 min 15 sec");
+});
+
+test("workspace-only Quo participants still yield the client number", () => {
+  const object = {
+    direction: "outgoing",
+    to: null,
+    from: null,
+    participants: { to: null, from: null, external: [], workspace: ["+15127643037", "+15127650936"] },
+  };
+  assert.equal(
+    pickClientPhone(object, {}, { incoming: false, firmNumbers: ["+15127643037"] }),
+    "+15127650936",
+  );
+  assert.equal(
+    pickClientPhone({
+      direction: "outgoing",
+      to: "+15127650936",
+      participants: { workspace: ["+15127643037", "+15127650936"] },
+    }, {}, { incoming: false, firmNumbers: ["+15127643037"] }),
+    "+15127650936",
+  );
 });
 
 test("Quo nests the call under data.object or data.resource", () => {

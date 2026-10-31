@@ -7,15 +7,29 @@ import {
   truncateChars,
 } from "../../shared/messaging.js";
 import { assigneeMentionSuffix } from "../../shared/slackMentions.js";
-import { callDurationSeconds, isAnsweredCall, isIncomingCall, isOutgoingCall, outboundCallOutcome } from "../../shared/calls.js";
+import {
+  callDurationSeconds,
+  isAnsweredCall,
+  isIncomingCall,
+  isOutgoingCall,
+  outboundCallOutcome,
+  pickClientPhone,
+} from "../../shared/calls.js";
 import { query, rpc } from "../db.js";
-import { readEvent, readPhone, resolveSendingNumber, sendText } from "../lib/quo.js";
+import { listQuoNumbers, readEvent, readPhone, resolveSendingNumber, sendText } from "../lib/quo.js";
 import { findActiveEnrollmentByPhone, retireStartCard } from "../lib/followups.js";
 import { mirrorTextSequence } from "../lib/leadMirror.js";
 import { displayPhone, postToThread, shortCallReviewBlocks } from "../lib/slack.js";
 import { loadSettings } from "../lib/settings.js";
 import { verifyWebhook } from "../lib/quo.js";
 import { currentFirm, firmForQuoNumber, runWithFirm } from "../lib/firms.js";
+
+async function clientPhoneFromCall(object, context = {}, incoming) {
+  const firmNumbers = (await listQuoNumbers().catch(() => []))
+    .map((row) => row.phone_e164)
+    .filter(Boolean);
+  return pickClientPhone(object, context, { incoming, firmNumbers });
+}
 
 export const webhookRouter = express.Router();
 
@@ -188,9 +202,7 @@ async function handleCall(object, type, context = {}) {
   if (outgoing && type === "call.ringing") return { ignored: "outgoing_ringing" };
   if (outgoing && !isAnsweredCall(object)) return { ignored: "outgoing_unanswered" };
 
-  const fromClient = incoming
-    ? readPhone(object.from) || readPhone(context.participants?.external) || readPhone(object.participants?.external)
-    : readPhone(object.to) || readPhone(context.participants?.external) || readPhone(object.participants?.external);
+  const fromClient = await clientPhoneFromCall(object, context, incoming);
   if (!fromClient) return { ignored: "no_caller" };
 
   if (outgoing && outboundCallOutcome(object) === "short") {

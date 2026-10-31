@@ -52,6 +52,7 @@ import {
   applyContractSent,
   contractAlreadyArrived,
   CONTRACT_PATH_WAIT_SECONDS,
+  stopActiveSeriesOnHumanCall,
 } from "../lib/contractPath.js";
 import {
   displayPhone,
@@ -580,13 +581,19 @@ export async function handleLeadPost(event) {
 
   const text = flattenSlackMessage(event);
 
-  // Sign Flow's "Contract sent" is not a new lead. Match it to the parent that
-  // is waiting (thread first, then a standalone post in this channel).
+  // Contract delivery is not a new lead: Sign Flow's "Contract sent" note, or
+  // more often Quo Router's outbound SMS that carries the /s/ signing link.
+  // Stop prior series only — Contract follow-up starts on its own.
   if (isContractSent(text)) {
     const applied = await applyContractSent(event);
-    log(applied.parent
-      ? "contract sent — skipped abandoned texts"
-      : "contract sent — no waiting parent");
+    const moved = applied.moved;
+    log(
+      moved?.stopped
+        ? `contract sent — stopped ${moved.stopped_slug || "series"}`
+        : applied.parent
+          ? "contract sent — skipped abandoned texts"
+          : `contract sent — ${moved?.reason || "no waiting parent"}`,
+    );
     await recordObservation({
       channel: event.channel,
       ts: event.ts,
@@ -596,11 +603,16 @@ export async function handleLeadPost(event) {
       text,
       phone: applied.phone ?? null,
       outcome: "contract_notice",
-      outcomeDetail: applied.parent
-        ? `Matched parent ${applied.parent.slack_ts}`
-        : "No waiting contract-path parent in this channel",
+      outcomeDetail: [
+        applied.parent ? `Matched parent ${applied.parent.slack_ts}` : "No waiting contract-path parent",
+        moved?.stopped
+          ? `Stopped ${moved.stopped_slug || "series"}`
+          : moved?.reason
+            ? `Series stop: ${moved.reason}`
+            : null,
+      ].filter(Boolean).join(". "),
     });
-    return { contractSent: true, parent: applied.parent?.id ?? null };
+    return { contractSent: true, parent: applied.parent?.id ?? null, moved };
   }
 
   const call = readQuoRouterCall(text);
@@ -609,7 +621,15 @@ export async function handleLeadPost(event) {
     return handleQuoRouterCallPost(event, { text, call, mode, log, settings });
   }
   if (botPost && isHumanHandledCall(text)) {
-    log("skipped — human-handled call");
+    const phone = clientPhoneFromCallPost(text, (await listQuoNumbers()).map((row) => row.phone_e164));
+    const stopped = phone
+      ? await stopActiveSeriesOnHumanCall(phone, event)
+      : { stopped: false, reason: "no_phone" };
+    log(
+      stopped?.stopped
+        ? `human call — stopped ${stopped.stopped_slug || "series"}`
+        : `skipped — human-handled call (${stopped?.reason || "no series"})`,
+    );
     await recordObservation({
       channel: event.channel,
       ts: event.ts,
@@ -617,11 +637,14 @@ export async function handleLeadPost(event) {
       appId: event.app_id ?? null,
       mode,
       text,
-      phone: clientPhoneFromCallPost(text, (await listQuoNumbers()).map((row) => row.phone_e164)),
-      outcome: "not_a_lead",
-      outcomeDetail: "Human-handled call — not started.",
+      phone,
+      outcome: stopped?.stopped ? "stopped_call" : "not_a_lead",
+      outcomeDetail: stopped?.stopped
+        ? `Human-handled call — stopped ${stopped.stopped_slug || "series"}.`
+        : "Human-handled call — not started.",
+      enrollmentId: stopped?.enrollment_id ?? null,
     });
-    return { ignored: "human_call" };
+    return { ignored: "human_call", stopped };
   }
 
   if (event.thread_ts && event.thread_ts !== event.ts) {

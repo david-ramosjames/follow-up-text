@@ -64,3 +64,36 @@ export function unwrapQuoContext(body) {
   const data = body?.data ?? {};
   return data?.context ?? {};
 }
+
+function asPhone(value) {
+  if (typeof value === "string" && value.trim()) return value.trim();
+  if (Array.isArray(value) && value.length) return asPhone(value[0]);
+  if (value && typeof value === "object") {
+    return asPhone(value.phoneNumber ?? value.number ?? value.e164);
+  }
+  return null;
+}
+
+/**
+ * Quo completed-call payloads often leave to/from null and only list both
+ * numbers under participants.workspace. Pick the non-firm number.
+ */
+export function pickClientPhone(object, context = {}, { incoming = false, firmNumbers = [] } = {}) {
+  const participants = object?.participants || context?.participants || {};
+  const direct = incoming
+    ? asPhone(object?.from) || asPhone(participants.external) || asPhone(context?.participants?.external)
+    : asPhone(object?.to) || asPhone(participants.external) || asPhone(context?.participants?.external);
+  if (direct) return direct;
+
+  const listed = []
+    .concat(participants.external || [])
+    .concat(participants.workspace || [])
+    .map((value) => asPhone(value))
+    .filter(Boolean);
+  if (!listed.length) return null;
+
+  const firm = new Set(
+    (firmNumbers || []).map((value) => String(value || "").trim()).filter(Boolean),
+  );
+  return listed.find((phone) => !firm.has(phone)) || null;
+}

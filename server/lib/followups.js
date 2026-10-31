@@ -77,9 +77,11 @@ export async function findActiveEnrollmentByPhone(phone) {
   if (!e164) return null;
   return one(
     `select e.id, e.assigned_slack_user_id, e.slack_channel_id, e.slack_thread_ts,
-            e.status, c.first_name, c.phone_e164
+            e.status, e.language, c.first_name, c.last_name, c.phone_e164,
+            q.slug as sequence_slug, q.name as sequence_name
      from followup_enrollments e
      join followup_contacts c on c.id = e.contact_id
+     join followup_sequences q on q.id = e.sequence_id
      where c.phone_e164 = $1 and e.status = 'active'
        and ($2::uuid is null or e.firm_id = $2)
      order by e.started_at desc

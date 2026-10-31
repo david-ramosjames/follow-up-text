@@ -115,21 +115,76 @@ export function formFillIsALead({ phone, referral = false, isLead = false, text 
 
 // Intake Engine posts `_From Intake Engine landing page_` on every parent, and
 // `📝 *Contract path*` only when the person reached Sign. Sign Flow then replies
-// `📝 *Contract sent to be signed*` (threaded when it can). The SMS wait is
-// keyed off those two Contract lines, not the landing-page footer.
+// with a Contract sent notice (threaded when it can). The SMS wait is keyed off
+// those two Contract lines, not the landing-page footer.
 export const CONTRACT_PATH_WAIT_SECONDS = 5 * 60;
 export const CONTRACT_PATH_MATCH_SECONDS = 30 * 60;
 
 const MEMO = String.raw`(?:📝|:memo:)`;
 const CONTRACT_PATH_RE = new RegExp(`${MEMO}\\s*\\*?contract path\\*?`, "i");
-const CONTRACT_SENT_RE = new RegExp(`${MEMO}\\s*\\*?contract sent to be signed\\*?`, "i");
+// Intake Engine: "📝 *Contract sent to be signed*". Sign Flow Slack: "*Contract sent* to *Name*".
+const CONTRACT_SENT_RE = new RegExp(
+  `(?:${MEMO}\\s*)?\\*?contract sent(?: to be signed)?\\*?`,
+  "i",
+);
+// Quo Router mirrors outbound SMS into the lead thread. Sign Flow's Slack
+// "Contract sent" note often never appears — the signing link SMS is the signal.
+const SIGNING_LINK_RE = /https?:\/\/[^\s>|]+\/s\/[A-Za-z0-9_-]{6,}/i;
+const OUTBOUND_TEXT_RE = /outbound text message/i;
+
+/** Text sequence slugs that a Contract sent notice should replace. */
+export const PRE_CONTRACT_TEXT_SLUGS = new Set([
+  "new-lead",
+  "qualified-lead",
+  "more-info",
+  "more_info",
+  "referral",
+  "qualified-lead-copy",
+]);
+
+export const CONTRACT_TEXT_SLUGS = [
+  "contract-follow-up",
+  "contract-followup",
+  "contract_follow_up",
+  "contract",
+];
 
 export function isContractPath(text) {
   return CONTRACT_PATH_RE.test(String(text ?? ""));
 }
 
 export function isContractSent(text) {
-  return CONTRACT_SENT_RE.test(String(text ?? ""));
+  const body = String(text ?? "");
+  if (CONTRACT_SENT_RE.test(body)) return true;
+  // Quo Router: 📤 *Outbound Text Message* … Message: … https://…/s/<slug>
+  return OUTBOUND_TEXT_RE.test(body) && SIGNING_LINK_RE.test(body);
+}
+
+/** Client number on a Contract sent / Quo signing-link post (not the firm From: line). */
+export function phoneFromContractNotice(text, firmPhones = []) {
+  const body = String(text ?? "");
+  if (OUTBOUND_TEXT_RE.test(body)) {
+    // Outbound: To: is the client; From: is the firm line (often listed first).
+    const to = body.match(/to:\s*[^\n]*?(\+?1?[\d\s().-]{8,}\d)/i);
+    const toE164 = to ? normalizePhone(to[1]) : null;
+    if (toE164) return toE164;
+    return clientPhoneFromCallPost(body, firmPhones);
+  }
+  const labeled = body.match(/[•*]\s*phone:\s*([^\n]+)/i)?.[1]
+    ?? body.match(/\bphone:\s*([^\n]+)/i)?.[1];
+  if (labeled) {
+    const fromLabel = normalizePhone(labeled) || extractPhones(labeled)[0];
+    if (fromLabel) return fromLabel;
+  }
+  return readLead(body).phone;
+}
+
+export function isContractTextSlug(slug) {
+  return CONTRACT_TEXT_SLUGS.includes(String(slug || "").toLowerCase());
+}
+
+export function isPreContractTextSlug(slug) {
+  return PRE_CONTRACT_TEXT_SLUGS.has(String(slug || "").toLowerCase());
 }
 
 export function isMoreDetailsReply(text) {
