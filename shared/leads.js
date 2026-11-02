@@ -205,6 +205,31 @@ export function isHumanHandledCall(text) {
     || /handled\s*by:\*?\s*\*?legal assistant/i.test(body);
 }
 
+/** Quo summary for a miss / empty connect — must not kill a text series. */
+export function humanCallIsNoConnect(text) {
+  const body = String(text ?? "");
+  return /\bno\s*\(\s*no connect\s*\)/i.test(body)
+    || /\bno actionable details\b/i.test(body)
+    || /\bnothing to summarize\b/i.test(body)
+    || /\bno details to summarize\b/i.test(body)
+    || /\bno transcript received\b/i.test(body);
+}
+
+/**
+ * Outbound from a firm Quo line (From: Leads … To: client). Duration / short-call
+ * handling belongs on the Quo webhook; the Slack Human Call post must not stop texts.
+ */
+export function humanCallIsOutboundFromFirm(text, firmPhones = []) {
+  const ours = new Set(
+    (Array.isArray(firmPhones) ? firmPhones : [])
+      .map((phone) => normalizePhone(phone))
+      .filter(Boolean),
+  );
+  const from = String(text ?? "").match(/from:\s*[^\n]*?(\+?1?[\d\s().-]{8,}\d)/i);
+  const fromE164 = from ? normalizePhone(from[1]) : null;
+  return Boolean(fromE164 && ours.has(fromE164));
+}
+
 export function readQuoRouterCall(text) {
   const body = String(text ?? "");
   if (isHumanHandledCall(body)) return null;

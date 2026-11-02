@@ -13,6 +13,8 @@ import {
   isMoreDetailsReply,
   readQuoRouterCall,
   isHumanHandledCall,
+  humanCallIsNoConnect,
+  humanCallIsOutboundFromFirm,
   clientPhoneFromCallPost,
   firstNameFromCallPost,
   languageFromCallPost,
@@ -621,10 +623,19 @@ export async function handleLeadPost(event) {
     return handleQuoRouterCallPost(event, { text, call, mode, log, settings });
   }
   if (botPost && isHumanHandledCall(text)) {
-    const phone = clientPhoneFromCallPost(text, (await listQuoNumbers()).map((row) => row.phone_e164));
-    const stopped = phone
-      ? await stopActiveSeriesOnHumanCall(phone, event)
-      : { stopped: false, reason: "no_phone" };
+    // Outbound duration is enforced on the Quo webhook (2+ minutes). Slack
+    // "Human Call Completed" posts also fire for no-connects — do not stop those.
+    const firmPhones = (await listQuoNumbers()).map((row) => row.phone_e164);
+    const phone = clientPhoneFromCallPost(text, firmPhones);
+    const noConnect = humanCallIsNoConnect(text);
+    const outbound = humanCallIsOutboundFromFirm(text, firmPhones);
+    let stopped = {
+      stopped: false,
+      reason: !phone ? "no_phone" : noConnect ? "no_connect" : outbound ? "outbound_duration_via_webhook" : null,
+    };
+    if (phone && !noConnect && !outbound) {
+      stopped = await stopActiveSeriesOnHumanCall(phone, event);
+    }
     log(
       stopped?.stopped
         ? `human call — stopped ${stopped.stopped_slug || "series"}`
@@ -641,7 +652,11 @@ export async function handleLeadPost(event) {
       outcome: stopped?.stopped ? "stopped_call" : "not_a_lead",
       outcomeDetail: stopped?.stopped
         ? `Human-handled call — stopped ${stopped.stopped_slug || "series"}.`
-        : "Human-handled call — not started.",
+        : noConnect
+          ? "Human-handled call — no connect; series left running."
+          : outbound
+            ? "Outbound human call — series stop left to Quo webhook duration."
+            : "Human-handled call — not started.",
       enrollmentId: stopped?.enrollment_id ?? null,
     });
     return { ignored: "human_call", stopped };

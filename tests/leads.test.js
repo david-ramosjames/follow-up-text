@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { flattenSlackMessage, readLead, historyMessageToEvent, describeSlackHistoryError, isOutboundReferral, pickTrackSlug, describeTrackKind, kindSlug, normalizeCaseType, buildClassificationUserPrompt, looksLikeIntakeForm, formFillIsALead, isContractPath, isContractSent, phoneFromContractNotice, isMoreDetailsReply, isIntakeEngineLanding, pickWaitingParent, CONTRACT_PATH_WAIT_SECONDS, readQuoRouterCall, isHumanHandledCall, clientPhoneFromCallPost, firstNameFromCallPost, languageFromCallPost, callIdFromCallPost, languageFromSpokenText, quoRouterCallIsOngoing, calledLineFromCallPost, isLeadIntakeCallLine, isQuoRouterLeadCall } from "../shared/leads.js";
+import { flattenSlackMessage, readLead, historyMessageToEvent, describeSlackHistoryError, isOutboundReferral, pickTrackSlug, describeTrackKind, kindSlug, normalizeCaseType, buildClassificationUserPrompt, looksLikeIntakeForm, formFillIsALead, isContractPath, isContractSent, phoneFromContractNotice, isMoreDetailsReply, isIntakeEngineLanding, pickWaitingParent, CONTRACT_PATH_WAIT_SECONDS, readQuoRouterCall, isHumanHandledCall, humanCallIsNoConnect, humanCallIsOutboundFromFirm, clientPhoneFromCallPost, firstNameFromCallPost, languageFromCallPost, callIdFromCallPost, languageFromSpokenText, quoRouterCallIsOngoing, calledLineFromCallPost, isLeadIntakeCallLine, isQuoRouterLeadCall } from "../shared/leads.js";
 
 // The four shapes actually posting into the lead channel. Kept verbatim rather
 // than tidied, because the point of these tests is that real posts parse — a
@@ -346,6 +346,16 @@ test("Quo Router missed and Sona posts are recognised, human-handled calls are n
   assert.equal(isHumanHandledCall(HUMAN_LEAD), true);
   assert.equal(isHumanHandledCall(SONA_LEAD), false);
   assert.equal(readQuoRouterCall(flattenSlackMessage(WEBSITE)), null);
+});
+
+const HUMAN_NO_CONNECT = "🧑 *Human Call Completed*\nFrom: Leads (+15127643037)\nTo: +19075210711\nSummary:\n• This call had no actionable details to summarize.\nLead: No (No connect)";
+
+test("no-connect and outbound firm human calls do not look like a reached conversation", () => {
+  assert.equal(humanCallIsNoConnect(HUMAN_NO_CONNECT), true);
+  assert.equal(humanCallIsNoConnect(HUMAN_LEAD), false);
+  assert.equal(humanCallIsOutboundFromFirm(HUMAN_NO_CONNECT, FIRM_LINES), true);
+  assert.equal(humanCallIsOutboundFromFirm(HUMAN_LEAD, FIRM_LINES), false);
+  assert.equal(clientPhoneFromCallPost(HUMAN_NO_CONNECT, FIRM_LINES), "+19075210711");
 });
 
 test("the client number is the From line, not a firm Quo line", () => {
