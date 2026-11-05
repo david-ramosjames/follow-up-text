@@ -150,7 +150,7 @@ export async function startSeries(payload) {
   // Stop SMS from the lead row; if that row missed the first mirror, a later
   // Start click still needs the live series written onto the lead.
   if (phone && (result?.ok || result?.reason === "already_active")) {
-    mirrorTextSequence(phone).catch((error) => console.error("text sequence mirror failed", error));
+    await mirrorTextSequence(phone).catch((error) => console.error("text sequence mirror failed", error));
   }
   if (result?.reason === "already_active" && result.enrollment_id) {
     const row = await one(

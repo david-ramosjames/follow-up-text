@@ -577,6 +577,45 @@ apiRouter.delete("/steps/:id", ok(async (req, res) => {
   res.json({ ok: true });
 }));
 
+// Intake Manager asks which of these numbers actually have a series sending.
+// The lead row's copied status lags, so the work queue was showing Start SMS
+// on a number that was already in a sequence.
+apiRouter.post("/intake/status", async (req, res) => {
+  const expected = process.env.INTAKE_ENROLL_TOKEN || "";
+  const header = req.get("authorization") || "";
+  if (!expected || header !== `Bearer ${expected}`) {
+    return res.status(401).json({ ok: false, reason: "unauthorized" });
+  }
+  try {
+    const firm = await defaultFirm();
+    if (!firm) return res.status(500).json({ ok: false, reason: "no_firm" });
+    const phones = Array.isArray(req.body?.phones) ? req.body.phones : [];
+    const e164s = [...new Set(phones.map((phone) => normalizePhone(phone)).filter(Boolean))].slice(0, 500);
+    if (!e164s.length) return res.json({ ok: true, active: [] });
+    const list = await runWithFirm(firm, () => rows(
+      `select c.phone_e164, s.slug, e.next_run_at
+       from followup_enrollments e
+       join followup_contacts c on c.id = e.contact_id
+       join followup_sequences s on s.id = e.sequence_id
+       where e.firm_id = $1
+         and e.status = 'active'
+         and c.phone_e164 = any($2::text[])`,
+      [firm.id, e164s],
+    ));
+    return res.json({
+      ok: true,
+      active: (list ?? []).map((row) => ({
+        phone_e164: row.phone_e164,
+        slug: row.slug,
+        next_run_at: row.next_run_at,
+      })),
+    });
+  } catch (error) {
+    console.error("intake status failed", error);
+    return res.status(500).json({ ok: false, reason: "error" });
+  }
+});
+
 // Intake Manager starts a series here. SMS Follow-Up owns the enrollment and
 // the default owner. The shared token is the only auth; the dashboard session
 // is a different app.
