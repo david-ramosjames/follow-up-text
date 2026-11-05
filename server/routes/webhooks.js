@@ -12,6 +12,7 @@ import {
   isAnsweredCall,
   isIncomingCall,
   isOutgoingCall,
+  LONG_OUTBOUND_SECONDS,
   outboundCallOutcome,
   pickClientPhone,
 } from "../../shared/calls.js";
@@ -198,16 +199,33 @@ async function reviewShortOutbound(object, fromClient) {
 async function handleCall(object, type, context = {}) {
   const incoming = isIncomingCall(object);
   const outgoing = isOutgoingCall(object);
+  const answered = isAnsweredCall(object);
+  const duration = callDurationSeconds(object);
+  const outcome = outgoing ? outboundCallOutcome(object) : null;
+
+  // Log call details for debugging
+  console.log(`[Call Webhook] type=${type}, direction=${incoming ? "incoming" : outgoing ? "outgoing" : "unknown"}, ` +
+    `answered=${answered}, duration=${duration}s, outcome=${outcome || "n/a"}`);
 
   if (outgoing && type === "call.ringing") return { ignored: "outgoing_ringing" };
-  if (outgoing && !isAnsweredCall(object)) return { ignored: "outgoing_unanswered" };
+  if (outgoing && !isAnsweredCall(object)) {
+    console.log(`[Call Webhook] Outgoing unanswered call - NOT stopping series`);
+    return { ignored: "outgoing_unanswered" };
+  }
 
   const fromClient = await clientPhoneFromCall(object, context, incoming);
   if (!fromClient) return { ignored: "no_caller" };
 
+  // SHORT OUTBOUND CALL HANDLING: calls under 2 minutes should NOT stop the series
+  // Instead, post to Slack asking whether to keep texting or stop
   if (outgoing && outboundCallOutcome(object) === "short") {
+    console.log(`[Call Webhook] Short outbound call (${duration}s < ${LONG_OUTBOUND_SECONDS}s) to ${fromClient} - ` +
+      `KEEPING series active, posting review to Slack`);
     return reviewShortOutbound(object, fromClient);
   }
+
+  // LONG CALLS AND INCOMING CALLS: stop the series
+  console.log(`[Call Webhook] ${incoming ? "Incoming" : `Long outbound (${duration}s)`} call from ${fromClient} - STOPPING series`);
 
   const result = await rpc("followup_record_inbound", {
     phone: fromClient,
