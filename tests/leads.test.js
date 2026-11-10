@@ -349,13 +349,17 @@ test("Quo Router missed and Sona posts are recognised, human-handled calls are n
 });
 
 const HUMAN_NO_CONNECT = "🧑 *Human Call Completed*\nFrom: Leads (+15127643037)\nTo: +19075210711\nSummary:\n• This call had no actionable details to summarize.\nLead: No (No connect)";
+const HUMAN_OUTBOUND_REACHED = "🧑 *Human Call Completed*\nHandled By: Jissela Calix\nFrom: Leads (+15127643037)\nTo: +15127899297\nSummary:\n• Ural Jarman is seeking assistance regarding a deceptive business contract.\nLead: Lead · Outside practice";
 
-test("no-connect and outbound firm human calls do not look like a reached conversation", () => {
+test("no-connect outbound human calls are not a reached conversation; a real outbound talk is", () => {
   assert.equal(humanCallIsNoConnect(HUMAN_NO_CONNECT), true);
   assert.equal(humanCallIsNoConnect(HUMAN_LEAD), false);
+  assert.equal(humanCallIsNoConnect(HUMAN_OUTBOUND_REACHED), false);
   assert.equal(humanCallIsOutboundFromFirm(HUMAN_NO_CONNECT, FIRM_LINES), true);
+  assert.equal(humanCallIsOutboundFromFirm(HUMAN_OUTBOUND_REACHED, FIRM_LINES), true);
   assert.equal(humanCallIsOutboundFromFirm(HUMAN_LEAD, FIRM_LINES), false);
   assert.equal(clientPhoneFromCallPost(HUMAN_NO_CONNECT, FIRM_LINES), "+19075210711");
+  assert.equal(clientPhoneFromCallPost(HUMAN_OUTBOUND_REACHED, FIRM_LINES), "+15127899297");
 });
 
 test("the client number is the From line, not a firm Quo line", () => {

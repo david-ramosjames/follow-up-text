@@ -26,6 +26,7 @@ import {
   isQuoRouterLeadCall,
 } from "../../shared/leads.js";
 import { parseStartArgs } from "../../shared/startArgs.js";
+import { callDurationSeconds, outboundCallOutcome } from "../../shared/calls.js";
 import { formatSlackMentions } from "../../shared/slackMentions.js";
 import { one, rows, rpc } from "../db.js";
 import { assessLeadPost } from "../lib/leads.js";
@@ -44,10 +45,11 @@ import {
   findActiveEnrollmentByPhone,
   findPriorConversation,
   resolveSlackDefaultSequence,
+  reviewShortOutboundCall,
   startSeries,
   stopSeries,
 } from "../lib/followups.js";
-import { fetchCallTranscript, listQuoNumbers } from "../lib/quo.js";
+import { fetchCall, fetchCallTranscript, fetchLatestCallForPhone, listQuoNumbers } from "../lib/quo.js";
 import { mirrorTextSequence } from "../lib/leadMirror.js";
 import { currentFirm, runWithFirm, slackAppId, slackBotToken } from "../lib/firms.js";
 import {
@@ -56,6 +58,7 @@ import {
   CONTRACT_PATH_WAIT_SECONDS,
   stopActiveSeriesOnHumanCall,
 } from "../lib/contractPath.js";
+import { startWebformCallbackEscalation } from "../lib/quoRouterCallback.js";
 import {
   displayPhone,
   formatWhen,
@@ -623,18 +626,30 @@ export async function handleLeadPost(event) {
     return handleQuoRouterCallPost(event, { text, call, mode, log, settings });
   }
   if (botPost && isHumanHandledCall(text)) {
-    // Outbound duration is enforced on the Quo webhook (2+ minutes). Slack
-    // "Human Call Completed" posts also fire for no-connects — do not stop those.
     const firmPhones = (await listQuoNumbers()).map((row) => row.phone_e164);
     const phone = clientPhoneFromCallPost(text, firmPhones);
     const noConnect = humanCallIsNoConnect(text);
     const outbound = humanCallIsOutboundFromFirm(text, firmPhones);
     let stopped = {
       stopped: false,
-      reason: !phone ? "no_phone" : noConnect ? "no_connect" : outbound ? "outbound_duration_via_webhook" : null,
+      reason: !phone ? "no_phone" : noConnect ? "no_connect" : null,
     };
+    // They called us: stop. We called them: two minutes or more stops, a short
+    // connect stays running and asks, a miss does nothing.
     if (phone && !noConnect && !outbound) {
       stopped = await stopActiveSeriesOnHumanCall(phone, event);
+    } else if (phone && !noConnect && outbound) {
+      const callId = callIdFromCallPost(text);
+      const call = (callId ? await fetchCall(callId) : null)
+        || await fetchLatestCallForPhone(phone, { direction: "outgoing" });
+      const outcome = call ? outboundCallOutcome({ ...call, direction: "outgoing" }) : null;
+      if (outcome === "long") {
+        stopped = await stopActiveSeriesOnHumanCall(phone, event);
+      } else {
+        // Under two minutes, or we could not read duration: keep texting and
+        // ask in the thread — Keep texting / Stop follow-ups.
+        stopped = await reviewShortOutboundCall(phone, callDurationSeconds(call));
+      }
     }
     log(
       stopped?.stopped
@@ -654,8 +669,8 @@ export async function handleLeadPost(event) {
         ? `Human-handled call — stopped ${stopped.stopped_slug || "series"}.`
         : noConnect
           ? "Human-handled call — no connect; series left running."
-          : outbound
-            ? "Outbound human call — series stop left to Quo webhook duration."
+          : stopped?.reason === "short_call"
+            ? "Outbound human call under two minutes — series left running, Slack asked whether to stop."
             : "Human-handled call — not started.",
       enrollmentId: stopped?.enrollment_id ?? null,
     });
@@ -797,8 +812,23 @@ export async function handleLeadPost(event) {
       outcome: "waiting_contract",
       outcomeDetail: `Waiting up to ${waitMinutes} minutes for “Contract sent to be signed”. If it arrives, no abandoned text. If it does not, the usual series starts.`,
     });
+    // Still ask someone to call — they have not been reached by phone yet.
+    void startWebformCallbackEscalation({
+      channelId: event.channel,
+      parentTs: event.thread_ts ?? event.ts,
+      phone: assessment.phone,
+    });
     return { waiting: true };
   }
+
+  const threadTs = event.thread_ts ?? event.ts;
+  // Cold web form / chat: escalate phone callback (outbound → inbound → LAs →
+  // managers) via quo-router during business hours. Independent of SMS series.
+  void startWebformCallbackEscalation({
+    channelId: event.channel,
+    parentTs: threadTs,
+    phone: assessment.phone,
+  });
 
   const owner = String(settings.lead_default_owner_slack_id ?? "").trim();
   if (!owner) {
@@ -811,7 +841,6 @@ export async function handleLeadPost(event) {
     return { ignored: "no_owner" };
   }
 
-  const threadTs = event.thread_ts ?? event.ts;
   const result = await startSeries({
     phone: assessment.phone,
     language: assessment.language,

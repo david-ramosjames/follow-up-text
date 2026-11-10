@@ -69,7 +69,7 @@ const FAQ = [
     a: [
       "The client replying to a text. The client calling the office. A paralegal reaching them on an outbound call that lasts two minutes or more. The client texting STOP, ALTO, CANCEL or any of the other opt-out words. The assigned paralegal hitting Stop in Slack. An administrator hitting Stop here. Or the sequence simply running out of texts.",
       "Anything the client does stops it immediately — that is the whole point of the system. Nobody who has already re-engaged should keep getting drip texts. The same is true once somebody at the firm has actually spoken to them for a couple of minutes: a later “we missed you” text is worse than silence.",
-      "The call one needs the call.completed and call.ringing events ticked on your Quo webhook before it works — with only the message events, a client who rings the office instead of texting back keeps receiving the series. An unanswered outbound dial does not stop the series. A short outbound connect (under two minutes) keeps going and asks in Slack whether to stop. Two minutes or more stops it.",
+      "The call one needs the call.completed and call.ringing events ticked on your Quo webhook before it works — with only the message events, a client who rings the office instead of texting back keeps receiving the series. An unanswered outbound dial, or a Human Call Completed card that says no connect, does not stop the series. A Human Call Completed card for an outbound call stops only when that call lasted two minutes or more. Under two minutes the series keeps going and the thread gets Keep texting / Stop follow-ups, same as before.",
     ],
   },
   {

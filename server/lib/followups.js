@@ -1,6 +1,6 @@
 import { one, rows, rpc, query } from "../db.js";
 import { assigneeMentionSuffix, formatSlackMentions, parseSlackUserIds } from "../../shared/slackMentions.js";
-import { displayPhone, enrollmentBlocks, postToThread, slackApi } from "./slack.js";
+import { displayPhone, enrollmentBlocks, postToThread, shortCallReviewBlocks, slackApi } from "./slack.js";
 import { formatPhone, normalizePhone } from "../../shared/messaging.js";
 import { currentFirm } from "./firms.js";
 import { loadSettings, slackDefaultSequenceSlug } from "./settings.js";
@@ -70,6 +70,38 @@ export function canReviewSeries(operator, assignedSlackUserId) {
   const owners = parseSlackUserIds(assignedSlackUserId);
   if (!owners.length) return true;
   return owners.includes(operator.slack_user_id);
+}
+
+export async function reviewShortOutboundCall(phone, durationSeconds) {
+  const enrollment = await findActiveEnrollmentByPhone(phone);
+  if (!enrollment) return { stopped: false, reason: "no_active" };
+
+  const shown = await displayPhone(phone);
+  const settings = await loadSettings();
+  await postToThread({
+    channel: enrollment.slack_channel_id,
+    threadTs: enrollment.slack_thread_ts,
+    text: `Short call with ${shown} — should we keep texting?`,
+    blocks: shortCallReviewBlocks({
+      enrollmentId: String(enrollment.id),
+      phone: shown,
+      firstName: enrollment.first_name,
+      durationSeconds,
+      assignedUserId: enrollment.assigned_slack_user_id,
+      mentionAssignees: settings.slack_tag_assignees,
+    }),
+  });
+
+  await query(
+    `insert into followup_events (enrollment_id, contact_id, kind, detail, actor)
+     select e.id, e.contact_id, 'short_call_review',
+            jsonb_build_object('duration_seconds', $2::int), 'system'
+     from followup_enrollments e where e.id = $1`,
+    [enrollment.id, durationSeconds ?? null],
+  ).catch((error) => console.error("Could not log short-call review", error));
+
+  mirrorTextSequence(phone).catch((error) => console.error("text sequence mirror failed", error));
+  return { stopped: false, reason: "short_call", enrollment_id: enrollment.id };
 }
 
 export async function findActiveEnrollmentByPhone(phone) {

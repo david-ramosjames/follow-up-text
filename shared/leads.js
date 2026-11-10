@@ -216,8 +216,8 @@ export function humanCallIsNoConnect(text) {
 }
 
 /**
- * Outbound from a firm Quo line (From: Leads … To: client). Duration / short-call
- * handling belongs on the Quo webhook; the Slack Human Call post must not stop texts.
+ * Outbound from a firm Quo line (From: Leads … To: client). A no-connect still
+ * leaves texts running. A reached call stops only at two minutes or more.
  */
 export function humanCallIsOutboundFromFirm(text, firmPhones = []) {
   const ours = new Set(

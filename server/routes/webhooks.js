@@ -17,9 +17,9 @@ import {
 } from "../../shared/calls.js";
 import { query, rpc } from "../db.js";
 import { listQuoNumbers, readEvent, readPhone, resolveSendingNumber, sendText } from "../lib/quo.js";
-import { findActiveEnrollmentByPhone, retireStartCard } from "../lib/followups.js";
+import { retireStartCard, reviewShortOutboundCall } from "../lib/followups.js";
 import { mirrorTextSequence } from "../lib/leadMirror.js";
-import { displayPhone, postToThread, shortCallReviewBlocks } from "../lib/slack.js";
+import { displayPhone, postToThread } from "../lib/slack.js";
 import { loadSettings } from "../lib/settings.js";
 import { verifyWebhook } from "../lib/quo.js";
 import { currentFirm, firmForQuoNumber, runWithFirm } from "../lib/firms.js";
@@ -160,39 +160,9 @@ async function handleInboundMessage(object) {
 }
 
 async function reviewShortOutbound(object, fromClient) {
-  const enrollment = await findActiveEnrollmentByPhone(fromClient);
-  if (!enrollment) return { ignored: "no_active_enrollment" };
-
-  const seconds = callDurationSeconds(object);
-  const shown = await displayPhone(fromClient);
-  const settings = await loadSettings();
-  await postToThread({
-    channel: enrollment.slack_channel_id,
-    threadTs: enrollment.slack_thread_ts,
-    text: `Short call with ${shown} — should we keep texting?`,
-    blocks: shortCallReviewBlocks({
-      enrollmentId: String(enrollment.id),
-      phone: shown,
-      firstName: enrollment.first_name,
-      durationSeconds: seconds,
-      assignedUserId: enrollment.assigned_slack_user_id,
-      mentionAssignees: settings.slack_tag_assignees,
-    }),
-  });
-
-  await query(
-    `insert into followup_events (enrollment_id, contact_id, kind, detail, actor)
-     select e.id, e.contact_id, 'short_call_review',
-            jsonb_build_object('duration_seconds', $2::int), 'system'
-     from followup_enrollments e where e.id = $1`,
-    [enrollment.id, seconds],
-  ).catch((error) => console.error("Could not log short-call review", error));
-
-  // Short connects leave the series running. Remirror so Intake Manager keeps
-  // showing Stop SMS even when the lead row never picked up the first enroll.
-  mirrorTextSequence(fromClient).catch((error) => console.error("text sequence mirror failed", error));
-
-  return { action: "short_call_review", stopped: false, enrollment_id: enrollment.id };
+  const reviewed = await reviewShortOutboundCall(fromClient, callDurationSeconds(object));
+  if (reviewed.reason === "no_active") return { ignored: "no_active_enrollment" };
+  return { action: "short_call_review", stopped: false, enrollment_id: reviewed.enrollment_id };
 }
 
 async function handleCall(object, type, context = {}) {

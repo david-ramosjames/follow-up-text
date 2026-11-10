@@ -80,6 +80,43 @@ export async function syncQuoNumbers() {
   return listQuoNumbers();
 }
 
+export async function fetchCall(callId) {
+  const id = String(callId ?? "").trim();
+  if (!id || !quoApiKey()) return null;
+  try {
+    const { response, parsed } = await quoFetch(`/calls/${encodeURIComponent(id)}`);
+    if (!response.ok) return null;
+    const data = parsed?.data ?? parsed;
+    return data && typeof data === "object" && !Array.isArray(data) ? data : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchLatestCallForPhone(phone, { direction } = {}) {
+  const e164 = String(phone ?? "").trim();
+  if (!e164 || !quoApiKey()) return null;
+  try {
+    const { response, parsed } = await quoFetch(`/calls?participants=${encodeURIComponent(e164)}`);
+    if (!response.ok) return null;
+    const list = Array.isArray(parsed?.data) ? parsed.data : [];
+    if (!list.length) return null;
+    const wanted = String(direction ?? "").toLowerCase();
+    const aliases = wanted === "outgoing" || wanted === "outbound"
+      ? ["outgoing", "outbound"]
+      : wanted ? [wanted] : [];
+    const matched = aliases.length
+      ? list.filter((row) => aliases.includes(String(row?.direction ?? "").toLowerCase()))
+      : list;
+    const pool = matched.length ? matched : list;
+    return [...pool].sort((a, b) => (
+      Date.parse(b?.completedAt || b?.createdAt || 0) - Date.parse(a?.completedAt || a?.createdAt || 0)
+    ))[0] ?? null;
+  } catch {
+    return null;
+  }
+}
+
 // Sona's Slack summary is always English. The transcript is what they said.
 export async function fetchCallTranscript(callId) {
   const id = String(callId ?? "").trim();
