@@ -306,6 +306,9 @@ export function enrollmentBlocks(card) {
         { type: "mrkdwn", text: `*Texts queued*\n${card.stepCount}` },
         ...(card.fromNumber ? [{ type: "mrkdwn", text: `*Sending from*\n${card.fromNumber}` }] : []),
         ...(card.caseReference ? [{ type: "mrkdwn", text: `*Reference*\n${card.caseReference}` }] : []),
+        ...(card.callbackEscalation
+          ? [{ type: "mrkdwn", text: `*Quo Router callback*\n${card.callbackEscalation}` }]
+          : []),
       ],
     },
     ...(routingLine ? [{

@@ -22,6 +22,24 @@ export function webformCallbackConfigured() {
   return Boolean(routerBaseUrl() && routerToken());
 }
 
+/** Short status line for Slack cards and the Leads UI. */
+export function describeWebformCallbackResult(result) {
+  if (!result) return null;
+  if (result.ok && result.started) {
+    return "Quo Router callback escalation: sent successfully "
+      + "(Outbound → Inbound → LAs every 2 min, then managers).";
+  }
+  if (result.reason === "not_configured") {
+    return "Quo Router callback escalation: not configured "
+      + "(set QUO_ROUTER_URL and QUO_ROUTER_REPORT_TOKEN).";
+  }
+  if (result.reason === "not_started" || result.status === 409) {
+    return "Quo Router callback escalation: not started "
+      + "(outside business hours, disabled, or Slack not ready).";
+  }
+  return `Quo Router callback escalation: failed (${result.reason || result.detail || "error"}).`;
+}
+
 /**
  * Start outbound → inbound → LA → managers callback tags (one at a time, 2 min).
  * No-ops when QUO_ROUTER_* env is missing. Never throws to the lead router.

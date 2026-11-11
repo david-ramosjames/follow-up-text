@@ -213,6 +213,7 @@ export async function announceEnrollment(result, {
   channel = null,
   threadTs = null,
   routing = null,
+  callbackEscalation = null,
 } = {}) {
   const phone = await displayPhone(String(result.phone));
   let fromNumber = null;
@@ -248,8 +249,13 @@ export async function announceEnrollment(result, {
     fromNumber,
     routing,
     rerouteOptions,
+    callbackEscalation: callbackEscalation
+      ? String(callbackEscalation).replace(/^Quo Router callback escalation:\s*/i, "")
+      : null,
   });
-  const text = `Follow-up texts started for ${phone}`;
+  const text = callbackEscalation
+    ? `Follow-up texts started for ${phone}. ${callbackEscalation}`
+    : `Follow-up texts started for ${phone}`;
 
   const posted = await postToThread({
     channel: channel || result.slack_channel_id,

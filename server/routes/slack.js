@@ -58,7 +58,10 @@ import {
   CONTRACT_PATH_WAIT_SECONDS,
   stopActiveSeriesOnHumanCall,
 } from "../lib/contractPath.js";
-import { startWebformCallbackEscalation } from "../lib/quoRouterCallback.js";
+import {
+  describeWebformCallbackResult,
+  startWebformCallbackEscalation,
+} from "../lib/quoRouterCallback.js";
 import {
   displayPhone,
   formatWhen,
@@ -807,38 +810,45 @@ export async function handleLeadPost(event) {
 
     const waitMinutes = Math.round(CONTRACT_PATH_WAIT_SECONDS / 60);
     log(`contract path — waiting ${waitMinutes}m for a signing link`);
-    await recordObservation({
-      ...observed,
-      outcome: "waiting_contract",
-      outcomeDetail: `Waiting up to ${waitMinutes} minutes for “Contract sent to be signed”. If it arrives, no abandoned text. If it does not, the usual series starts.`,
-    });
-    // Still ask someone to call — they have not been reached by phone yet.
-    void startWebformCallbackEscalation({
+    const callback = await startWebformCallbackEscalation({
       channelId: event.channel,
       parentTs: event.thread_ts ?? event.ts,
       phone: assessment.phone,
     });
-    return { waiting: true };
+    const callbackNote = describeWebformCallbackResult(callback);
+    await recordObservation({
+      ...observed,
+      outcome: "waiting_contract",
+      outcomeDetail: [
+        `Waiting up to ${waitMinutes} minutes for “Contract sent to be signed”. If it arrives, no abandoned text. If it does not, the usual series starts.`,
+        callbackNote,
+      ].filter(Boolean).join(" "),
+    });
+    return { waiting: true, callback };
   }
 
   const threadTs = event.thread_ts ?? event.ts;
   // Cold web form / chat: escalate phone callback (outbound → inbound → LAs →
   // managers) via quo-router during business hours. Independent of SMS series.
-  void startWebformCallbackEscalation({
+  const callback = await startWebformCallbackEscalation({
     channelId: event.channel,
     parentTs: threadTs,
     phone: assessment.phone,
   });
+  const callbackNote = describeWebformCallbackResult(callback);
 
   const owner = String(settings.lead_default_owner_slack_id ?? "").trim();
   if (!owner) {
     await recordObservation({
       ...observed,
       outcome: "no_owner",
-      outcomeDetail: "No default owner is set under Settings, so nothing was started.",
+      outcomeDetail: [
+        "No default owner is set under Settings, so nothing was started.",
+        callbackNote,
+      ].filter(Boolean).join(" "),
     });
     console.warn("A lead arrived but no default owner is set, so nothing was started.");
-    return { ignored: "no_owner" };
+    return { ignored: "no_owner", callback };
   }
 
   const result = await startSeries({
@@ -862,6 +872,7 @@ export async function handleLeadPost(event) {
       case_detail: assessment.caseDetail ?? null,
       email: assessment.email ?? null,
       classifier_failed: assessment.classifierFailed ?? null,
+      quo_router_callback: callbackNote,
     },
   });
 
@@ -869,19 +880,25 @@ export async function handleLeadPost(event) {
     await recordObservation({
       ...observed,
       outcome: "enroll_failed",
-      outcomeDetail: result?.reason ?? "unknown",
+      outcomeDetail: [result?.reason ?? "unknown", callbackNote].filter(Boolean).join(". "),
     });
     // Worth saying out loud in the thread: silence here looks like the
     // automation working, when in fact this lead is getting no texts.
     await slackApi("chat.postMessage", {
       channel: event.channel,
       thread_ts: threadTs,
-      text: `:warning: No follow-ups started for this lead — ${enrollFailureText(result, assessment.phone)}`,
+      text: `:warning: No follow-ups started for this lead — ${enrollFailureText(result, assessment.phone)}`
+        + (callbackNote ? `\n${callbackNote}` : ""),
     });
-    return { ignored: result?.reason ?? "enroll_failed" };
+    return { ignored: result?.reason ?? "enroll_failed", callback };
   }
 
-  await recordObservation({ ...observed, outcome: "started", enrollmentId: result.enrollment_id });
+  await recordObservation({
+    ...observed,
+    outcome: "started",
+    enrollmentId: result.enrollment_id,
+    outcomeDetail: callbackNote,
+  });
   await announceEnrollment(result, {
     channel: event.channel,
     threadTs,
@@ -890,9 +907,10 @@ export async function handleLeadPost(event) {
       reasoning: assessment.reasoning,
       caseType: assessment.caseType,
     },
+    callbackEscalation: callbackNote,
   });
 
-  return { started: true, enrollment_id: result.enrollment_id };
+  return { started: true, enrollment_id: result.enrollment_id, callback };
 }
 
 // Sona's Slack card is an English summary. Language is what they said on the

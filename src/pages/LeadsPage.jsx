@@ -1,4 +1,4 @@
-import { CircleAlert, Eye, Inbox, RefreshCw } from "lucide-react";
+import { CircleAlert, Eye, Inbox, PhoneCall, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import AppNav from "../components/AppNav";
@@ -65,6 +65,19 @@ function classifierKind(item) {
   if (item.classifier_error) return "Could not decide";
   if (item.is_lead) return "Web Qualified";
   return null;
+}
+
+function quoRouterCallbackNote(item) {
+  const detail = String(item.outcome_detail ?? "");
+  const match = detail.match(/Quo Router callback escalation:[^.]*\./i);
+  return match ? match[0].trim() : null;
+}
+
+function stripQuoRouterCallbackNote(detail) {
+  return String(detail ?? "")
+    .replace(/\s*Quo Router callback escalation:[^.]*\.\s*/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function Classification({ item, tracks, onTrackChange, saving }) {
@@ -142,6 +155,8 @@ function Observation({ item, tracks, onUpdate }) {
   const outcome = observationOutcome(item);
   const acted = item.outcome === "started" || item.outcome === "preview_only" || item.outcome === "waiting_contract";
   const showSchedule = item.outcome === "started" || item.outcome === "preview_only";
+  const callbackNote = quoRouterCallbackNote(item);
+  const otherDetail = stripQuoRouterCallbackNote(item.outcome_detail);
 
   const changeTrack = async (slug) => {
     if (!slug) return;
@@ -198,6 +213,20 @@ function Observation({ item, tracks, onUpdate }) {
         </div>
       )}
 
+      {callbackNote && (
+        <div className="next-send">
+          <PhoneCall size={15} />
+          <div>
+            <strong>Quo Router callback escalation</strong>
+            <small>
+              {/sent successfully/i.test(callbackNote)
+                ? "Sent successfully to Quo Router — Outbound → Inbound → LAs every 2 min, then managers."
+                : callbackNote.replace(/^Quo Router callback escalation:\s*/i, "")}
+            </small>
+          </div>
+        </div>
+      )}
+
       {/* The whole point of watch-and-record: not "which sequence" but the exact
           words this person would have received. */}
       {item.preview_body && (
@@ -217,8 +246,8 @@ function Observation({ item, tracks, onUpdate }) {
           Routing fell back to the default sequence: {item.classifier_error}.
         </p>
       )}
-      {item.outcome_detail && !item.classifier_error && (
-        <p className="inline-note">{item.outcome_detail}</p>
+      {otherDetail && !item.classifier_error && (
+        <p className="inline-note">{otherDetail}</p>
       )}
 
       <footer>
