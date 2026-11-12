@@ -828,8 +828,8 @@ export async function handleLeadPost(event) {
   }
 
   const threadTs = event.thread_ts ?? event.ts;
-  // Cold web form / chat: escalate phone callback (outbound → inbound → LAs →
-  // managers) via quo-router during business hours. Independent of SMS series.
+  // Cold web form / chat: escalate phone callback via quo-router (daytime ladder
+  // or Jackie after hours). Independent of SMS series.
   const callback = await startWebformCallbackEscalation({
     channelId: event.channel,
     parentTs: threadTs,

@@ -27,7 +27,7 @@ export function describeWebformCallbackResult(result) {
   if (!result) return null;
   if (result.ok && result.started) {
     return "Quo Router callback escalation: sent successfully "
-      + "(Outbound → Inbound → LAs every 2 min, then managers).";
+      + "(Outbound → Inbound → LAs every 2 min, then managers; after hours tags Jackie).";
   }
   if (result.reason === "not_configured") {
     return "Quo Router callback escalation: not configured "
@@ -35,7 +35,7 @@ export function describeWebformCallbackResult(result) {
   }
   if (result.reason === "not_started" || result.status === 409) {
     return "Quo Router callback escalation: not started "
-      + "(outside business hours, disabled, or Slack not ready).";
+      + "(disabled, no after-hours staff, or Slack not ready).";
   }
   return `Quo Router callback escalation: failed (${result.reason || result.detail || "error"}).`;
 }
