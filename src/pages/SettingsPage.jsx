@@ -418,6 +418,7 @@ export default function SettingsPage() {
                 ["Sign in with Google", environment.googleSignInConfigured, "GOOGLE_CLIENT_ID / SECRET"],
                 ["Sign in with Slack", environment.slackSignInConfigured, "SLACK_CLIENT_ID / SECRET"],
                 ["Public URL", Boolean(environment.publicUrl), "PUBLIC_URL"],
+                ["CallRail", environment.callrailConfigured, "CALLRAIL_API_KEY / ACCOUNT_ID"],
                 [
                   environment.leadRouting
                     ? `Lead routing — ${environment.leadRouting.provider === "openai" ? "OpenAI" : "Anthropic"} (${environment.leadRouting.model})`

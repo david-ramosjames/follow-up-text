@@ -4,6 +4,7 @@ import { uniqueCopyIdentity } from "../../shared/sequences.js";
 import { normalizePhone, parseCaseTypePhrases } from "../../shared/messaging.js";
 import { googleConfigured, requireSession, slackSignInConfigured, accessibleFirmIds, sessionCanUseFirm, sessionSeesAllFirms } from "../auth.js";
 import { listQuoNumbers, quoConfigured, syncQuoNumbers } from "../lib/quo.js";
+import { callrailConfigured } from "../lib/callrail.js";
 import { loadSettings, SETTING_DEFINITIONS, saveSettings, settingsDefinitions } from "../lib/settings.js";
 import { announceEnrollment, announceStop, startSeries, stopSeries } from "../lib/followups.js";
 import { llmDescription, routableSequences, translateToSpanish } from "../lib/leads.js";
@@ -1192,6 +1193,7 @@ apiRouter.get("/settings", ok(async (req, res) => {
       slackSignInConfigured: slackSignInConfigured(),
       googleSignInConfigured: googleConfigured(),
       publicUrl: process.env.PUBLIC_URL || null,
+      callrailConfigured: callrailConfigured(),
       leadRouting: llmDescription(),
     },
   });

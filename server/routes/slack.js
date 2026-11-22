@@ -18,6 +18,7 @@ import {
   clientPhoneFromCallPost,
   firstNameFromCallPost,
   languageFromCallPost,
+  languageFromLandingUrl,
   callIdFromCallPost,
   languageFromSpokenText,
   quoRouterCallIsOngoing,
@@ -50,6 +51,7 @@ import {
   stopSeries,
 } from "../lib/followups.js";
 import { fetchCall, fetchCallTranscript, fetchLatestCallForPhone, listQuoNumbers } from "../lib/quo.js";
+import { languageFromCallrail } from "../lib/callrail.js";
 import { mirrorTextSequence } from "../lib/leadMirror.js";
 import { currentFirm, runWithFirm, slackAppId, slackBotToken } from "../lib/firms.js";
 import {
@@ -913,15 +915,38 @@ export async function handleLeadPost(event) {
   return { started: true, enrollment_id: result.enrollment_id, callback };
 }
 
-// Sona's Slack card is an English summary. Language is what they said on the
-// call, from the Quo transcript. CallRail does not put language on the post.
-async function languageForCallPost(_event, text, call) {
-  const labeled = languageFromCallPost(text);
-  if (call?.kind !== "sona") return labeled;
-  const callId = callIdFromCallPost(text);
-  if (!callId) return labeled;
-  const spoken = languageFromSpokenText(await fetchCallTranscript(callId));
-  return spoken ?? labeled;
+async function slackParentText(event) {
+  if (!event?.thread_ts || event.thread_ts === event.ts) return "";
+  const parent = await slackApi("conversations.replies", {
+    channel: event.channel,
+    ts: event.thread_ts,
+    limit: 1,
+    inclusive: true,
+  });
+  if (!parent?.ok) return "";
+  return flattenSlackMessage(parent.messages?.[0] ?? {});
+}
+
+// Missed-call Slack cards have no language line. Spanish ads land on
+// start.ramosjames.com?...lang=es — CallRail stores that as landing_page_url.
+// Sona summaries are always English; spoken language is the transcript.
+async function languageForCallPost(event, text, call, phone) {
+  const parentText = await slackParentText(event);
+  const combined = [parentText, text].filter(Boolean).join("\n");
+  const labeled = languageFromCallPost(combined);
+  if (labeled === "es") return "es";
+  const fromLanding = languageFromLandingUrl(combined);
+  if (fromLanding) return fromLanding;
+  const fromCallrail = await languageFromCallrail({ text: combined, phone });
+  if (fromCallrail) return fromCallrail;
+  if (call?.kind === "sona") {
+    const callId = callIdFromCallPost(combined);
+    if (callId) {
+      const spoken = languageFromSpokenText(await fetchCallTranscript(callId));
+      if (spoken) return spoken;
+    }
+  }
+  return labeled;
 }
 
 // Quo Router missed and Sona posts are not form fills, and Sona often arrives
@@ -932,7 +957,7 @@ async function handleQuoRouterCallPost(event, { text, call, mode, log, settings 
   const numbers = await listQuoNumbers();
   const phone = clientPhoneFromCallPost(text, numbers.map((row) => row.phone_e164));
   const firstName = firstNameFromCallPost(text);
-  const language = await languageForCallPost(event, text, call);
+  const language = await languageForCallPost(event, text, call, phone);
   const sequenceSlug = (await resolveSlackDefaultSequence()).slug;
   const leadSource = call.kind === "sona" ? "sona" : "missed_call";
   const kindLabel = call.kind === "sona" ? "Sona call" : "Missed call";

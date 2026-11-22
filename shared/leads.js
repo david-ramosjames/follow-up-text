@@ -289,6 +289,28 @@ export function callIdFromCallPost(text) {
   return String(text ?? "").match(/\b(AC[a-zA-Z0-9]{12,})\b/)?.[1] ?? null;
 }
 
+export function callrailCallIdFromText(text) {
+  return String(text ?? "").match(/event_id=(CAL[0-9a-f]+)/i)?.[1]?.toUpperCase() ?? null;
+}
+
+/** CallRail Website Pool landing pages carry lang=es on Spanish ads. */
+export function languageFromLandingUrl(url) {
+  const href = String(url ?? "");
+  if (!href.trim()) return null;
+  if (/[?&#](?:lang|hl|locale)=es(?:-|$|&|#)/i.test(href) || /\/es(?:\/|$|\?|#)/i.test(href)) return "es";
+  if (/[?&#](?:lang|hl|locale)=en(?:-|$|&|#)/i.test(href) || /\/en(?:\/|$|\?|#)/i.test(href)) return "en";
+  return null;
+}
+
+/** CallRail tracker like "Google Call Ads - ATX ES". Website Pool has no language in the name. */
+export function languageFromCallrailTracker(tracker) {
+  const name = String(tracker ?? "").replace(/\s+/g, " ").trim();
+  if (!name || !/call\s*ads?/i.test(name)) return null;
+  if (/(?:^|[\s\-_/(])ES(?:$|[\s\-_)/])/i.test(name) || /\bESPA[NÑ]OL\b/i.test(name)) return "es";
+  if (/(?:^|[\s\-_/(])EN(?:$|[\s\-_)/])/i.test(name) || /\bENGLISH\b/i.test(name)) return "en";
+  return null;
+}
+
 const SPANISH_CUES = [
   "hola", "gracias", "por favor", "buenos", "buenas", "días", "tardes", "noches",
   "cómo", "está", "estoy", "llamar", "llamando", "accidente", "abogado", "número",

@@ -32,6 +32,8 @@ function reportConfiguration() {
     ["OPENAI_API_KEY or ANTHROPIC_API_KEY",
       Boolean(process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY),
       "routing lead posts to the right track"],
+    ["CALLRAIL_API_KEY", Boolean(process.env.CALLRAIL_API_KEY && process.env.CALLRAIL_ACCOUNT_ID),
+      "Spanish missed-call texts from the CallRail landing page"],
   ];
 
   const missing = checks.filter(([, present]) => !present);

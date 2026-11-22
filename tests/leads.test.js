@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { flattenSlackMessage, readLead, historyMessageToEvent, describeSlackHistoryError, isOutboundReferral, pickTrackSlug, describeTrackKind, kindSlug, normalizeCaseType, buildClassificationUserPrompt, looksLikeIntakeForm, formFillIsALead, isContractPath, isContractSent, phoneFromContractNotice, isMoreDetailsReply, isIntakeEngineLanding, pickWaitingParent, CONTRACT_PATH_WAIT_SECONDS, readQuoRouterCall, isHumanHandledCall, humanCallIsNoConnect, humanCallIsOutboundFromFirm, clientPhoneFromCallPost, firstNameFromCallPost, languageFromCallPost, callIdFromCallPost, languageFromSpokenText, quoRouterCallIsOngoing, calledLineFromCallPost, isLeadIntakeCallLine, isQuoRouterLeadCall } from "../shared/leads.js";
+import { flattenSlackMessage, readLead, historyMessageToEvent, describeSlackHistoryError, isOutboundReferral, pickTrackSlug, describeTrackKind, kindSlug, normalizeCaseType, buildClassificationUserPrompt, looksLikeIntakeForm, formFillIsALead, isContractPath, isContractSent, phoneFromContractNotice, isMoreDetailsReply, isIntakeEngineLanding, pickWaitingParent, CONTRACT_PATH_WAIT_SECONDS, readQuoRouterCall, isHumanHandledCall, humanCallIsNoConnect, humanCallIsOutboundFromFirm, clientPhoneFromCallPost, firstNameFromCallPost, languageFromCallPost, languageFromLandingUrl, languageFromCallrailTracker, callrailCallIdFromText, callIdFromCallPost, languageFromSpokenText, quoRouterCallIsOngoing, calledLineFromCallPost, isLeadIntakeCallLine, isQuoRouterLeadCall } from "../shared/leads.js";
 
 // The four shapes actually posting into the lead channel. Kept verbatim rather
 // than tidied, because the point of these tests is that real posts parse — a
@@ -383,6 +383,16 @@ test("the client number is the From line, not a firm Quo line", () => {
     languageFromSpokenText("Hola, necesito ayuda, tuve un accidente y quiero un abogado por favor."),
     "es",
   );
+});
+
+test("CallRail landing page lang=es is Spanish, and Call Ads ES trackers are too", () => {
+  const landing = "https://start.ramosjames.com/general?lang=es&campaignid=23384619808&adgroupid=&gad_source=2";
+  assert.equal(languageFromLandingUrl(landing), "es");
+  assert.equal(languageFromLandingUrl("https://start.ramosjames.com/general?lang=en&gclid=abc"), "en");
+  assert.equal(languageFromLandingUrl("https://start.ramosjames.com/general"), null);
+  assert.equal(languageFromCallrailTracker("Google Call Ads - ATX ES"), "es");
+  assert.equal(languageFromCallrailTracker("Website Pool"), null);
+  assert.equal(callrailCallIdFromText("https://app.callrail.com/calls?event_id=CALabc123def"), "CALABC123DEF");
 });
 
 test("an outbound Sona post uses the To number when From is the firm line", () => {
