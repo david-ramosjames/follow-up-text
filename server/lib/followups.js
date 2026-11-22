@@ -104,6 +104,23 @@ export async function reviewShortOutboundCall(phone, durationSeconds) {
   return { stopped: false, reason: "short_call", enrollment_id: enrollment.id };
 }
 
+export async function findActiveEnrollmentInThread(channelId, threadTs) {
+  if (!channelId || !threadTs) return null;
+  return one(
+    `select e.id, e.assigned_slack_user_id, e.slack_channel_id, e.slack_thread_ts,
+            e.slack_message_ts, e.status, e.language, c.first_name, c.phone_e164
+     from followup_enrollments e
+     join followup_contacts c on c.id = e.contact_id
+     where e.status = 'active'
+       and e.slack_channel_id = $1
+       and (e.slack_thread_ts = $2 or e.slack_message_ts = $2)
+       and ($3::uuid is null or e.firm_id = $3)
+     order by e.started_at desc
+     limit 1`,
+    [channelId, threadTs, currentFirm()?.id ?? null],
+  );
+}
+
 export async function findActiveEnrollmentByPhone(phone) {
   const e164 = normalizePhone(phone);
   if (!e164) return null;
@@ -289,6 +306,49 @@ export async function announceEnrollment(result, {
     return { ok: true, degraded: true };
   }
   return posted ?? { ok: false, error: "no_post" };
+}
+
+export async function switchEnrollmentLanguage(enrollmentId, { language = null, actor = null } = {}) {
+  const current = await one(
+    `select e.id, e.status, e.language, e.contact_id, e.slack_channel_id, e.slack_thread_ts,
+            e.slack_message_ts, e.next_run_at, e.assigned_slack_user_id, e.assigned_slack_user_name,
+            e.case_reference, e.quo_number_id, e.source, e.lead_detail,
+            c.phone_e164, c.first_name,
+            q.name as sequence_name, q.timezone,
+            (select count(*) from followup_steps s
+              where s.sequence_id = e.sequence_id and s.is_active and s.position >= e.next_position) as step_count
+     from followup_enrollments e
+     join followup_contacts c on c.id = e.contact_id
+     join followup_sequences q on q.id = e.sequence_id
+     where e.id = $1`,
+    [enrollmentId],
+  );
+  if (!current) return { ok: false, reason: "not_found" };
+  if (current.status !== "active") return { ok: false, reason: "not_active", ...current };
+
+  const fromLanguage = current.language === "es" ? "es" : "en";
+  const next = language === "es" || language === "en"
+    ? language
+    : (fromLanguage === "es" ? "en" : "es");
+  if (next === fromLanguage) {
+    return { ok: true, unchanged: true, ...current, language: next, phone: current.phone_e164 };
+  }
+
+  await query(
+    `update followup_enrollments set language = $2 where id = $1`,
+    [enrollmentId, next],
+  );
+  await query(
+    `update followup_contacts set language = $2 where id = $1`,
+    [current.contact_id, next],
+  );
+  await query(
+    `insert into followup_events (enrollment_id, contact_id, kind, detail, actor)
+     values ($1, $2, 'language_switched', jsonb_build_object('from', $3::text, 'to', $4::text), $5)`,
+    [enrollmentId, current.contact_id, fromLanguage, next, actor ?? "slack"],
+  );
+  mirrorTextSequence(current.phone_e164).catch((error) => console.error("text sequence mirror failed", error));
+  return { ok: true, ...current, language: next, phone: current.phone_e164 };
 }
 
 export async function stopSeries({ enrollmentId, phone, actor, enforceAssignment = false, reason = "manual" }) {

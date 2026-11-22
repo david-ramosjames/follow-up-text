@@ -2,8 +2,11 @@ import crypto from "node:crypto";
 import { formatPhone, maskPhone } from "../../shared/messaging.js";
 import { assigneeMentionSuffix, formatSlackMentions } from "../../shared/slackMentions.js";
 import { describeCallDuration } from "../../shared/calls.js";
+import { languageLabel, patchEnrollmentLanguageBlocks } from "../../shared/slackCards.js";
 import { loadSettings } from "./settings.js";
 import { currentFirm, listFirms, slackAppId, slackBotToken, slackSigningSecret } from "./firms.js";
+
+export { languageLabel, patchEnrollmentLanguageBlocks };
 
 /* ------------------------------------------------------------- signatures */
 
@@ -255,7 +258,7 @@ function assignedField(card) {
 
 export function enrollmentBlocks(card) {
   const who = card.firstName ? `*${card.firstName}* ` : "";
-  const language = card.language === "es" ? "Spanish" : "English";
+  const language = languageLabel(card.language);
   const actions = [{
     type: "button",
     action_id: "followup_stop",
@@ -268,6 +271,11 @@ export function enrollmentBlocks(card) {
       confirm: { type: "plain_text", text: "Stop them" },
       deny: { type: "plain_text", text: "Keep going" },
     },
+  }, {
+    type: "button",
+    action_id: "followup_switch_language",
+    text: { type: "plain_text", text: language === "Spanish" ? "Switch to English" : "Switch to Spanish" },
+    value: card.enrollmentId,
   }];
 
   if (card.rerouteOptions?.length) {

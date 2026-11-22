@@ -44,11 +44,13 @@ import {
   lookupSlackName,
   retireStartCard,
   findActiveEnrollmentByPhone,
+  findActiveEnrollmentInThread,
   findPriorConversation,
   resolveSlackDefaultSequence,
   reviewShortOutboundCall,
   startSeries,
   stopSeries,
+  switchEnrollmentLanguage,
 } from "../lib/followups.js";
 import { fetchCall, fetchCallTranscript, fetchLatestCallForPhone, listQuoNumbers } from "../lib/quo.js";
 import { languageFromCallrail } from "../lib/callrail.js";
@@ -67,7 +69,10 @@ import {
 import {
   displayPhone,
   formatWhen,
+  languageLabel,
   noPhoneModal,
+  patchEnrollmentLanguageBlocks,
+  postToThread,
   respondToUrl,
   slackApi,
   startModal,
@@ -92,6 +97,7 @@ const HELP = [
   "`/followup` — open the start form",
   "`/followup 512-555-0123 es Maria` — start straight away (`start` is optional with a number)",
   "`/followup stop 512-555-0123` — stop a series you own",
+  "`/followup spanish` / `/followup english` — later texts in that language, same series",
   "`/followup status 512-555-0123` — where a client is in their series",
   "`/followup list` — everything you have running",
   "`/followup help` — this",
@@ -115,6 +121,8 @@ const MENTION_SYNTAX = [
   "`@sms-follow-up start 512-555-0123 es Maria` — start a series",
   "`@sms-follow-up start 512-555-0123 from Intake` — start from that Quo line (use the name as it appears in Quo)",
   "`@sms-follow-up stop 512-555-0123` — stop one you own",
+  "`@sms-follow-up spanish` — later texts in Spanish (same series)",
+  "`@sms-follow-up english` — later texts in English (same series)",
   "`@sms-follow-up status 512-555-0123` — where a client is",
   "`@sms-follow-up list` — everything you have running",
 ].join("\n");
@@ -126,7 +134,29 @@ const MENTION_ORDER_NOTE = "The order does not matter: anything shaped like a ph
 
 /* ------------------------------------------------------------ arg parsing */
 
-const VERBS = ["start", "stop", "status", "list", "help"];
+const VERBS = ["start", "stop", "status", "list", "help", "spanish", "english"];
+
+const LANGUAGE_SWITCH_WORDS = {
+  spanish: "es",
+  espanol: "es",
+  "español": "es",
+  english: "en",
+  ingles: "en",
+  "inglés": "en",
+};
+
+function parseLanguageSwitch(tokens) {
+  const verb = String(tokens[0] ?? "").toLowerCase();
+  if (verb === "switch") {
+    const next = String(tokens[1] ?? "").toLowerCase();
+    if (!next || next === "language") return { language: null };
+    if (next in LANGUAGE_SWITCH_WORDS) return { language: LANGUAGE_SWITCH_WORDS[next] };
+    if (next === "es" || next === "en") return { language: next };
+    return { language: null };
+  }
+  if (verb in LANGUAGE_SWITCH_WORDS) return { language: LANGUAGE_SWITCH_WORDS[verb] };
+  return null;
+}
 
 // How many single-character edits apart two words are. Only used to turn "stauts"
 // into "did you mean status?", so the cheap full matrix is more than enough.
@@ -360,6 +390,85 @@ async function doList(operator) {
   ].join("\n"));
 }
 
+async function rewriteStartCardLanguage(enrollment, language) {
+  const channel = enrollment.slack_channel_id;
+  const ts = enrollment.slack_message_ts;
+  if (!channel || !ts) return;
+  const threadTs = enrollment.slack_thread_ts || ts;
+  const replies = await slackApi("conversations.replies", {
+    channel,
+    ts: threadTs,
+    latest: ts,
+    oldest: ts,
+    inclusive: true,
+    limit: 5,
+  });
+  const message = (replies?.messages ?? []).find((row) => row.ts === ts);
+  if (!message?.blocks) return;
+  await slackApi("chat.update", {
+    channel,
+    ts,
+    text: message.text,
+    blocks: patchEnrollmentLanguageBlocks(message.blocks, language, enrollment.id),
+  });
+}
+
+async function applyLanguageSwitch({ enrollment, operator, language }) {
+  if (!canReviewSeries(operator, enrollment.assigned_slack_user_id)) {
+    return {
+      ok: false,
+      text: `:lock: That series belongs to ${formatSlackMentions(enrollment.assigned_slack_user_id)}, `
+        + "so only they or a supervisor can switch the language.",
+    };
+  }
+
+  const switched = await switchEnrollmentLanguage(enrollment.id, {
+    language,
+    actor: operator.slack_user_id,
+  });
+  if (!switched?.ok) {
+    if (switched?.reason === "not_active") {
+      return { ok: false, text: ":information_source: That series has already stopped." };
+    }
+    return { ok: false, text: ":warning: The language could not be switched." };
+  }
+
+  await rewriteStartCardLanguage(switched, switched.language)
+    .catch((error) => console.error("start card language update failed", error));
+
+  const label = languageLabel(switched.language);
+  const phone = await displayPhone(String(switched.phone_e164 || switched.phone));
+  if (switched.unchanged) {
+    return { ok: true, switched, text: `:information_source: ${phone} is already on ${label}.` };
+  }
+
+  if (switched.slack_channel_id && switched.slack_thread_ts) {
+    await postToThread({
+      channel: switched.slack_channel_id,
+      threadTs: switched.slack_thread_ts,
+      text: `:globe_with_meridians: Language switched to *${label}* by <@${operator.slack_user_id}>. `
+        + `Later texts will be in ${label}.`,
+    }).catch((error) => console.error("language switch notice failed", error));
+  }
+
+  return { ok: true, switched, text: `:white_check_mark: Later texts for ${phone} will be in ${label}.` };
+}
+
+async function doSwitchLanguage({ tokens, operator, channelId = null, threadTs = null, language = null }) {
+  const { phone } = takePhone(tokens);
+  let enrollment = phone ? await findActiveEnrollmentByPhone(phone) : null;
+  if (!enrollment && channelId && threadTs) {
+    enrollment = await findActiveEnrollmentInThread(channelId, threadTs);
+  }
+  if (!enrollment) {
+    return ephemeral(phone
+      ? `:information_source: Nothing is running for ${maskPhone(normalizePhone(phone) ?? phone)}.`
+      : ":warning: Which series? Use this in the thread, or add the number — `spanish 512-555-0123`.");
+  }
+  const result = await applyLanguageSwitch({ enrollment, operator, language });
+  return ephemeral(result.text);
+}
+
 async function openStartModal({ triggerId, userId, channelId, threadTs, sourceText }) {
   const sequences = await activeSequences();
   if (!sequences.length) {
@@ -428,6 +537,15 @@ slackRouter.post("/commands", async (req, res) => {
     if (verb === "list") return res.json(await doList(operator));
     if (verb === "status") return res.json(await doStatus(rest));
     if (verb === "stop") return res.json(await doStop({ tokens: rest, operator }));
+    const languageSwitch = parseLanguageSwitch(tokens);
+    if (languageSwitch) {
+      return res.json(await doSwitchLanguage({
+        tokens: rest,
+        operator,
+        language: languageSwitch.language,
+        channelId: params.channel_id,
+      }));
+    }
     if (verb === "start") {
       const reply = await doStart({ ...common, tokens: rest });
       return reply ? res.json(reply) : res.status(200).send("");
@@ -1199,7 +1317,8 @@ async function handleMention(event) {
     // Drop the leading <@BOTID> mention, then treat the rest as shorthand.
     const withoutMention = String(event.text ?? "").replace(/<@[A-Z0-9]+>/g, " ").trim();
     let tokens = withoutMention.split(/\s+/).filter(Boolean);
-    if ((tokens[0] ?? "").toLowerCase() === "start") tokens = tokens.slice(1);
+    const startedWithStart = (tokens[0] ?? "").toLowerCase() === "start";
+    if (startedWithStart) tokens = tokens.slice(1);
 
     const privately = (text) => inThread(text);
 
@@ -1225,6 +1344,19 @@ async function handleMention(event) {
     }
     if (verb === "list") {
       await privately((await doList(operator)).text);
+      return;
+    }
+
+    const languageSwitch = !startedWithStart && parseLanguageSwitch(tokens);
+    if (languageSwitch) {
+      const reply = await doSwitchLanguage({
+        tokens: tokens.slice(1),
+        operator,
+        language: languageSwitch.language,
+        channelId: event.channel,
+        threadTs,
+      });
+      await privately(reply.text);
       return;
     }
 
@@ -1545,6 +1677,50 @@ async function handleModalSubmit(payload, res) {
   return undefined;
 }
 
+async function handleSwitchLanguage(payload, res) {
+  const operator = await loadOperator(payload.user.id);
+  const responseUrl = payload.response_url;
+  const enrollmentId = payload.actions[0].value;
+  const say = (text) => respondToUrl(responseUrl, {
+    response_type: "ephemeral", replace_original: false, text,
+  });
+
+  if (!operator) {
+    await say(":lock: You are not set up to manage client follow-ups.");
+    return res.status(200).send("");
+  }
+
+  const enrollment = await loadSeriesForReview(enrollmentId);
+  if (!enrollment) {
+    await say(":warning: That series could not be found.");
+    return res.status(200).send("");
+  }
+  if (enrollment.status !== "active") {
+    await say(":information_source: That series has already stopped.");
+    return res.status(200).send("");
+  }
+
+  const result = await applyLanguageSwitch({ enrollment, operator, language: null });
+  if (!result.ok) {
+    await say(result.text);
+    return res.status(200).send("");
+  }
+
+  const blocks = payload.message?.blocks?.length
+    ? patchEnrollmentLanguageBlocks(payload.message.blocks, result.switched.language, enrollmentId)
+    : null;
+  if (blocks) {
+    await respondToUrl(responseUrl, {
+      replace_original: true,
+      text: payload.message?.text || "Follow-up texts started",
+      blocks,
+    });
+  } else {
+    await say(result.text);
+  }
+  return res.status(200).send("");
+}
+
 // Moving a lead the classifier put on the wrong track. Stops the current series
 // and starts the chosen one for the same client, in the same thread — which is
 // the correction worth making, and only useful before the second text.
@@ -1661,6 +1837,9 @@ slackRouter.post("/interactivity", async (req, res) => {
     }
     if (payload.type === "block_actions" && payload.actions?.[0]?.action_id === "followup_reroute") {
       return await handleReroute(payload, res);
+    }
+    if (payload.type === "block_actions" && payload.actions?.[0]?.action_id === "followup_switch_language") {
+      return await handleSwitchLanguage(payload, res);
     }
     return res.status(200).send("");
   } catch (error) {
