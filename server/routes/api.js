@@ -636,9 +636,11 @@ apiRouter.post("/intake/enroll", async (req, res) => {
         .split(",")[0]
         .trim();
       if (!assignee) return { ok: false, reason: "missing_assignee" };
+      const language = body.language === "es" ? "es" : body.language === "en" ? "en" : null;
       const started = await startSeries({
         phone: body.phone,
         sequence_slug: body.sequence_slug,
+        language,
         first_name: body.first_name || null,
         last_name: body.last_name || null,
         case_type: body.case_type || null,
