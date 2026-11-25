@@ -1,8 +1,10 @@
 import { normalizePhone } from "../../shared/messaging.js";
 import {
   callrailCallIdFromText,
+  languageFromCallrailPayload,
   languageFromCallrailTracker,
   languageFromLandingUrl,
+  languageFromPageViews,
 } from "../../shared/leads.js";
 
 export function callrailConfigured() {
@@ -29,14 +31,11 @@ async function callrailGet(path) {
 }
 
 function languageFromCallrailRow(row) {
-  if (!row || typeof row !== "object") return null;
-  return languageFromLandingUrl(row.landing_page_url)
-    || languageFromCallrailTracker(row.tracking_number_name || row.name)
-    || null;
+  return languageFromCallrailPayload(row);
 }
 
 function extraFields() {
-  return "fields[]=landing_page_url&fields[]=tracking_number_name&fields[]=source";
+  return "fields=source,source_name,landing_page_url,last_requested_url,milestones,campaign,utm_campaign";
 }
 
 function isoDate(offsetDays = 0) {
@@ -50,6 +49,19 @@ export async function fetchCallrailCall(callId) {
   if (!id || !callrailConfigured()) return null;
   const payload = await callrailGet(`/calls/${encodeURIComponent(id)}.json?${extraFields()}`);
   return payload && typeof payload === "object" ? payload : null;
+}
+
+/** Newest page view first. The last page of results holds the landing page. */
+export async function fetchCallrailPageViews(callId) {
+  const id = String(callId ?? "").trim();
+  if (!id || !callrailConfigured()) return [];
+  const first = await callrailGet(`/calls/${encodeURIComponent(id)}/page_views.json?per_page=100&page=1`);
+  const newest = Array.isArray(first?.page_views) ? first.page_views : [];
+  const pages = Number(first?.total_pages ?? 1);
+  if (!Number.isFinite(pages) || pages <= 1) return newest;
+  const last = await callrailGet(`/calls/${encodeURIComponent(id)}/page_views.json?per_page=100&page=${pages}`);
+  const oldest = Array.isArray(last?.page_views) ? last.page_views : [];
+  return [...newest, ...oldest];
 }
 
 export async function fetchCallrailCallForPhone(phone) {
@@ -68,18 +80,45 @@ export async function fetchCallrailCallForPhone(phone) {
   return calls.find((row) => languageFromCallrailRow(row)) || calls[0] || null;
 }
 
-/** Spanish if CallRail's landing page is lang=es, or the Call Ad tracker says ES. */
+async function languageFromIntakeManager(callId) {
+  const base = String(process.env.INTAKE_MANAGER_URL || "https://rjl-intake-manger.vercel.app").replace(/\/$/, "");
+  const token = process.env.INTAKE_ENROLL_TOKEN || "";
+  if (!callId || !token || !base) return null;
+  try {
+    const response = await fetch(`${base}/api/callrail/language`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ call_id: callId }),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!response.ok) return null;
+    const data = await response.json();
+    return data?.language === "es" || data?.language === "en" ? data.language : null;
+  } catch {
+    return null;
+  }
+}
+
+async function languageFromCallRecord(callId, row) {
+  const fromRow = languageFromCallrailRow(row);
+  if (fromRow) return fromRow;
+  const id = callId || row?.id;
+  if (!id) return null;
+  return languageFromPageViews(await fetchCallrailPageViews(id));
+}
+
+/** Spanish when the CallRail landing page, campaign, or page-view history is Spanish. */
 export async function languageFromCallrail({ text, phone } = {}) {
   const fromText = languageFromLandingUrl(text) || languageFromCallrailTracker(text);
   if (fromText) return fromText;
 
-  if (!callrailConfigured()) return null;
-
   const callId = callrailCallIdFromText(text);
+  if (!callrailConfigured()) return languageFromIntakeManager(callId);
+
   const row = callId
     ? await fetchCallrailCall(callId)
     : phone
       ? await fetchCallrailCallForPhone(phone)
       : null;
-  return languageFromCallrailRow(row);
+  return languageFromCallRecord(callId, row);
 }

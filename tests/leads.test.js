@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { flattenSlackMessage, readLead, historyMessageToEvent, describeSlackHistoryError, isOutboundReferral, pickTrackSlug, describeTrackKind, kindSlug, normalizeCaseType, buildClassificationUserPrompt, looksLikeIntakeForm, formFillIsALead, isContractPath, isContractSent, phoneFromContractNotice, isMoreDetailsReply, isIntakeEngineLanding, pickWaitingParent, CONTRACT_PATH_WAIT_SECONDS, readQuoRouterCall, isHumanHandledCall, humanCallIsNoConnect, humanCallIsOutboundFromFirm, clientPhoneFromCallPost, firstNameFromCallPost, languageFromCallPost, languageFromLandingUrl, languageFromCallrailTracker, callrailCallIdFromText, callIdFromCallPost, languageFromSpokenText, quoRouterCallIsOngoing, calledLineFromCallPost, isLeadIntakeCallLine, isQuoRouterLeadCall } from "../shared/leads.js";
+import { flattenSlackMessage, readLead, historyMessageToEvent, describeSlackHistoryError, isOutboundReferral, pickTrackSlug, describeTrackKind, kindSlug, normalizeCaseType, buildClassificationUserPrompt, looksLikeIntakeForm, formFillIsALead, isContractPath, isContractSent, phoneFromContractNotice, isMoreDetailsReply, isIntakeEngineLanding, pickWaitingParent, CONTRACT_PATH_WAIT_SECONDS, readQuoRouterCall, isHumanHandledCall, humanCallIsNoConnect, humanCallIsOutboundFromFirm, clientPhoneFromCallPost, firstNameFromCallPost, languageFromCallPost, languageFromLandingUrl, languageFromCallrailTracker, languageFromCallrailPayload, languageFromPageViews, callrailCallIdFromText, callIdFromCallPost, languageFromSpokenText, quoRouterCallIsOngoing, calledLineFromCallPost, isLeadIntakeCallLine, isQuoRouterLeadCall } from "../shared/leads.js";
 
 // The four shapes actually posting into the lead channel. Kept verbatim rather
 // than tidied, because the point of these tests is that real posts parse — a
@@ -393,6 +393,27 @@ test("CallRail landing page lang=es is Spanish, and Call Ads ES trackers are too
   assert.equal(languageFromCallrailTracker("Google Call Ads - ATX ES"), "es");
   assert.equal(languageFromCallrailTracker("Website Pool"), null);
   assert.equal(callrailCallIdFromText("https://app.callrail.com/calls?event_id=CALabc123def"), "CALABC123DEF");
+  assert.equal(languageFromLandingUrl("https://www.ramosjames.com/es/"), "es");
+  assert.equal(languageFromLandingUrl("https://www.ramosjames.com/general?lang%3Des"), "es");
+  assert.equal(
+    languageFromCallrailPayload({
+      tracking_number_name: "Website Pool",
+      milestones: { first_touch: { landing: "https://www.ramosjames.com/es/lesiones-personales/" } },
+    }),
+    "es",
+  );
+  assert.equal(
+    languageFromCallrailPayload({ campaign: "ATX Spanish", tracking_number_name: "Website Pool" }),
+    "es",
+  );
+  assert.equal(languageFromPageViews([
+    { page_url: "https://www.ramosjames.com/contact" },
+    { page_url: "https://www.ramosjames.com/es/?msclkid=abc" },
+  ]), "es");
+  assert.equal(languageFromPageViews([
+    { page_url: "https://www.ramosjames.com/es/" },
+    { page_url: "https://www.ramosjames.com/general?lang=en" },
+  ]), "en");
 });
 
 test("an outbound Sona post uses the To number when From is the firm line", () => {

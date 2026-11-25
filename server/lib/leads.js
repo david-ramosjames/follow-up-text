@@ -3,6 +3,7 @@ import OpenAI from "openai";
 import { flattenSlackMessage, isOutboundReferral, kindSlug, normalizeCaseType, pickTrackSlug, readLead, buildClassificationUserPrompt, formFillIsALead } from "../../shared/leads.js";
 import { missingMergeTokens } from "../../shared/messaging.js";
 import { rows } from "../db.js";
+import { languageFromCallrail } from "./callrail.js";
 import { currentFirm } from "./firms.js";
 
 export { flattenSlackMessage, readLead, isOutboundReferral, kindSlug, pickTrackSlug, normalizeCaseType, formFillIsALead };
@@ -322,6 +323,12 @@ export async function classifyLead(text) {
 
 /* ------------------------------------------------------------ the whole job */
 
+async function textLanguage(text, phone, fallback) {
+  const fromCallrail = await languageFromCallrail({ text, phone });
+  if (fromCallrail === "es" || fromCallrail === "en") return fromCallrail;
+  return fallback === "es" || fallback === "en" ? fallback : null;
+}
+
 function caseFields(classified) {
   const caseType = normalizeCaseType(classified?.case_type);
   const caseDetail = String(classified?.case_detail ?? "").replace(/\s+/g, " ").trim() || null;
@@ -362,6 +369,8 @@ export async function assessLeadPost(event) {
       : "The form is marked referral.";
   }
 
+  const language = await textLanguage(text, read.phone, classified.ok ? classified.language : null);
+
   if (!classified.ok) {
     return {
       act: true,
@@ -369,7 +378,7 @@ export async function assessLeadPost(event) {
       email: read.email,
       sequenceSlug,
       classifierSlug: referral ? "referral" : null,
-      language: null,
+      language,
       firstName: null,
       confidence: "low",
       reasoning,
@@ -392,7 +401,7 @@ export async function assessLeadPost(event) {
       email: read.email,
       firstName: classified.first_name,
       lastName: classified.last_name,
-      language: classified.language,
+      language,
       ...caseFields(classified),
       leadSource: classified.lead_source,
       sequenceSlug: classified.sequence_slug,
@@ -412,7 +421,7 @@ export async function assessLeadPost(event) {
     email: read.email,
     sequenceSlug,
     classifierSlug: kindSlug({ preferred: classified.sequence_slug, referral }),
-    language: classified.language,
+    language,
     firstName: classified.first_name,
     lastName: classified.last_name,
     ...caseFields(classified),
