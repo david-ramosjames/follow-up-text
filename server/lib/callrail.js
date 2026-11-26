@@ -89,7 +89,7 @@ async function languageFromIntakeManager(callId) {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       body: JSON.stringify({ call_id: callId }),
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(12000),
     });
     if (!response.ok) return null;
     const data = await response.json();

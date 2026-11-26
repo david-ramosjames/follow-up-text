@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
-import { flattenSlackMessage, isOutboundReferral, kindSlug, normalizeCaseType, pickTrackSlug, readLead, buildClassificationUserPrompt, formFillIsALead } from "../../shared/leads.js";
+import { callrailCallIdFromText, flattenSlackMessage, isOutboundReferral, kindSlug, normalizeCaseType, pickTrackSlug, readLead, buildClassificationUserPrompt, formFillIsALead } from "../../shared/leads.js";
 import { missingMergeTokens } from "../../shared/messaging.js";
 import { rows } from "../db.js";
 import { languageFromCallrail } from "./callrail.js";
@@ -323,9 +323,19 @@ export async function classifyLead(text) {
 
 /* ------------------------------------------------------------ the whole job */
 
+const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 async function textLanguage(text, phone, fallback) {
   const fromCallrail = await languageFromCallrail({ text, phone });
   if (fromCallrail === "es" || fromCallrail === "en") return fromCallrail;
+  // A Website Pool card is English even when the landing page is Spanish.
+  // CallRail often attaches that page a few seconds after the Slack post.
+  if (callrailCallIdFromText(text)) {
+    await pause(3000);
+    const again = await languageFromCallrail({ text, phone });
+    if (again === "es" || again === "en") return again;
+    return null;
+  }
   return fallback === "es" || fallback === "en" ? fallback : null;
 }
 

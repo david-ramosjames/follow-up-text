@@ -20,6 +20,7 @@ import {
   languageFromCallPost,
   languageFromLandingUrl,
   callIdFromCallPost,
+  callrailCallIdFromText,
   languageFromSpokenText,
   quoRouterCallIsOngoing,
   calledLineFromCallPost,
@@ -993,6 +994,7 @@ export async function handleLeadPost(event) {
       email: assessment.email ?? null,
       classifier_failed: assessment.classifierFailed ?? null,
       quo_router_callback: callbackNote,
+      callrail_call_id: callrailCallIdFromText(assessment.text),
     },
   });
 
@@ -1198,7 +1200,7 @@ async function handleQuoRouterCallPost(event, { text, call, mode, log, settings 
     source: "lead",
     callStart: true,
     lead_source: leadSource,
-    lead_detail: { call_kind: call.kind },
+    lead_detail: { call_kind: call.kind, callrail_call_id: callrailCallIdFromText(text) },
   });
 
   if (!result?.ok) {

@@ -4,9 +4,10 @@ import {
   pickStepTemplate,
   renderBody,
 } from "../../shared/messaging.js";
-import { rpc, rpcSet } from "../db.js";
+import { one, rpc, rpcSet } from "../db.js";
 import { resolveSendingNumber, sendText } from "./quo.js";
-import { retireStartCard } from "./followups.js";
+import { languageFromCallrail } from "./callrail.js";
+import { retireStartCard, switchEnrollmentLanguage } from "./followups.js";
 import { mirrorActiveSequences, mirrorTextSequence } from "./leadMirror.js";
 import { assigneeMentionSuffix } from "../../shared/slackMentions.js";
 import { displayPhone, postToThread } from "./slack.js";
@@ -47,7 +48,30 @@ export function buildBody(row, settings) {
     : rendered;
 }
 
+/** The Slack card is English. Read the landing page once CallRail has attached it, before the next text. */
+async function languageBeforeSend(row) {
+  const enrollment = await one(
+    `select lead_detail from followup_enrollments where id = $1`,
+    [row.enrollment_id],
+  );
+  const callId = enrollment?.lead_detail?.callrail_call_id;
+  if (!callId) return row.language;
+  if (!row.is_first_step) {
+    const switched = await one(
+      `select 1 as hit from followup_events where enrollment_id = $1 and kind = 'language_switched' limit 1`,
+      [row.enrollment_id],
+    );
+    if (switched || row.language === "es") return row.language;
+  }
+  const found = await languageFromCallrail({ text: `event_id=${callId}` });
+  if (found !== "es" && found !== "en") return row.language;
+  if (found === row.language) return row.language;
+  await switchEnrollmentLanguage(row.enrollment_id, { language: found, actor: "callrail-landing" });
+  return found;
+}
+
 async function sendOne(row, settings) {
+  row.language = await languageBeforeSend(row);
   const body = buildBody(row, settings);
   const segments = countSegments(body).segments;
 
