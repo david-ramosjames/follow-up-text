@@ -4,7 +4,7 @@ import {
   pickStepTemplate,
   renderBody,
 } from "../../shared/messaging.js";
-import { one, rpc, rpcSet } from "../db.js";
+import { one, query, rpc, rpcSet } from "../db.js";
 import { resolveSendingNumber, sendText } from "./quo.js";
 import { languageFromCallrail } from "./callrail.js";
 import { retireStartCard, switchEnrollmentLanguage } from "./followups.js";
@@ -48,30 +48,78 @@ export function buildBody(row, settings) {
     : rendered;
 }
 
+// A one-second Website Pool call often reaches Slack before CallRail has the landing page.
+// Hold the first text and look again, instead of storing a blank language as English.
+const LANGUAGE_HOLD_MINUTES = 2;
+const LANGUAGE_HOLD_LIMIT = 6;
+
 /** The Slack card is English. Read the landing page once CallRail has attached it, before the next text. */
 async function languageBeforeSend(row) {
   const enrollment = await one(
     `select lead_detail from followup_enrollments where id = $1`,
     [row.enrollment_id],
   );
-  const callId = enrollment?.lead_detail?.callrail_call_id;
-  if (!callId) return row.language;
-  if (!row.is_first_step) {
-    const switched = await one(
-      `select 1 as hit from followup_events where enrollment_id = $1 and kind = 'language_switched' limit 1`,
-      [row.enrollment_id],
-    );
-    if (switched || row.language === "es") return row.language;
+  const detail = enrollment?.lead_detail ?? {};
+  const staffSwitched = await one(
+    `select 1 as hit from followup_events
+      where enrollment_id = $1 and kind = 'language_switched'
+        and coalesce(actor, '') <> 'callrail-landing'
+      limit 1`,
+    [row.enrollment_id],
+  );
+  if (staffSwitched) return { language: row.language, hold: false };
+  if (!row.is_first_step && row.language === "es") return { language: row.language, hold: false };
+
+  const callId = detail.callrail_call_id;
+  // Quo missed-call alerts have the phone number and no CallRail id. The landing page is on that call.
+  if (!callId && row.to_number && !detail.callrail_phone_checked) {
+    const fromPhone = await languageFromCallrail({ phone: row.to_number });
+    if (fromPhone === "es" || fromPhone === "en") {
+      if (fromPhone === row.language) {
+        await query(
+          `update followup_enrollments
+              set lead_detail = coalesce(lead_detail, '{}'::jsonb) || '{"callrail_phone_checked": true}'::jsonb
+            where id = $1`,
+          [row.enrollment_id],
+        );
+      } else {
+        await switchEnrollmentLanguage(row.enrollment_id, { language: fromPhone, actor: "callrail-landing" });
+      }
+      return { language: fromPhone, hold: false };
+    }
   }
+  if (!callId) return { language: row.language, hold: false };
   const found = await languageFromCallrail({ text: `event_id=${callId}` });
-  if (found !== "es" && found !== "en") return row.language;
-  if (found === row.language) return row.language;
-  await switchEnrollmentLanguage(row.enrollment_id, { language: found, actor: "callrail-landing" });
-  return found;
+  if (found === "es" || found === "en") {
+    if (found !== row.language) {
+      await switchEnrollmentLanguage(row.enrollment_id, { language: found, actor: "callrail-landing" });
+    }
+    return { language: found, hold: false };
+  }
+  const holds = Number(detail.language_holds ?? 0);
+  if (!row.is_first_step || holds >= LANGUAGE_HOLD_LIMIT) return { language: row.language, hold: false };
+  return { language: row.language, hold: true, holds };
+}
+
+async function holdFirstText(row, holds) {
+  await query(
+    `update followup_enrollments
+        set locked_until = null,
+            next_run_at = now() + make_interval(mins => $2::int),
+            lead_detail = coalesce(lead_detail, '{}'::jsonb) || jsonb_build_object('language_holds', $3::int)
+      where id = $1 and status = 'active'`,
+    [row.enrollment_id, LANGUAGE_HOLD_MINUTES, holds + 1],
+  );
+  console.log(`holding first text for ${row.enrollment_id}: landing page is not on the call yet`);
 }
 
 async function sendOne(row, settings) {
-  row.language = await languageBeforeSend(row);
+  const decision = await languageBeforeSend(row);
+  if (decision.hold) {
+    await holdFirstText(row, decision.holds);
+    return { sent: false, held: true, segments: 0 };
+  }
+  row.language = decision.language;
   const body = buildBody(row, settings);
   const segments = countSegments(body).segments;
 
@@ -159,6 +207,7 @@ export async function runDispatch() {
           const firmSettings = await loadSettings({ fresh: true });
           return sendOne(row, firmSettings);
         });
+        if (result.held) continue;
         segments += result.segments ?? 0;
         if (result.sent) sent += 1;
         else { failed += 1; failures.push({ enrollment: row.enrollment_id, error: result.error }); }

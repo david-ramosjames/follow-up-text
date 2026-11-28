@@ -80,15 +80,16 @@ export async function fetchCallrailCallForPhone(phone) {
   return calls.find((row) => languageFromCallrailRow(row)) || calls[0] || null;
 }
 
-async function languageFromIntakeManager(callId) {
+async function languageFromIntakeManager({ callId, phone } = {}) {
   const base = String(process.env.INTAKE_MANAGER_URL || "https://rjl-intake-manger.vercel.app").replace(/\/$/, "");
   const token = process.env.INTAKE_ENROLL_TOKEN || "";
-  if (!callId || !token || !base) return null;
+  if ((!callId && !phone) || !token || !base) return null;
+  const payload = callId ? { call_id: callId } : { phone };
   try {
     const response = await fetch(`${base}/api/callrail/language`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ call_id: callId }),
+      body: JSON.stringify(payload),
       signal: AbortSignal.timeout(12000),
     });
     if (!response.ok) return null;
@@ -113,7 +114,9 @@ export async function languageFromCallrail({ text, phone } = {}) {
   if (fromText) return fromText;
 
   const callId = callrailCallIdFromText(text);
-  if (!callrailConfigured()) return languageFromIntakeManager(callId);
+  // Production has no CallRail key. Docket looks the call up, including by phone
+  // when the Quo missed-call alert has no CallRail id.
+  if (!callrailConfigured()) return languageFromIntakeManager({ callId, phone });
 
   const row = callId
     ? await fetchCallrailCall(callId)
